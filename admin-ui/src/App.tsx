@@ -9,6 +9,7 @@ import { Campaigns } from './pages/Campaigns';
 import { Targets } from './pages/Targets';
 import { Content } from './pages/Content';
 import { Analytics } from './pages/Analytics';
+import { Setup } from './pages/Setup';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn, isLoading } = useAuth();
@@ -76,6 +77,15 @@ export default function App() {
         element={
           <ProtectedRoute>
             <Analytics />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/setup"
+        element={
+          <ProtectedRoute>
+            <Setup />
           </ProtectedRoute>
         }
       />

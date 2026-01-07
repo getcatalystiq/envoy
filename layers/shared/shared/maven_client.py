@@ -83,6 +83,49 @@ class MavenClient:
             session_id,
         )
 
+    async def provision_skill(
+        self,
+        slug: str,
+        name: str,
+        description: str,
+        prompt: str,
+    ) -> dict[str, Any]:
+        """Create or update a skill in Maven."""
+        service_jwt = self._get_service_jwt()
+        maven_service_url = os.environ.get("MAVEN_SERVICE_API_URL", "")
+
+        payload = {
+            "name": name,
+            "slug": slug,
+            "description": description,
+            "prompt": prompt,
+            "enabled": True,
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {service_jwt}",
+            "X-Service-Id": "envoy-service",
+        }
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            # Try to create, if exists try to update
+            response = await client.post(
+                f"{maven_service_url}/api/service/{self.tenant_id}/skills",
+                json=payload,
+                headers=headers,
+            )
+
+            if response.status_code == 409:  # Already exists
+                response = await client.put(
+                    f"{maven_service_url}/api/service/{self.tenant_id}/skills/{slug}",
+                    json=payload,
+                    headers=headers,
+                )
+
+            response.raise_for_status()
+            return response.json()
+
     async def _invoke(self, prompt: str, session_id: Optional[str] = None) -> str:
         """Invoke Maven with optimized SSE handling."""
         service_jwt = self._get_service_jwt()

@@ -74,6 +74,11 @@ Parameters:
     Description: ARN of the secret containing Maven service JWT
     Default: "arn:aws:secretsmanager:us-east-1:000000000000:secret:placeholder"
 
+  MavenServiceAPIURL:
+    Type: String
+    Description: Maven Service API URL for skill management
+    Default: "https://maven.app/api"
+
 Resources:
   #############################################################################
   # Security Groups
@@ -92,8 +97,8 @@ Resources:
     Properties:
       GroupId: !Ref AuroraSecurityGroup
       IpProtocol: tcp
-      FromPort: 3306
-      ToPort: 3306
+      FromPort: 5432
+      ToPort: 5432
       SourceSecurityGroupId: !Ref MavenLambdaSecurityGroup
 
   #############################################################################
@@ -116,6 +121,7 @@ Resources:
       DBClusterIdentifier: !Sub envoy-${Environment}-cluster
       Engine: aurora-postgresql
       EngineVersion: '16.4'
+      Port: 5432
       DatabaseName: envoy
       MasterUsername: !Sub '{{resolve:secretsmanager:${AuroraSecret}:SecretString:username}}'
       MasterUserPassword: !Sub '{{resolve:secretsmanager:${AuroraSecret}:SecretString:password}}'
@@ -196,6 +202,7 @@ Resources:
           JWT_ISSUER: !Ref JWTIssuer
           MAVEN_AGENT_URL: !Ref MavenAgentURL
           MAVEN_SERVICE_JWT_SECRET_ARN: !Ref MavenServiceJWTSecretARN
+          MAVEN_SERVICE_API_URL: !Ref MavenServiceAPIURL
       Events:
         Api:
           Type: HttpApi

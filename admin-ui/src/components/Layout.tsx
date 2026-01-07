@@ -10,6 +10,7 @@ import {
   LogOut,
   Menu,
   X,
+  Settings,
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -20,6 +21,7 @@ const navigation = [
   { name: 'Targets', href: '/targets', icon: Users },
   { name: 'Content', href: '/content', icon: FileText },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+  { name: 'Setup', href: '/setup', icon: Settings },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
