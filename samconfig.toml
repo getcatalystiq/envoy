@@ -1,0 +1,50 @@
+version = 0.1
+
+[default.global.parameters]
+stack_name = "envoy-dev"
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.validate.parameters]
+lint = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+resolve_s3 = true
+s3_prefix = "envoy"
+region = "us-east-1"
+parameter_overrides = [
+    "Environment=dev",
+]
+
+[default.sync.parameters]
+watch = true
+
+[staging.global.parameters]
+stack_name = "envoy-staging"
+
+[staging.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = false
+resolve_s3 = true
+s3_prefix = "envoy-staging"
+region = "us-east-1"
+parameter_overrides = [
+    "Environment=staging",
+]
+
+[prod.global.parameters]
+stack_name = "envoy-prod"
+
+[prod.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+resolve_s3 = true
+s3_prefix = "envoy-prod"
+region = "us-east-1"
+parameter_overrides = [
+    "Environment=prod",
+]

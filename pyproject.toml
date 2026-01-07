@@ -1,0 +1,51 @@
+[project]
+name = "envoy"
+version = "0.1.0"
+description = "AI-powered sales and marketing agent"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "mangum>=0.19.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "asyncpg>=0.30.0",
+    "pyjwt[crypto]>=2.10.0",
+    "httpx>=0.28.0",
+    "slowapi>=0.1.9",
+    "tenacity>=9.0.0",
+    "boto3>=1.35.0",
+    "cryptography>=44.0.0",
+    "aws-lambda-powertools>=3.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.8.0",
+    "mypy>=1.14.0",
+    "boto3-stubs[secretsmanager,ses,sns]>=1.35.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true

@@ -1,0 +1,603 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Envoy - AI-powered sales and marketing agent
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 512
+    Architectures:
+      - arm64
+    Environment:
+      Variables:
+        LOG_LEVEL: INFO
+        POWERTOOLS_SERVICE_NAME: envoy
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+  AuroraMinCapacity:
+    Type: Number
+    Default: 0.5
+    Description: Minimum ACUs for Aurora Serverless v2
+
+  AuroraMaxCapacity:
+    Type: Number
+    Default: 4
+    Description: Maximum ACUs for Aurora Serverless v2
+
+  # Import Maven VPC resources via SSM parameters
+  MavenVpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /maven/prod/vpc-id
+
+  MavenPrivateSubnet1:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /maven/prod/private-subnet-1
+
+  MavenPrivateSubnet2:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /maven/prod/private-subnet-2
+
+  MavenDBSubnetGroup:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /maven/prod/db-subnet-group
+
+  MavenLambdaSecurityGroup:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /maven/prod/lambda-sg
+
+  JWTPublicKey:
+    Type: String
+    Description: Public key for JWT verification
+    Default: "placeholder"
+
+  JWTIssuer:
+    Type: String
+    Description: JWT issuer URL
+    Default: "https://envoy.app"
+
+  MavenAgentURL:
+    Type: String
+    Description: Maven agent API URL
+    Default: "https://maven.app/api/agent"
+
+  MavenServiceJWTSecretARN:
+    Type: String
+    Description: ARN of the secret containing Maven service JWT
+    Default: "arn:aws:secretsmanager:us-east-1:000000000000:secret:placeholder"
+
+Resources:
+  #############################################################################
+  # Security Groups
+  #############################################################################
+  AuroraSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Envoy Aurora cluster
+      VpcId: !Ref MavenVpcId
+      Tags:
+        - Key: Name
+          Value: !Sub envoy-${Environment}-aurora-sg
+
+  AuroraSecurityGroupLambdaIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref AuroraSecurityGroup
+      IpProtocol: tcp
+      FromPort: 3306
+      ToPort: 3306
+      SourceSecurityGroupId: !Ref MavenLambdaSecurityGroup
+
+  #############################################################################
+  # Aurora Serverless v2
+  #############################################################################
+  AuroraSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub envoy-${Environment}-aurora-credentials
+      Description: Aurora credentials for Envoy
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "envoy_admin"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\'
+
+  AuroraCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      DBClusterIdentifier: !Sub envoy-${Environment}-cluster
+      Engine: aurora-postgresql
+      EngineVersion: '16.4'
+      DatabaseName: envoy
+      MasterUsername: !Sub '{{resolve:secretsmanager:${AuroraSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${AuroraSecret}:SecretString:password}}'
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !Ref AuroraMinCapacity
+        MaxCapacity: !Ref AuroraMaxCapacity
+      DBSubnetGroupName: !Ref MavenDBSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref AuroraSecurityGroup
+      EnableHttpEndpoint: true
+      StorageEncrypted: true
+      Tags:
+        - Key: Name
+          Value: !Sub envoy-${Environment}-cluster
+
+  AuroraInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub envoy-${Environment}-instance-1
+      DBClusterIdentifier: !Ref AuroraCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Sub envoy-${Environment}-instance-1
+
+  AuroraSecretAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref AuroraSecret
+      TargetId: !Ref AuroraCluster
+      TargetType: AWS::RDS::DBCluster
+
+  #############################################################################
+  # Shared Layer
+  #############################################################################
+  SharedLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub envoy-shared-${Environment}
+      Description: Shared utilities for Envoy functions
+      ContentUri: layers/shared/
+      CompatibleRuntimes:
+        - python3.12
+      CompatibleArchitectures:
+        - arm64
+      RetentionPolicy: Retain
+    Metadata:
+      BuildMethod: python3.12
+      BuildArchitecture: arm64
+
+  # API Function
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub envoy-api-${Environment}
+      CodeUri: functions/api/
+      Handler: handler.lambda_handler
+      Timeout: 30
+      MemorySize: 1024
+      Layers:
+        - !Ref SharedLayer
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref MavenLambdaSecurityGroup
+        SubnetIds:
+          - !Ref MavenPrivateSubnet1
+          - !Ref MavenPrivateSubnet2
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          AURORA_SECRET_ARN: !Ref AuroraSecret
+          AURORA_CLUSTER_ARN: !GetAtt AuroraCluster.DBClusterArn
+          AURORA_DATABASE: envoy
+          AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
+          JWT_PUBLIC_KEY: !Ref JWTPublicKey
+          JWT_ISSUER: !Ref JWTIssuer
+          MAVEN_AGENT_URL: !Ref MavenAgentURL
+          MAVEN_SERVICE_JWT_SECRET_ARN: !Ref MavenServiceJWTSecretARN
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Ref AuroraSecret
+                - !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:envoy/*
+                - !Ref MavenServiceJWTSecretARN
+            - Effect: Allow
+              Action:
+                - rds-data:ExecuteStatement
+                - rds-data:BatchExecuteStatement
+              Resource: !GetAtt AuroraCluster.DBClusterArn
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
+              Resource: '*'
+
+  # HTTP API Gateway
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Environment
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowHeaders:
+          - Authorization
+          - Content-Type
+          - X-Request-ID
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+          - OPTIONS
+
+  # Email Scheduler Function
+  EmailSchedulerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub envoy-email-scheduler-${Environment}
+      CodeUri: functions/email_scheduler/
+      Handler: handler.lambda_handler
+      Timeout: 900
+      MemorySize: 2048
+      Layers:
+        - !Ref SharedLayer
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref MavenLambdaSecurityGroup
+        SubnetIds:
+          - !Ref MavenPrivateSubnet1
+          - !Ref MavenPrivateSubnet2
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          AURORA_SECRET_ARN: !Ref AuroraSecret
+          AURORA_CLUSTER_ARN: !GetAtt AuroraCluster.DBClusterArn
+          AURORA_DATABASE: envoy
+          AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
+          MAVEN_AGENT_URL: !Ref MavenAgentURL
+          MAVEN_SERVICE_JWT_SECRET_ARN: !Ref MavenServiceJWTSecretARN
+      Events:
+        ScheduleRule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Enabled: true
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Ref AuroraSecret
+                - !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:envoy/*
+                - !Ref MavenServiceJWTSecretARN
+            - Effect: Allow
+              Action:
+                - rds-data:ExecuteStatement
+                - rds-data:BatchExecuteStatement
+              Resource: !GetAtt AuroraCluster.DBClusterArn
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
+                - ses:SendBulkEmail
+              Resource: '*'
+
+  # Warmup Function
+  WarmupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub envoy-warmup-${Environment}
+      CodeUri: functions/warmup/
+      Handler: handler.lambda_handler
+      Timeout: 10
+      MemorySize: 256
+      Layers:
+        - !Ref SharedLayer
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref MavenLambdaSecurityGroup
+        SubnetIds:
+          - !Ref MavenPrivateSubnet1
+          - !Ref MavenPrivateSubnet2
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          AURORA_SECRET_ARN: !Ref AuroraSecret
+          AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
+          AURORA_DATABASE: envoy
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Ref AuroraSecret
+      Events:
+        WarmupSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Enabled: true
+
+  # SES Webhook Function
+  WebhookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub envoy-webhook-${Environment}
+      CodeUri: functions/webhook/
+      Handler: handler.lambda_handler
+      Timeout: 30
+      MemorySize: 512
+      Layers:
+        - !Ref SharedLayer
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref MavenLambdaSecurityGroup
+        SubnetIds:
+          - !Ref MavenPrivateSubnet1
+          - !Ref MavenPrivateSubnet2
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          AURORA_SECRET_ARN: !Ref AuroraSecret
+          AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
+          AURORA_DATABASE: envoy
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Ref AuroraSecret
+      Events:
+        SNS:
+          Type: SNS
+          Properties:
+            Topic: !Ref SESNotificationTopic
+
+  # SNS Topic for SES notifications
+  SESNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub envoy-ses-notifications-${Environment}
+
+  # OAuth Function
+  OAuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub envoy-oauth-${Environment}
+      CodeUri: functions/oauth/
+      Handler: handler.lambda_handler
+      Timeout: 30
+      MemorySize: 512
+      Layers:
+        - !Ref SharedLayer
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref MavenLambdaSecurityGroup
+        SubnetIds:
+          - !Ref MavenPrivateSubnet1
+          - !Ref MavenPrivateSubnet2
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          AURORA_SECRET_ARN: !Ref AuroraSecret
+          AURORA_CLUSTER_ARN: !GetAtt AuroraCluster.DBClusterArn
+          AURORA_DATABASE: envoy
+          AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
+      Events:
+        OAuthRoot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /oauth/{proxy+}
+            Method: ANY
+        OAuthWellKnown:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /.well-known/oauth-authorization-server
+            Method: GET
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Ref AuroraSecret
+            - Effect: Allow
+              Action:
+                - rds-data:ExecuteStatement
+                - rds-data:BatchExecuteStatement
+              Resource: !GetAtt AuroraCluster.DBClusterArn
+
+  # Database Migration Function
+  MigrationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub envoy-migration-${Environment}
+      CodeUri: functions/migration/
+      Handler: handler.lambda_handler
+      Timeout: 300
+      MemorySize: 512
+      Layers:
+        - !Ref SharedLayer
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref MavenLambdaSecurityGroup
+        SubnetIds:
+          - !Ref MavenPrivateSubnet1
+          - !Ref MavenPrivateSubnet2
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          AURORA_SECRET_ARN: !Ref AuroraSecret
+          AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
+          AURORA_DATABASE: envoy
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Ref AuroraSecret
+
+  #############################################################################
+  # Admin UI - S3 + CloudFront
+  #############################################################################
+  AdminUIBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub envoy-${Environment}-admin-ui-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Name
+          Value: !Sub envoy-${Environment}-admin-ui
+
+  AdminUIBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AdminUIBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontOAC
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${AdminUIBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${AdminUIDistribution}
+
+  AdminUIOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub envoy-${Environment}-admin-ui-oac
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  AdminUIDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub Envoy Admin UI - ${Environment}
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt AdminUIBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+            OriginAccessControlId: !Ref AdminUIOAC
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          ResponseHeadersPolicyId: 5cc3b908-e619-4b99-88e5-2cf7f45965bd
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+      Tags:
+        - Key: Name
+          Value: !Sub envoy-${Environment}-admin-ui
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+
+  ApiFunction:
+    Description: API Lambda Function ARN
+    Value: !GetAtt ApiFunction.Arn
+
+  SESNotificationTopicArn:
+    Description: SNS Topic ARN for SES notifications
+    Value: !Ref SESNotificationTopic
+
+  AdminUIBucketName:
+    Description: S3 bucket for Admin UI static files
+    Value: !Ref AdminUIBucket
+    Export:
+      Name: !Sub envoy-${Environment}-admin-ui-bucket
+
+  AdminUIDistributionId:
+    Description: CloudFront distribution ID for Admin UI
+    Value: !Ref AdminUIDistribution
+    Export:
+      Name: !Sub envoy-${Environment}-admin-ui-distribution-id
+
+  AdminUIUrl:
+    Description: Admin UI URL (CloudFront)
+    Value: !Sub "https://${AdminUIDistribution.DomainName}"
+    Export:
+      Name: !Sub envoy-${Environment}-admin-ui-url
+
+  AuroraClusterEndpoint:
+    Description: Aurora cluster endpoint for database connections
+    Value: !GetAtt AuroraCluster.Endpoint.Address
+    Export:
+      Name: !Sub envoy-${Environment}-aurora-endpoint
+
+  AuroraClusterArn:
+    Description: Aurora cluster ARN
+    Value: !GetAtt AuroraCluster.DBClusterArn
+    Export:
+      Name: !Sub envoy-${Environment}-aurora-arn
+
+  AuroraSecretArn:
+    Description: Aurora credentials secret ARN
+    Value: !Ref AuroraSecret
+    Export:
+      Name: !Sub envoy-${Environment}-aurora-secret
+
+  MigrationFunctionArn:
+    Description: Migration Lambda Function ARN
+    Value: !GetAtt MigrationFunction.Arn
