@@ -10,6 +10,7 @@ import { Targets } from './pages/Targets';
 import { Content } from './pages/Content';
 import { Analytics } from './pages/Analytics';
 import { Setup } from './pages/Setup';
+import { Outbox } from './pages/Outbox';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn, isLoading } = useAuth();
@@ -86,6 +87,15 @@ export default function App() {
         element={
           <ProtectedRoute>
             <Setup />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/outbox"
+        element={
+          <ProtectedRoute>
+            <Outbox />
           </ProtectedRoute>
         }
       />

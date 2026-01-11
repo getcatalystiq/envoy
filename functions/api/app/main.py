@@ -7,7 +7,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.routers import auth, targets, content, campaigns, send, analytics, setup, mcp
+from app.routers import auth, targets, content, campaigns, send, analytics, setup, mcp, webhook_targets, outbox
 
 # Rate limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -25,10 +25,23 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS middleware
+# CORS middleware - restrict to known trusted domains
+ALLOWED_ORIGINS = [
+    "https://chatgpt.com",
+    "https://chat.openai.com",
+    "https://platform.openai.com",
+    "https://claude.ai",
+    "https://d2sves47510usz.cloudfront.net",  # Envoy Admin UI (dev)
+    "https://d38beagy3imun6.cloudfront.net",  # Envoy Admin UI (prod)
+    "http://localhost:3000",  # Local dev
+    "http://localhost:5173",  # Vite dev server
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -65,3 +78,5 @@ app.include_router(send.router, prefix="/api/v1/send", tags=["send"])
 app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["analytics"])
 app.include_router(setup.router, prefix="/api/v1/setup", tags=["setup"])
 app.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
+app.include_router(webhook_targets.router, tags=["webhook"])
+app.include_router(outbox.router, prefix="/api/v1/outbox", tags=["outbox"])

@@ -106,3 +106,46 @@ export interface Analytics {
   click_rate: number;
   reply_rate: number;
 }
+
+export interface OutboxItem {
+  id: string;
+  target_id: string;
+  channel: string;
+  subject: string | null;
+  body: string;
+  skill_name: string;
+  skill_reasoning: string | null;
+  confidence_score: number | null;
+  status: string;
+  priority: number;
+  scheduled_for: string | null;
+  snooze_until: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  rejection_reason: string | null;
+  edit_history: Array<{
+    timestamp: string;
+    user_id: string;
+    field: string;
+    old_value: string;
+    new_value: string;
+  }>;
+  send_result: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  // Joined from target
+  email?: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  company?: string | null;
+}
+
+export interface OutboxStats {
+  pending: number;
+  approved: number;
+  rejected: number;
+  snoozed: number;
+  sent: number;
+  failed: number;
+}

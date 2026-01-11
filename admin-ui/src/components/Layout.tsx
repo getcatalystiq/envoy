@@ -11,12 +11,14 @@ import {
   Menu,
   X,
   Settings,
+  Inbox,
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Outbox', href: '/outbox', icon: Inbox },
   { name: 'Campaigns', href: '/campaigns', icon: Mail },
   { name: 'Targets', href: '/targets', icon: Users },
   { name: 'Content', href: '/content', icon: FileText },

@@ -9,11 +9,13 @@ from app.dependencies import CurrentOrg, DBConnection, MavenDep
 from app.schemas import (
     ContentCreate,
     ContentGenerate,
+    ContentGenerateToOutbox,
     ContentResponse,
     ContentUpdate,
     ListResponse,
+    OutboxResponse,
 )
-from shared.queries import ContentQueries, TargetQueries
+from shared.queries import ContentQueries, OutboxQueries, TargetQueries
 
 router = APIRouter()
 
@@ -153,3 +155,44 @@ async def generate_content(
     )
 
     return ContentResponse(**content)
+
+
+@router.post("/generate-to-outbox", response_model=OutboxResponse, status_code=201)
+async def generate_content_to_outbox(
+    request: Request,
+    data: ContentGenerateToOutbox,
+    org_id: CurrentOrg,
+    db: DBConnection,
+    maven: MavenDep,
+) -> OutboxResponse:
+    """Generate content using AI and send to outbox for human review."""
+    # Get target
+    target = await TargetQueries.get_by_id(db, data.target_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Target not found")
+
+    # Generate content via Maven
+    result = await maven.generate_content(
+        target=target,
+        content_type=data.content_type,
+    )
+
+    # Extract confidence score from Maven result if available
+    confidence_score = result.get("confidence_score")
+    skill_reasoning = result.get("reasoning") or result.get("transcript")
+
+    # Create outbox item for human review
+    outbox_item = await OutboxQueries.create(
+        db,
+        org_id=org_id,
+        target_id=data.target_id,
+        channel=data.channel,
+        subject=result.get("subject"),
+        body=result.get("body", result.get("raw", "")),
+        skill_name=data.content_type,
+        skill_reasoning=skill_reasoning,
+        confidence_score=confidence_score,
+        priority=data.priority,
+    )
+
+    return OutboxResponse(**outbox_item)

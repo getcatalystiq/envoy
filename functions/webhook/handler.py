@@ -57,19 +57,35 @@ async def update_send_status(ses_message_id: str, status: str, **extra_fields: A
     """Update email send status by SES message ID."""
     pool = await get_pool()
 
-    set_clauses = [f"status = '{status}'"]
+    # Build parameterized query to prevent SQL injection
+    # Start with required status field
+    set_parts = ["status = $2"]
+    params: list[Any] = [ses_message_id, status]
+    param_idx = 3
+
+    # Whitelist of allowed extra fields to prevent injection via field names
+    allowed_fields = {
+        "delivered_at",
+        "opened_at",
+        "clicked_at",
+        "bounced_at",
+        "bounce_type",
+    }
+
     for field, value in extra_fields.items():
-        if value:
-            set_clauses.append(f"{field} = '{value}'")
+        if value and field in allowed_fields:
+            set_parts.append(f"{field} = ${param_idx}")
+            params.append(value)
+            param_idx += 1
 
     async with pool.acquire() as conn:
         await conn.execute(
             f"""
             UPDATE email_sends
-            SET {", ".join(set_clauses)}
+            SET {", ".join(set_parts)}
             WHERE ses_message_id = $1
             """,
-            ses_message_id,
+            *params,
         )
 
 

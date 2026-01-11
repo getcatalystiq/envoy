@@ -65,7 +65,8 @@ async def get_connection(
 
     async with pool.acquire() as conn:
         if org_id:
-            await conn.execute(f"SET app.current_org_id = '{org_id}'")
+            # Use parameterized query to prevent SQL injection
+            await conn.execute("SELECT set_config('app.current_org_id', $1, true)", org_id)
         try:
             yield conn
         finally:

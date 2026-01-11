@@ -31,11 +31,105 @@ from .users import authenticate_user, signup, get_user
 
 logger = logging.getLogger(__name__)
 
+# Allowed CORS origins - restrict to known trusted domains
+ALLOWED_CORS_ORIGINS = {
+    "https://chatgpt.com",
+    "https://chat.openai.com",
+    "https://platform.openai.com",
+    "https://claude.ai",
+    "https://d2sves47510usz.cloudfront.net",  # Envoy Admin UI (dev)
+    "https://d38beagy3imun6.cloudfront.net",  # Envoy Admin UI (prod)
+}
+
+
+def _get_cors_headers(origin: str | None = None) -> dict:
+    """Get CORS headers with validated origin."""
+    # Default to first allowed origin if none provided
+    allowed_origin = None
+    if origin:
+        # Check if origin is in allowed list
+        if origin in ALLOWED_CORS_ORIGINS:
+            allowed_origin = origin
+        # Also allow localhost for development
+        elif origin.startswith("http://localhost:") or origin.startswith("http://127.0.0.1:"):
+            allowed_origin = origin
+
+    return {
+        "Access-Control-Allow-Origin": allowed_origin or "https://claude.ai",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Access-Control-Allow-Credentials": "true",
+        "Vary": "Origin",
+    }
+
+
+# Keep for backward compatibility but prefer _get_cors_headers
 CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": "https://claude.ai",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
 }
+
+# CSRF token expiration (5 minutes)
+CSRF_TOKEN_EXPIRY_SECONDS = 300
+
+# In-memory CSRF token store (for serverless, we use signed tokens instead)
+# We sign CSRF tokens with a timestamp and validate on submission
+
+
+def _generate_csrf_token() -> str:
+    """Generate a signed CSRF token with timestamp."""
+    import hashlib
+    import hmac
+
+    timestamp = str(int(datetime.now(timezone.utc).timestamp()))
+    random_part = secrets.token_urlsafe(16)
+    data = f"{timestamp}:{random_part}"
+
+    # Use a secret from config or generate one (in production, use Secrets Manager)
+    csrf_secret = config.jwt_secret_key  # Reuse JWT secret for simplicity
+    signature = hmac.new(
+        csrf_secret.encode(), data.encode(), hashlib.sha256
+    ).hexdigest()[:16]
+
+    return f"{data}:{signature}"
+
+
+def _verify_csrf_token(token: str) -> bool:
+    """Verify a CSRF token's signature and expiration."""
+    import hashlib
+    import hmac
+
+    if not token:
+        return False
+
+    parts = token.split(":")
+    if len(parts) != 3:
+        return False
+
+    timestamp_str, random_part, signature = parts
+
+    # Verify signature
+    csrf_secret = config.jwt_secret_key
+    data = f"{timestamp_str}:{random_part}"
+    expected_signature = hmac.new(
+        csrf_secret.encode(), data.encode(), hashlib.sha256
+    ).hexdigest()[:16]
+
+    if not hmac.compare_digest(signature, expected_signature):
+        return False
+
+    # Check expiration
+    try:
+        timestamp = int(timestamp_str)
+        now = int(datetime.now(timezone.utc).timestamp())
+        if now - timestamp > CSRF_TOKEN_EXPIRY_SECONDS:
+            return False
+    except ValueError:
+        return False
+
+    return True
+
 
 # Allowed domains for automatic client registration
 ALLOWED_AUTO_REGISTER_DOMAINS = [
@@ -76,6 +170,10 @@ def handler(event: dict, context: Any) -> dict:
     logger.info(f"OAuth request: method={http_method}, raw_path={raw_path}, path={path}")
 
     headers = event.get("headers", {})
+    # Get origin for CORS - headers are case-insensitive
+    origin = headers.get("origin") or headers.get("Origin")
+    cors_headers = _get_cors_headers(origin)
+
     query_params = event.get("queryStringParameters", {}) or {}
     body = event.get("body", "")
 
@@ -100,46 +198,56 @@ def handler(event: dict, context: Any) -> dict:
             except json.JSONDecodeError:
                 pass
 
+    def _with_cors(response: dict) -> dict:
+        """Add dynamic CORS headers to response."""
+        response_headers = response.get("headers", {})
+        # Replace static CORS_HEADERS with dynamic cors_headers
+        for key in list(response_headers.keys()):
+            if key.startswith("Access-Control-") or key == "Vary":
+                del response_headers[key]
+        response["headers"] = {**response_headers, **cors_headers}
+        return response
+
     try:
         if http_method == "OPTIONS":
-            return {"statusCode": 204, "headers": CORS_HEADERS, "body": ""}
+            return {"statusCode": 204, "headers": cors_headers, "body": ""}
 
         if path == "/.well-known/oauth-authorization-server":
-            return _handle_metadata(event)
+            return _with_cors(_handle_metadata(event))
 
         elif path == "/.well-known/oauth-protected-resource":
-            return _handle_protected_resource_metadata(event)
+            return _with_cors(_handle_protected_resource_metadata(event))
 
         elif path == "/oauth/register" and http_method == "POST":
-            return _handle_register(body_params)
+            return _with_cors(_handle_register(body_params))
 
         elif path in ["/oauth/authorize", "/authorize"] and http_method == "GET":
-            return _handle_authorize_get(query_params)
+            return _handle_authorize_get(query_params)  # No CORS for HTML page
 
         elif path in ["/oauth/authorize", "/authorize"] and http_method == "POST":
-            return _handle_authorize_post(body_params, query_params)
+            return _handle_authorize_post(body_params, query_params)  # No CORS for redirects
 
         elif path in ["/oauth/token", "/token"] and http_method == "POST":
-            return _handle_token(body_params, headers)
+            return _with_cors(_handle_token(body_params, headers))
 
         elif path == "/oauth/userinfo" and http_method == "GET":
-            return _handle_userinfo(headers)
+            return _with_cors(_handle_userinfo(headers))
 
         elif path == "/signup" and http_method == "POST":
-            return _handle_signup(body_params)
+            return _with_cors(_handle_signup(body_params))
 
         elif path == "/login" and http_method == "POST":
-            return _handle_login(body_params)
+            return _with_cors(_handle_login(body_params))
 
         else:
-            return _error_response(404, "not_found", "Endpoint not found")
+            return _with_cors(_error_response(404, "not_found", "Endpoint not found"))
 
     except ValueError as e:
         logger.warning(f"Validation error: {e}")
-        return _error_response(400, "invalid_request", str(e))
+        return _with_cors(_error_response(400, "invalid_request", str(e)))
     except Exception as e:
         logger.exception(f"OAuth error: {e}")
-        return _error_response(500, "server_error", "Internal server error")
+        return _with_cors(_error_response(500, "server_error", "Internal server error"))
 
 
 def _handle_metadata(event: dict) -> dict:
@@ -262,6 +370,11 @@ def _handle_authorize_get(params: dict) -> dict:
 
 def _handle_authorize_post(body_params: dict, query_params: dict) -> dict:
     """Handle authorization POST request (login form submission)."""
+    # Validate CSRF token first
+    csrf_token = body_params.get("csrf_token")
+    if not _verify_csrf_token(csrf_token):
+        return _error_response(403, "invalid_request", "Invalid or expired CSRF token")
+
     client_id = body_params.get("client_id") or query_params.get("client_id")
     redirect_uri = body_params.get("redirect_uri") or query_params.get("redirect_uri")
     scope = body_params.get("scope") or query_params.get("scope", "read write")
@@ -609,9 +722,14 @@ def _render_login_form(
     code_challenge: str,
     code_challenge_method: str,
     error: Optional[str] = None,
+    csrf_token: Optional[str] = None,
 ) -> str:
-    """Render HTML login form."""
+    """Render HTML login form with CSRF protection."""
     error_html = f'<div class="error">{error}</div>' if error else ""
+
+    # Generate CSRF token if not provided
+    if not csrf_token:
+        csrf_token = _generate_csrf_token()
 
     return f"""<!DOCTYPE html>
 <html>
@@ -691,6 +809,7 @@ def _render_login_form(
             Requested access: <strong>{scope}</strong>
         </div>
         <form method="POST">
+            <input type="hidden" name="csrf_token" value="{csrf_token}">
             <input type="hidden" name="client_id" value="{client_id}">
             <input type="hidden" name="redirect_uri" value="{redirect_uri}">
             <input type="hidden" name="scope" value="{scope}">
