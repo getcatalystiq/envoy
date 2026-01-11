@@ -83,14 +83,21 @@ def handler(event: dict, context: Any) -> dict:
 
     body_params = {}
     if body:
-        content_type = headers.get("content-type", "")
-        if "application/json" in content_type:
+        # Headers are case-insensitive - check both forms
+        content_type = headers.get("content-type", "") or headers.get("Content-Type", "")
+        if "application/json" in content_type.lower():
             try:
                 body_params = json.loads(body)
             except json.JSONDecodeError:
                 pass
-        elif "application/x-www-form-urlencoded" in content_type:
+        elif "application/x-www-form-urlencoded" in content_type.lower():
             body_params = {k: v[0] for k, v in parse_qs(body).items()}
+        elif body.strip().startswith("{"):
+            # Fallback: try parsing as JSON if body looks like JSON
+            try:
+                body_params = json.loads(body)
+            except json.JSONDecodeError:
+                pass
 
     try:
         if http_method == "OPTIONS":
