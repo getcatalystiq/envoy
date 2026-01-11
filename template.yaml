@@ -423,6 +423,12 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /.well-known/oauth-authorization-server
             Method: GET
+        OAuthProtectedResource:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /.well-known/oauth-protected-resource
+            Method: GET
       Policies:
         - Version: '2012-10-17'
           Statement:

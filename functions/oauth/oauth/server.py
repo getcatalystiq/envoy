@@ -40,6 +40,9 @@ CORS_HEADERS = {
 # Allowed domains for automatic client registration
 ALLOWED_AUTO_REGISTER_DOMAINS = [
     "claude.ai",
+    "chatgpt.com",
+    "chat.openai.com",
+    "platform.openai.com",
     "localhost",
     "127.0.0.1",
     "d2sves47510usz.cloudfront.net",  # Envoy Admin UI
@@ -96,6 +99,9 @@ def handler(event: dict, context: Any) -> dict:
         if path == "/.well-known/oauth-authorization-server":
             return _handle_metadata(event)
 
+        elif path == "/.well-known/oauth-protected-resource":
+            return _handle_protected_resource_metadata(event)
+
         elif path == "/oauth/register" and http_method == "POST":
             return _handle_register(body_params)
 
@@ -149,6 +155,24 @@ def _handle_metadata(event: dict) -> dict:
         "code_challenge_methods_supported": ["S256", "plain"],
         "service_documentation": "https://envoy.app/docs",
         "ui_locales_supported": ["en"],
+    }
+
+    return {
+        "statusCode": 200,
+        "headers": {"Content-Type": "application/json", "Cache-Control": "no-cache", **CORS_HEADERS},
+        "body": json.dumps(metadata),
+    }
+
+
+def _handle_protected_resource_metadata(event: dict) -> dict:
+    """Return OAuth Protected Resource Metadata (RFC 9728)."""
+    issuer = config.get_oauth_issuer(event)
+
+    metadata = {
+        "resource": f"{issuer}/mcp",
+        "authorization_servers": [issuer],
+        "scopes_supported": ["read", "write", "admin"],
+        "resource_documentation": "https://docs.envoy.ai/chatgpt",
     }
 
     return {

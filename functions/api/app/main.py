@@ -7,7 +7,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.routers import auth, targets, content, campaigns, send, analytics, setup
+from app.routers import auth, targets, content, campaigns, send, analytics, setup, mcp
 
 # Rate limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -64,3 +64,4 @@ app.include_router(campaigns.router, prefix="/api/v1/campaigns", tags=["campaign
 app.include_router(send.router, prefix="/api/v1/send", tags=["send"])
 app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["analytics"])
 app.include_router(setup.router, prefix="/api/v1/setup", tags=["setup"])
+app.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
