@@ -429,6 +429,18 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /.well-known/oauth-protected-resource
             Method: GET
+        Signup:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /signup
+            Method: POST
+        Login:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /login
+            Method: POST
       Policies:
         - Version: '2012-10-17'
           Statement:
