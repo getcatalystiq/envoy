@@ -45,7 +45,8 @@ ALLOWED_AUTO_REGISTER_DOMAINS = [
     "platform.openai.com",
     "localhost",
     "127.0.0.1",
-    "d2sves47510usz.cloudfront.net",  # Envoy Admin UI
+    "d2sves47510usz.cloudfront.net",  # Envoy Admin UI (dev)
+    "d38beagy3imun6.cloudfront.net",  # Envoy Admin UI (prod)
 ]
 
 
