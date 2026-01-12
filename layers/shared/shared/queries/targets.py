@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 from uuid import UUID
 
@@ -43,7 +44,7 @@ class TargetQueries:
             target_type_id,
             segment_id,
             lifecycle_stage,
-            custom_fields or {},
+            json.dumps(custom_fields or {}),
         )
         return dict(row)
 
@@ -140,7 +141,11 @@ class TargetQueries:
         for key, value in fields.items():
             if value is not None:
                 set_clauses.append(f"{key} = ${param_idx}")
-                params.append(value)
+                # Serialize dict values for JSONB columns
+                if key == "custom_fields" and isinstance(value, dict):
+                    params.append(json.dumps(value))
+                else:
+                    params.append(value)
                 param_idx += 1
 
         if not set_clauses:
@@ -371,7 +376,7 @@ class TargetQueries:
             target_type_id,
             segment_id,
             lifecycle_stage or 0,
-            custom_fields or {},
+            json.dumps(custom_fields or {}),
         )
         return dict(row), "created", None
 

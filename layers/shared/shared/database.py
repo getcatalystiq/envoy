@@ -1,5 +1,6 @@
 """Database utilities with RLS context support."""
 
+import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
@@ -9,6 +10,7 @@ import asyncpg
 import boto3
 
 _pool: Optional[asyncpg.Pool] = None
+_pool_loop: Optional[asyncio.AbstractEventLoop] = None
 _credentials: Optional[dict] = None
 
 
@@ -36,9 +38,20 @@ def _get_credentials() -> dict:
 
 async def get_pool() -> asyncpg.Pool:
     """Get or create connection pool with Lambda-optimized settings."""
-    global _pool
+    global _pool, _pool_loop
 
-    if _pool is None:
+    current_loop = asyncio.get_running_loop()
+
+    # Check if we need to recreate the pool (event loop changed or no pool)
+    if _pool is None or _pool_loop is not current_loop:
+        # Close existing pool if event loop changed
+        if _pool is not None:
+            try:
+                _pool.terminate()
+            except Exception:
+                pass
+            _pool = None
+
         creds = _get_credentials()
         _pool = await asyncpg.create_pool(
             host=os.environ.get("AURORA_HOST", creds.get("host", "localhost")),
@@ -52,6 +65,7 @@ async def get_pool() -> asyncpg.Pool:
             statement_cache_size=100,
             max_inactive_connection_lifetime=60,
         )
+        _pool_loop = current_loop
 
     return _pool
 
@@ -94,8 +108,9 @@ async def get_transaction(
 
 async def close_pool() -> None:
     """Close the connection pool."""
-    global _pool
+    global _pool, _pool_loop
 
     if _pool is not None:
         await _pool.close()
         _pool = None
+        _pool_loop = None

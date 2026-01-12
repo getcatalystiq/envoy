@@ -1,7 +1,9 @@
 """JWT authentication utilities."""
 
+import json
 import os
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Any, Optional
 
 import bcrypt
@@ -14,9 +16,44 @@ from shared.database import get_raw_connection
 security = HTTPBearer()
 
 # JWT settings
-JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "dev-secret-change-in-production")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
+
+
+@lru_cache(maxsize=1)
+def _get_jwt_secret() -> str:
+    """Get JWT secret from environment or Secrets Manager."""
+    # First try direct environment variable (for local development)
+    if secret := os.environ.get("JWT_SECRET_KEY"):
+        return secret
+
+    # Then try to load from Secrets Manager
+    secret_arn = os.environ.get("JWT_SECRET_ARN")
+    if secret_arn:
+        try:
+            import boto3
+            client = boto3.client("secretsmanager")
+            response = client.get_secret_value(SecretId=secret_arn)
+            secret_value = response.get("SecretString", "")
+
+            # The generated secret may be a JSON object or plain string
+            try:
+                parsed = json.loads(secret_value)
+                # If it's a dict, extract the value
+                if isinstance(parsed, dict):
+                    return parsed.get("password") or next(iter(parsed.values()), "")
+                return str(parsed)
+            except json.JSONDecodeError:
+                return secret_value
+        except Exception:
+            pass
+
+    # Fallback to default (only for local development)
+    return "dev-secret-change-in-production"
+
+
+# Legacy variable name for backward compatibility
+JWT_SECRET_KEY = _get_jwt_secret()
 
 
 class AuthError(HTTPException):
@@ -63,7 +100,7 @@ def create_access_token(
         "exp": expire,
         "iat": datetime.now(timezone.utc),
     }
-    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return jwt.encode(payload, _get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
 async def authenticate_user(email: str, password: str) -> Optional[dict]:
@@ -122,7 +159,7 @@ async def verify_jwt(
             # Use HS256 for our own tokens
             payload = jwt.decode(
                 credentials.credentials,
-                key=JWT_SECRET_KEY,
+                key=_get_jwt_secret(),
                 algorithms=[JWT_ALGORITHM],
             )
         return payload

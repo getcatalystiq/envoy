@@ -50,8 +50,8 @@ export function Outbox() {
     try {
       setIsLoading(true);
       const endpoint = filter === 'pending'
-        ? '/api/v1/outbox/pending'
-        : `/api/v1/outbox?status=${filter}`;
+        ? '/outbox/pending'
+        : `/outbox?status=${filter}`;
       const response = await api.get<{ items: OutboxItem[] }>(endpoint);
       setItems(response.items || []);
     } catch (error) {
@@ -63,7 +63,7 @@ export function Outbox() {
 
   const loadStats = async () => {
     try {
-      const data = await api.get<OutboxStats>('/api/v1/outbox/stats');
+      const data = await api.get<OutboxStats>('/outbox/stats');
       setStats(data);
     } catch (error) {
       console.error('Failed to load stats:', error);
@@ -72,7 +72,7 @@ export function Outbox() {
 
   const handleApprove = async (id: string) => {
     try {
-      await api.post(`/api/v1/outbox/${id}/approve`);
+      await api.post(`/outbox/${id}/approve`);
       await loadOutbox();
       await loadStats();
       setSelectedItem(null);
@@ -84,7 +84,7 @@ export function Outbox() {
   const handleReject = async () => {
     if (!selectedItem) return;
     try {
-      await api.post(`/api/v1/outbox/${selectedItem.id}/reject`, { reason: rejectReason });
+      await api.post(`/outbox/${selectedItem.id}/reject`, { reason: rejectReason });
       await loadOutbox();
       await loadStats();
       setSelectedItem(null);
@@ -98,7 +98,7 @@ export function Outbox() {
   const handleSnooze = async () => {
     if (!selectedItem || !snoozeUntil) return;
     try {
-      await api.post(`/api/v1/outbox/${selectedItem.id}/snooze`, { snooze_until: snoozeUntil });
+      await api.post(`/outbox/${selectedItem.id}/snooze`, { snooze_until: snoozeUntil });
       await loadOutbox();
       await loadStats();
       setSelectedItem(null);
@@ -112,7 +112,7 @@ export function Outbox() {
   const handleSaveEdit = async () => {
     if (!selectedItem) return;
     try {
-      await api.patch(`/api/v1/outbox/${selectedItem.id}`, {
+      await api.patch(`/outbox/${selectedItem.id}`, {
         subject: editedSubject,
         body: editedBody,
       });
@@ -367,7 +367,7 @@ export function Outbox() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={(e) => {
+                      onClick={(e: React.MouseEvent) => {
                         e.stopPropagation();
                         openItemDetail(item);
                       }}
@@ -380,7 +380,7 @@ export function Outbox() {
                           size="sm"
                           variant="ghost"
                           className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                          onClick={(e) => {
+                          onClick={(e: React.MouseEvent) => {
                             e.stopPropagation();
                             handleApprove(item.id);
                           }}
@@ -391,7 +391,7 @@ export function Outbox() {
                           size="sm"
                           variant="ghost"
                           className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          onClick={(e) => {
+                          onClick={(e: React.MouseEvent) => {
                             e.stopPropagation();
                             setSelectedItem(item);
                             setShowRejectDialog(true);
@@ -412,7 +412,7 @@ export function Outbox() {
       {/* Item Detail Dialog */}
       <Dialog
         open={selectedItem !== null && !showRejectDialog && !showSnoozeDialog}
-        onOpenChange={(open) => !open && setSelectedItem(null)}
+        onOpenChange={(open: boolean) => !open && setSelectedItem(null)}
       >
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           {selectedItem && (
@@ -590,7 +590,7 @@ export function Outbox() {
               </label>
               <Textarea
                 value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setRejectReason(e.target.value)}
                 placeholder="Why is this content being rejected?"
                 className="mt-1"
               />

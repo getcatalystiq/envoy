@@ -26,10 +26,24 @@ const navigation = [
   { name: 'Setup', href: '/setup', icon: Settings },
 ];
 
-export function Layout({ children }: { children: React.ReactNode }) {
+interface LayoutProps {
+  children: React.ReactNode;
+  embedded?: boolean;
+}
+
+export function Layout({ children, embedded = false }: LayoutProps) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // In embedded mode, render without sidebar/header chrome
+  if (embedded) {
+    return (
+      <div className="min-h-screen bg-white">
+        <main className="p-4">{children}</main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

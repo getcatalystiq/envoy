@@ -1,8 +1,39 @@
 """Configuration management."""
 
 import os
+import json
 from dataclasses import dataclass, field
 from typing import Optional
+
+
+def _get_jwt_secret() -> Optional[str]:
+    """Get JWT secret from Secrets Manager or environment variable."""
+    # First try environment variable (for local development)
+    if secret := os.environ.get("JWT_SECRET_KEY"):
+        return secret
+
+    # Then try to load from Secrets Manager
+    secret_arn = os.environ.get("JWT_SECRET_ARN")
+    if not secret_arn:
+        return None
+
+    try:
+        import boto3
+        client = boto3.client("secretsmanager")
+        response = client.get_secret_value(SecretId=secret_arn)
+        secret_value = response.get("SecretString", "")
+
+        # The generated secret may be a JSON object or plain string
+        try:
+            parsed = json.loads(secret_value)
+            # If it's a dict, extract the value (Secrets Manager generates {"password": "..."})
+            if isinstance(parsed, dict):
+                return parsed.get("password") or next(iter(parsed.values()), None)
+            return str(parsed)
+        except json.JSONDecodeError:
+            return secret_value
+    except Exception:
+        return None
 
 
 @dataclass
@@ -24,9 +55,7 @@ class Config:
     oauth_issuer: str = field(
         default_factory=lambda: os.environ.get("OAUTH_ISSUER", "")
     )
-    jwt_secret_key: Optional[str] = field(
-        default_factory=lambda: os.environ.get("JWT_SECRET_KEY")
-    )
+    jwt_secret_key: Optional[str] = field(default_factory=_get_jwt_secret)
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 30

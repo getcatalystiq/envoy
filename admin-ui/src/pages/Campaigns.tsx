@@ -15,8 +15,8 @@ export function Campaigns() {
 
   const loadCampaigns = async () => {
     try {
-      const data = await api.get<Campaign[]>('/campaigns');
-      setCampaigns(data);
+      const data = await api.get<{ items: Campaign[]; total: number }>('/campaigns');
+      setCampaigns(data.items || []);
     } catch (error) {
       console.error('Failed to load campaigns:', error);
     } finally {

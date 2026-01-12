@@ -15,8 +15,8 @@ export function Content() {
 
   const loadTemplates = async () => {
     try {
-      const data = await api.get<ContentTemplate[]>('/content');
-      setTemplates(data);
+      const data = await api.get<{ items: ContentTemplate[]; total: number }>('/content');
+      setTemplates(data.items || []);
     } catch (error) {
       console.error('Failed to load templates:', error);
     } finally {

@@ -104,6 +104,16 @@ Resources:
   #############################################################################
   # Aurora Serverless v2
   #############################################################################
+  # JWT Secret for OAuth token signing
+  OAuthJWTSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub envoy-${Environment}-oauth-jwt-secret
+      Description: JWT signing secret for OAuth tokens
+      GenerateSecretString:
+        PasswordLength: 64
+        ExcludeCharacters: '"@/\'
+
   AuroraSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
@@ -200,6 +210,7 @@ Resources:
           AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
           JWT_PUBLIC_KEY: !Ref JWTPublicKey
           JWT_ISSUER: !Ref JWTIssuer
+          JWT_SECRET_ARN: !Ref OAuthJWTSecret
           MAVEN_AGENT_URL: !Ref MavenAgentURL
           MAVEN_SERVICE_JWT_SECRET_ARN: !Ref MavenServiceJWTSecretARN
           MAVEN_SERVICE_API_URL: !Ref MavenServiceAPIURL
@@ -218,6 +229,7 @@ Resources:
                 - secretsmanager:GetSecretValue
               Resource:
                 - !Ref AuroraSecret
+                - !Ref OAuthJWTSecret
                 - !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:envoy/*
                 - !Ref MavenServiceJWTSecretARN
             - Effect: Allow
@@ -235,7 +247,7 @@ Resources:
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
-      StageName: !Ref Environment
+      StageName: $default
       CorsConfiguration:
         AllowOrigins:
           - '*'
@@ -410,6 +422,7 @@ Resources:
           AURORA_CLUSTER_ARN: !GetAtt AuroraCluster.DBClusterArn
           AURORA_DATABASE: envoy
           AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
+          JWT_SECRET_ARN: !Ref OAuthJWTSecret
       Events:
         OAuthRoot:
           Type: HttpApi
@@ -449,6 +462,7 @@ Resources:
                 - secretsmanager:GetSecretValue
               Resource:
                 - !Ref AuroraSecret
+                - !Ref OAuthJWTSecret
             - Effect: Allow
               Action:
                 - rds-data:ExecuteStatement

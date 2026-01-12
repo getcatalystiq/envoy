@@ -3,8 +3,9 @@
  */
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+const OAUTH_BASE = import.meta.env.VITE_OAUTH_URL || API_BASE;
 
-const OAUTH_METADATA_BASE = `${API_BASE}/.well-known/oauth-authorization-server`;
+const OAUTH_METADATA_BASE = `${OAUTH_BASE}/.well-known/oauth-authorization-server`;
 
 interface OAuthMetadata {
   issuer: string;
@@ -298,4 +299,24 @@ export function logout(): void {
   localStorage.removeItem(STORAGE_KEYS.USER_INFO);
   sessionStorage.removeItem(STORAGE_KEYS.CODE_VERIFIER);
   sessionStorage.removeItem('oauth_state');
+}
+
+/**
+ * Set token from external source (e.g., Maven widget embedding)
+ * Used when Envoy is embedded in another app that provides auth
+ */
+export function setExternalToken(token: string, expiresIn: number = 3600): void {
+  localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, token);
+  localStorage.setItem(STORAGE_KEYS.TOKEN_EXPIRY, String(Date.now() + expiresIn * 1000));
+}
+
+/**
+ * Check if we're running in embedded mode (iframe)
+ */
+export function isEmbedded(): boolean {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true; // Cross-origin iframe
+  }
 }

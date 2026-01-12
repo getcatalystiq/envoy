@@ -11,6 +11,7 @@ import { Content } from './pages/Content';
 import { Analytics } from './pages/Analytics';
 import { Setup } from './pages/Setup';
 import { Outbox } from './pages/Outbox';
+import { EmbeddedApp } from './pages/EmbeddedApp';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn, isLoading } = useAuth();
@@ -36,6 +37,7 @@ export default function App() {
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/callback" element={<Callback />} />
+      <Route path="/app" element={<EmbeddedApp />} />
 
       <Route
         path="/dashboard"

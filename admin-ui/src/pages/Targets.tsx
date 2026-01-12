@@ -17,8 +17,8 @@ export function Targets() {
 
   const loadTargets = async () => {
     try {
-      const data = await api.get<Target[]>('/targets');
-      setTargets(data);
+      const data = await api.get<{ items: Target[]; total: number }>('/targets');
+      setTargets(data.items || []);
     } catch (error) {
       console.error('Failed to load targets:', error);
     } finally {
