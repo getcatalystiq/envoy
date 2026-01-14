@@ -27,7 +27,7 @@ const navigation = [
   { name: 'Sequences', href: '/sequences', icon: GitBranch },
   { name: 'Content', href: '/content', icon: FileText },
   { name: 'Design', href: '/design-templates', icon: Palette },
-  { name: 'Setup', href: '/setup', icon: Settings },
+  { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
 interface LayoutProps {

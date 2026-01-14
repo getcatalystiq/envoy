@@ -9,7 +9,7 @@ import { Campaigns } from './pages/Campaigns';
 import { Targets } from './pages/Targets';
 import { Content } from './pages/Content';
 import { Analytics } from './pages/Analytics';
-import { Setup } from './pages/Setup';
+import { Settings } from './pages/Settings';
 import { Outbox } from './pages/Outbox';
 import { Sequences } from './pages/Sequences';
 import { SequenceBuilder } from './pages/SequenceBuilder';
@@ -89,12 +89,18 @@ export default function App() {
       />
 
       <Route
-        path="/setup"
+        path="/settings"
         element={
           <ProtectedRoute>
-            <Setup />
+            <Settings />
           </ProtectedRoute>
         }
+      />
+
+      {/* Redirect old setup route */}
+      <Route
+        path="/setup"
+        element={<Navigate to="/settings" replace />}
       />
 
       <Route
@@ -145,7 +151,7 @@ export default function App() {
       {/* Redirect old email-settings route to new location */}
       <Route
         path="/email-settings"
-        element={<Navigate to="/setup?tab=email" replace />}
+        element={<Navigate to="/settings?tab=email" replace />}
       />
     </Routes>
   );
