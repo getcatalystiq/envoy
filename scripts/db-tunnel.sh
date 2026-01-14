@@ -6,7 +6,7 @@
 set -e
 
 ENV="${1:-dev}"
-LOCAL_PORT="${2:-5432}"
+LOCAL_PORT="${2:-5433}"
 
 echo "Fetching connection details for envoy-${ENV}..."
 

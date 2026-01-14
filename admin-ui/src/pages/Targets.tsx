@@ -3,7 +3,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { api, type Target } from '@/api/client';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { api, type Target, type TargetType, type Segment } from '@/api/client';
 import { Plus, Upload, Search, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const LIFECYCLE_STAGES = [
@@ -20,11 +27,33 @@ const PAGE_SIZES = [10, 25, 50, 100];
 
 export function Targets() {
   const [targets, setTargets] = useState<Target[]>([]);
+  const [targetTypes, setTargetTypes] = useState<TargetType[]>([]);
+  const [segments, setSegments] = useState<Segment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editingTarget, setEditingTarget] = useState<Target | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [formData, setFormData] = useState({
+    email: '',
+    first_name: '',
+    last_name: '',
+    company: '',
+    phone: '',
+    target_type_id: '',
+    segment_id: '',
+    lifecycle_stage: 0,
+  });
+
+  useEffect(() => {
+    loadTargets();
+    loadTargetTypes();
+    loadSegments();
+  }, []);
 
   useEffect(() => {
     loadTargets();
@@ -46,9 +75,115 @@ export function Targets() {
     }
   };
 
+  const loadTargetTypes = async () => {
+    try {
+      const data = await api.get<TargetType[]>('/targets/types');
+      setTargetTypes(data || []);
+    } catch (error) {
+      console.error('Failed to load target types:', error);
+    }
+  };
+
+  const loadSegments = async () => {
+    try {
+      const data = await api.get<Segment[]>('/targets/segments');
+      setSegments(data || []);
+    } catch (error) {
+      console.error('Failed to load segments:', error);
+    }
+  };
+
+  const resetFormData = () => {
+    setFormData({
+      email: '',
+      first_name: '',
+      last_name: '',
+      company: '',
+      phone: '',
+      target_type_id: '',
+      segment_id: '',
+      lifecycle_stage: 0,
+    });
+  };
+
+  const handleAddTarget = async () => {
+    if (!formData.email) return;
+    setIsSaving(true);
+    try {
+      await api.post('/targets', {
+        email: formData.email,
+        first_name: formData.first_name || undefined,
+        last_name: formData.last_name || undefined,
+        company: formData.company || undefined,
+        phone: formData.phone || undefined,
+        target_type_id: formData.target_type_id || undefined,
+        segment_id: formData.segment_id || undefined,
+      });
+      setShowAddDialog(false);
+      resetFormData();
+      loadTargets();
+    } catch (error) {
+      console.error('Failed to create target:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const openEditDialog = (target: Target) => {
+    setEditingTarget(target);
+    setFormData({
+      email: target.email,
+      first_name: target.first_name || '',
+      last_name: target.last_name || '',
+      company: target.company || '',
+      phone: target.phone || '',
+      target_type_id: target.target_type_id || '',
+      segment_id: target.segment_id || '',
+      lifecycle_stage: target.lifecycle_stage,
+    });
+    setShowEditDialog(true);
+  };
+
+  const handleEditTarget = async () => {
+    if (!editingTarget || !formData.email) return;
+    setIsSaving(true);
+    try {
+      await api.patch(`/targets/${editingTarget.id}`, {
+        email: formData.email,
+        first_name: formData.first_name || null,
+        last_name: formData.last_name || null,
+        company: formData.company || null,
+        phone: formData.phone || null,
+        lifecycle_stage: formData.lifecycle_stage,
+        target_type_id: formData.target_type_id || null,
+        segment_id: formData.segment_id || null,
+      });
+      setShowEditDialog(false);
+      setEditingTarget(null);
+      resetFormData();
+      loadTargets();
+    } catch (error) {
+      console.error('Failed to update target:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const getFullName = (target: Target) => {
     const parts = [target.first_name, target.last_name].filter(Boolean);
     return parts.length > 0 ? parts.join(' ') : null;
+  };
+
+  const getTargetTypeName = (typeId: string | null) => {
+    if (!typeId) return '-';
+    const type = targetTypes.find((t) => t.id === typeId);
+    return type?.name || '-';
+  };
+
+  const getSegmentName = (segmentId: string | null) => {
+    if (!segmentId) return '-';
+    const segment = segments.find((s) => s.id === segmentId);
+    return segment?.name || '-';
   };
 
   const filteredTargets = targets.filter((target) => {
@@ -151,7 +286,7 @@ export function Targets() {
             <Upload className="w-4 h-4 mr-2" />
             Import CSV
           </Button>
-          <Button>
+          <Button onClick={() => setShowAddDialog(true)}>
             <Plus className="w-4 h-4 mr-2" />
             Add Target
           </Button>
@@ -181,7 +316,7 @@ export function Targets() {
                 <Upload className="w-4 h-4 mr-2" />
                 Import CSV
               </Button>
-              <Button>
+              <Button onClick={() => setShowAddDialog(true)}>
                 <Plus className="w-4 h-4 mr-2" />
                 Add Target
               </Button>
@@ -207,24 +342,22 @@ export function Targets() {
               </thead>
               <tbody>
                 {filteredTargets.map((target) => (
-                  <tr key={target.id} className="border-b hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-gray-900">
-                        {getFullName(target) || '-'}
-                      </span>
+                  <tr
+                    key={target.id}
+                    className="border-b hover:bg-gray-50 cursor-pointer"
+                    onClick={() => openEditDialog(target)}
+                  >
+                    <td className="px-4 py-3 text-sm text-gray-600">
+                      {getFullName(target) || '-'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">{target.email}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{target.company || '-'}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{target.phone || '-'}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">
-                      {target.target_type_id ? (
-                        <span className="text-xs text-gray-400">{target.target_type_id.slice(0, 8)}...</span>
-                      ) : '-'}
+                      {getTargetTypeName(target.target_type_id)}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">
-                      {target.segment_id ? (
-                        <span className="text-xs text-gray-400">{target.segment_id.slice(0, 8)}...</span>
-                      ) : '-'}
+                      {getSegmentName(target.segment_id)}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">
                       {LIFECYCLE_STAGES[target.lifecycle_stage] || target.lifecycle_stage}
@@ -319,6 +452,233 @@ export function Targets() {
           </div>
         </Card>
       )}
+
+      {/* Add Target Dialog */}
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Target</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="add-email">Email *</Label>
+              <Input
+                id="add-email"
+                type="email"
+                placeholder="email@example.com"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="add-first_name">First Name</Label>
+                <Input
+                  id="add-first_name"
+                  placeholder="John"
+                  value={formData.first_name}
+                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="add-last_name">Last Name</Label>
+                <Input
+                  id="add-last_name"
+                  placeholder="Doe"
+                  value={formData.last_name}
+                  onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="add-company">Company</Label>
+              <Input
+                id="add-company"
+                placeholder="Acme Inc"
+                value={formData.company}
+                onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="add-phone">Phone</Label>
+              <Input
+                id="add-phone"
+                placeholder="+1 555 123 4567"
+                value={formData.phone}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="add-target_type">Target Type</Label>
+                <select
+                  id="add-target_type"
+                  value={formData.target_type_id}
+                  onChange={(e) => setFormData({ ...formData, target_type_id: e.target.value })}
+                  className="w-full h-10 px-3 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">Select type...</option>
+                  {targetTypes.map((type) => (
+                    <option key={type.id} value={type.id}>
+                      {type.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="add-segment">Segment</Label>
+                <select
+                  id="add-segment"
+                  value={formData.segment_id}
+                  onChange={(e) => setFormData({ ...formData, segment_id: e.target.value })}
+                  className="w-full h-10 px-3 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">Select segment...</option>
+                  {segments.map((segment) => (
+                    <option key={segment.id} value={segment.id}>
+                      {segment.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-4">
+              <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleAddTarget} disabled={!formData.email || isSaving}>
+                {isSaving ? 'Adding...' : 'Add Target'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Target Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={(open) => {
+        setShowEditDialog(open);
+        if (!open) {
+          setEditingTarget(null);
+          resetFormData();
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Target</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-email">Email *</Label>
+              <Input
+                id="edit-email"
+                type="email"
+                placeholder="email@example.com"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-first_name">First Name</Label>
+                <Input
+                  id="edit-first_name"
+                  placeholder="John"
+                  value={formData.first_name}
+                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-last_name">Last Name</Label>
+                <Input
+                  id="edit-last_name"
+                  placeholder="Doe"
+                  value={formData.last_name}
+                  onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-company">Company</Label>
+              <Input
+                id="edit-company"
+                placeholder="Acme Inc"
+                value={formData.company}
+                onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-phone">Phone</Label>
+              <Input
+                id="edit-phone"
+                placeholder="+1 555 123 4567"
+                value={formData.phone}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-target_type">Target Type</Label>
+                <select
+                  id="edit-target_type"
+                  value={formData.target_type_id}
+                  onChange={(e) => setFormData({ ...formData, target_type_id: e.target.value })}
+                  className="w-full h-10 px-3 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">Select type...</option>
+                  {targetTypes.map((type) => (
+                    <option key={type.id} value={type.id}>
+                      {type.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-segment">Segment</Label>
+                <select
+                  id="edit-segment"
+                  value={formData.segment_id}
+                  onChange={(e) => setFormData({ ...formData, segment_id: e.target.value })}
+                  className="w-full h-10 px-3 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">Select segment...</option>
+                  {segments.map((segment) => (
+                    <option key={segment.id} value={segment.id}>
+                      {segment.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-lifecycle_stage">Lifecycle Stage</Label>
+              <select
+                id="edit-lifecycle_stage"
+                value={formData.lifecycle_stage}
+                onChange={(e) => setFormData({ ...formData, lifecycle_stage: Number(e.target.value) })}
+                className="w-full h-10 px-3 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                {LIFECYCLE_STAGES.map((stage, index) => (
+                  <option key={index} value={index}>
+                    {stage}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-3 pt-4">
+              <Button variant="outline" onClick={() => {
+                setShowEditDialog(false);
+                setEditingTarget(null);
+                resetFormData();
+              }}>
+                Cancel
+              </Button>
+              <Button onClick={handleEditTarget} disabled={!formData.email || isSaving}>
+                {isSaving ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
