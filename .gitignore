@@ -42,6 +42,9 @@ ENV/
 .aws-sam/
 samconfig.toml.bak
 
+# Migration function copies (source of truth is /migrations/)
+functions/migration/migrations/
+
 # SAM layer build output
 layers/*/python/
 

@@ -11,6 +11,8 @@ import { Content } from './pages/Content';
 import { Analytics } from './pages/Analytics';
 import { Setup } from './pages/Setup';
 import { Outbox } from './pages/Outbox';
+import { Sequences } from './pages/Sequences';
+import { SequenceBuilder } from './pages/SequenceBuilder';
 import { EmbeddedApp } from './pages/EmbeddedApp';
 import { DesignTemplates } from './pages/DesignTemplates';
 import { DesignTemplateEditor } from './pages/DesignTemplateEditor';
@@ -100,6 +102,24 @@ export default function App() {
         element={
           <ProtectedRoute>
             <Outbox />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/sequences"
+        element={
+          <ProtectedRoute>
+            <Sequences />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/sequences/:id"
+        element={
+          <ProtectedRoute>
+            <SequenceBuilder />
           </ProtectedRoute>
         }
       />

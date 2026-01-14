@@ -167,6 +167,91 @@ export interface OutboxStats {
   failed: number;
 }
 
+// Sequence types
+export type SequenceStatus = 'draft' | 'active' | 'archived';
+export type EnrollmentStatus = 'active' | 'paused' | 'completed' | 'converted' | 'exited';
+
+export interface Sequence {
+  id: string;
+  name: string;
+  target_type_id: string | null;
+  status: SequenceStatus;
+  created_at: string;
+  updated_at: string;
+  steps?: SequenceStep[];
+  step_count?: number;
+  active_enrollments?: number;
+}
+
+export interface SequenceStep {
+  id: string;
+  sequence_id: string;
+  position: number;
+  default_delay_hours: number;
+  created_at: string;
+  contents?: StepContent[];
+}
+
+export interface StepContent {
+  id: string;
+  step_id: string;
+  content_id: string;
+  priority: number;
+  content_name?: string;
+  content_subject?: string;
+}
+
+export interface Enrollment {
+  id: string;
+  target_id: string;
+  sequence_id: string;
+  status: EnrollmentStatus;
+  current_step_position: number;
+  enrolled_at: string;
+  next_evaluation_at: string | null;
+  completed_at: string | null;
+  exit_reason: string | null;
+  target_email?: string;
+  target_name?: string;
+  sequence_name?: string;
+  total_steps?: number;
+}
+
+export interface StepExecution {
+  id: string;
+  enrollment_id: string;
+  step_position: number;
+  content_id: string | null;
+  email_send_id: string | null;
+  status: 'executed' | 'skipped';
+  executed_at: string;
+}
+
+export interface CreateSequenceInput {
+  name: string;
+  target_type_id?: string;
+}
+
+export interface UpdateSequenceInput {
+  name?: string;
+  status?: SequenceStatus;
+}
+
+export interface CreateStepInput {
+  position: number;
+  default_delay_hours: number;
+}
+
+export interface UpdateStepInput {
+  position?: number;
+  default_delay_hours?: number;
+}
+
+export interface AddStepContentInput {
+  content_id: string;
+  priority: number;
+}
+
 // Design Template types
 export interface DesignTemplate {
   id: string;

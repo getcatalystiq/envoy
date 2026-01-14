@@ -29,7 +29,7 @@ export function Setup() {
 
   const loadStatus = async () => {
     try {
-      const data = await api.get<SetupStatus>('/api/v1/setup/status');
+      const data = await api.get<SetupStatus>('/setup/status');
       setStatus(data);
     } catch (err) {
       setError('Failed to load setup status');
@@ -42,7 +42,7 @@ export function Setup() {
     setIsProvisioning(true);
     setError(null);
     try {
-      await api.post('/api/v1/setup/provision-skills');
+      await api.post('/setup/provision-skills');
       await loadStatus();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to provision skills';

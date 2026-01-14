@@ -12,6 +12,7 @@ import {
   X,
   Settings,
   Inbox,
+  GitBranch,
   Palette,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -21,6 +22,7 @@ const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Outbox', href: '/outbox', icon: Inbox },
   { name: 'Campaigns', href: '/campaigns', icon: Mail },
+  { name: 'Sequences', href: '/sequences', icon: GitBranch },
   { name: 'Targets', href: '/targets', icon: Users },
   { name: 'Content', href: '/content', icon: FileText },
   { name: 'Design Templates', href: '/design-templates', icon: Palette },
