@@ -108,7 +108,7 @@ export function SequenceBuilder() {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await api.get<Sequence>(`/api/v1/sequences/${id}`);
+      const data = await api.get<Sequence>(`/sequences/${id}`);
       setSequence(data);
       setSteps(data.steps || []);
     } catch (err) {
@@ -122,13 +122,13 @@ export function SequenceBuilder() {
   const loadEnrollments = async () => {
     try {
       const endpoint = enrollmentFilter === 'all'
-        ? `/api/v1/sequences/${id}/enrollments`
-        : `/api/v1/sequences/${id}/enrollments?status=${enrollmentFilter}`;
+        ? `/sequences/${id}/enrollments`
+        : `/sequences/${id}/enrollments?status=${enrollmentFilter}`;
       const data = await api.get<{ items: Enrollment[] }>(endpoint);
       setEnrollments(data.items || []);
 
       // Calculate counts from all enrollments (separate call without filter)
-      const allData = await api.get<{ items: Enrollment[] }>(`/api/v1/sequences/${id}/enrollments`);
+      const allData = await api.get<{ items: Enrollment[] }>(`/sequences/${id}/enrollments`);
       const all = allData.items || [];
       setEnrollmentCounts({
         active: all.filter((e) => e.status === 'active').length,
@@ -145,8 +145,8 @@ export function SequenceBuilder() {
   const loadAvailableContent = async () => {
     try {
       const endpoint = sequence?.target_type_id
-        ? `/api/v1/content?target_type_id=${sequence.target_type_id}`
-        : '/api/v1/content';
+        ? `/content?target_type_id=${sequence.target_type_id}`
+        : '/content';
       const data = await api.get<{ items: ContentTemplate[] }>(endpoint);
       setAvailableContent(data.items || []);
     } catch (err) {
@@ -156,7 +156,7 @@ export function SequenceBuilder() {
 
   const handleActivate = async () => {
     try {
-      await api.post(`/api/v1/sequences/${id}/activate`);
+      await api.post(`/sequences/${id}/activate`);
       await loadSequence();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to activate sequence';
@@ -166,7 +166,7 @@ export function SequenceBuilder() {
 
   const handleArchive = async () => {
     try {
-      await api.post(`/api/v1/sequences/${id}/archive`);
+      await api.post(`/sequences/${id}/archive`);
       setShowArchiveDialog(false);
       await loadSequence();
     } catch (err) {
@@ -179,7 +179,7 @@ export function SequenceBuilder() {
     try {
       setIsAddingStep(true);
       const position = steps.length + 1;
-      await api.post(`/api/v1/sequences/${id}/steps`, {
+      await api.post(`/sequences/${id}/steps`, {
         position,
         default_delay_hours: newStepDelay,
       });
@@ -196,7 +196,7 @@ export function SequenceBuilder() {
 
   const handleUpdateStepDelay = async (stepId: string, delayHours: number) => {
     try {
-      await api.patch(`/api/v1/sequences/${id}/steps/${stepId}`, {
+      await api.patch(`/sequences/${id}/steps/${stepId}`, {
         default_delay_hours: delayHours,
       });
       await loadSequence();
@@ -218,10 +218,10 @@ export function SequenceBuilder() {
       const currentStep = steps[stepIndex];
       const otherStep = steps[newIndex];
 
-      await api.patch(`/api/v1/sequences/${id}/steps/${currentStep.id}`, {
+      await api.patch(`/sequences/${id}/steps/${currentStep.id}`, {
         position: otherStep.position,
       });
-      await api.patch(`/api/v1/sequences/${id}/steps/${otherStep.id}`, {
+      await api.patch(`/sequences/${id}/steps/${otherStep.id}`, {
         position: currentStep.position,
       });
 
@@ -236,7 +236,7 @@ export function SequenceBuilder() {
     if (!stepToDelete) return;
 
     try {
-      await api.delete(`/api/v1/sequences/${id}/steps/${stepToDelete.id}`);
+      await api.delete(`/sequences/${id}/steps/${stepToDelete.id}`);
       setShowDeleteStepDialog(false);
       setStepToDelete(null);
       await loadSequence();
@@ -258,7 +258,7 @@ export function SequenceBuilder() {
     if (!contentPickerStepId || !selectedContentId) return;
 
     try {
-      await api.post(`/api/v1/sequences/${id}/steps/${contentPickerStepId}/content`, {
+      await api.post(`/sequences/${id}/steps/${contentPickerStepId}/content`, {
         content_id: selectedContentId,
         priority: contentPriority,
       });
@@ -272,7 +272,7 @@ export function SequenceBuilder() {
 
   const handleRemoveContent = async (stepId: string, contentId: string) => {
     try {
-      await api.delete(`/api/v1/sequences/${id}/steps/${stepId}/content/${contentId}`);
+      await api.delete(`/sequences/${id}/steps/${stepId}/content/${contentId}`);
       await loadSequence();
     } catch (err) {
       console.error('Failed to remove content:', err);
@@ -282,7 +282,7 @@ export function SequenceBuilder() {
 
   const handlePauseEnrollment = async (enrollmentId: string) => {
     try {
-      await api.post(`/api/v1/sequences/enrollments/${enrollmentId}/pause`);
+      await api.post(`/sequences/enrollments/${enrollmentId}/pause`);
       await loadEnrollments();
     } catch (err) {
       console.error('Failed to pause enrollment:', err);
@@ -291,7 +291,7 @@ export function SequenceBuilder() {
 
   const handleResumeEnrollment = async (enrollmentId: string) => {
     try {
-      await api.post(`/api/v1/sequences/enrollments/${enrollmentId}/resume`);
+      await api.post(`/sequences/enrollments/${enrollmentId}/resume`);
       await loadEnrollments();
     } catch (err) {
       console.error('Failed to resume enrollment:', err);
@@ -300,7 +300,7 @@ export function SequenceBuilder() {
 
   const handleExitEnrollment = async (enrollmentId: string) => {
     try {
-      await api.post(`/api/v1/sequences/enrollments/${enrollmentId}/exit?reason=manual_exit`);
+      await api.post(`/sequences/enrollments/${enrollmentId}/exit?reason=manual_exit`);
       await loadEnrollments();
     } catch (err) {
       console.error('Failed to exit enrollment:', err);
@@ -310,7 +310,7 @@ export function SequenceBuilder() {
   const loadEnrollmentExecutions = async (enrollmentId: string) => {
     try {
       const data = await api.get<StepExecution[]>(
-        `/api/v1/sequences/enrollments/${enrollmentId}/executions`
+        `/sequences/enrollments/${enrollmentId}/executions`
       );
       setEnrollmentExecutions(data);
     } catch (err) {

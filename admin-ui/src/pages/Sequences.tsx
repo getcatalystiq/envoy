@@ -71,8 +71,8 @@ export function Sequences() {
       setIsLoading(true);
       setError(null);
       const endpoint = filter === 'all'
-        ? '/api/v1/sequences'
-        : `/api/v1/sequences?status=${filter}`;
+        ? '/sequences'
+        : `/sequences?status=${filter}`;
       const data = await api.get<{ items: Sequence[] }>(endpoint);
       setSequences(data.items || []);
     } catch (err) {
@@ -85,7 +85,7 @@ export function Sequences() {
 
   const loadTargetTypes = async () => {
     try {
-      const data = await api.get<{ items: TargetType[] }>('/api/v1/targets/types');
+      const data = await api.get<{ items: TargetType[] }>('/targets/types');
       setTargetTypes(data.items || []);
     } catch (err) {
       console.error('Failed to load target types:', err);
@@ -97,7 +97,7 @@ export function Sequences() {
 
     try {
       setIsCreating(true);
-      const created = await api.post<Sequence>('/api/v1/sequences', newSequence);
+      const created = await api.post<Sequence>('/sequences', newSequence);
       setShowCreateDialog(false);
       setNewSequence({ name: '', target_type_id: undefined });
       navigate(`/sequences/${created.id}`);
@@ -111,7 +111,7 @@ export function Sequences() {
 
   const handleActivate = async (sequence: Sequence) => {
     try {
-      await api.post(`/api/v1/sequences/${sequence.id}/activate`);
+      await api.post(`/sequences/${sequence.id}/activate`);
       await loadSequences();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to activate sequence';
@@ -121,7 +121,7 @@ export function Sequences() {
 
   const handleArchive = async (sequence: Sequence) => {
     try {
-      await api.post(`/api/v1/sequences/${sequence.id}/archive`);
+      await api.post(`/sequences/${sequence.id}/archive`);
       await loadSequences();
     } catch (err) {
       console.error('Failed to archive sequence:', err);
@@ -133,7 +133,7 @@ export function Sequences() {
     if (!sequenceToDelete) return;
 
     try {
-      await api.delete(`/api/v1/sequences/${sequenceToDelete.id}`);
+      await api.delete(`/sequences/${sequenceToDelete.id}`);
       setShowDeleteDialog(false);
       setSequenceToDelete(null);
       await loadSequences();
