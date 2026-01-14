@@ -22,12 +22,12 @@ import { cn } from '@/lib/utils';
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Outbox', href: '/outbox', icon: Inbox },
+  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+  { name: 'Targets', href: '/targets', icon: Users },
   { name: 'Campaigns', href: '/campaigns', icon: Mail },
   { name: 'Sequences', href: '/sequences', icon: GitBranch },
-  { name: 'Targets', href: '/targets', icon: Users },
   { name: 'Content', href: '/content', icon: FileText },
-  { name: 'Design Templates', href: '/design-templates', icon: Palette },
-  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+  { name: 'Design', href: '/design-templates', icon: Palette },
   { name: 'Setup', href: '/setup', icon: Settings },
   { name: 'Email Settings', href: '/email-settings', icon: AtSign },
 ];

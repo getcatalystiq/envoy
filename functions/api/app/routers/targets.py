@@ -2,14 +2,74 @@
 
 from typing import Optional
 from uuid import UUID
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from app.dependencies import CurrentOrg, DBConnection
 from app.schemas import ListResponse, TargetCreate, TargetResponse, TargetUpdate
 from shared.queries import TargetQueries
 
 router = APIRouter()
+
+
+class TargetTypeResponse(BaseModel):
+    """Schema for target type response."""
+
+    id: UUID
+    name: str
+    description: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SegmentResponse(BaseModel):
+    """Schema for segment response."""
+
+    id: UUID
+    name: str
+    description: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/types", response_model=list[TargetTypeResponse])
+async def list_target_types(
+    org_id: CurrentOrg,
+    db: DBConnection,
+) -> list[TargetTypeResponse]:
+    """List all target types for the organization."""
+    rows = await db.fetch(
+        """
+        SELECT id, name, description, created_at
+        FROM target_types
+        WHERE organization_id = $1
+        ORDER BY name ASC
+        """,
+        org_id,
+    )
+    return [TargetTypeResponse(**dict(row)) for row in rows]
+
+
+@router.get("/segments", response_model=list[SegmentResponse])
+async def list_segments(
+    org_id: CurrentOrg,
+    db: DBConnection,
+) -> list[SegmentResponse]:
+    """List all segments for the organization."""
+    rows = await db.fetch(
+        """
+        SELECT id, name, description, created_at
+        FROM segments
+        WHERE organization_id = $1
+        ORDER BY name ASC
+        """,
+        org_id,
+    )
+    return [SegmentResponse(**dict(row)) for row in rows]
 
 
 @router.post("", response_model=TargetResponse, status_code=201)

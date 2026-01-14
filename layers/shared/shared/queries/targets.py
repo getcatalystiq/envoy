@@ -15,6 +15,15 @@ class TargetQueries:
     """Database queries for targets."""
 
     @staticmethod
+    def _parse_json_fields(row: dict[str, Any]) -> dict[str, Any]:
+        """Parse JSON string fields back to dicts."""
+        if row.get("custom_fields") and isinstance(row["custom_fields"], str):
+            row["custom_fields"] = json.loads(row["custom_fields"])
+        if row.get("metadata") and isinstance(row["metadata"], str):
+            row["metadata"] = json.loads(row["metadata"])
+        return row
+
+    @staticmethod
     async def create(
         conn: asyncpg.Connection,
         org_id: str,
@@ -46,7 +55,7 @@ class TargetQueries:
             lifecycle_stage,
             json.dumps(custom_fields or {}),
         )
-        return dict(row)
+        return TargetQueries._parse_json_fields(dict(row))
 
     @staticmethod
     async def get_by_id(
@@ -58,7 +67,7 @@ class TargetQueries:
             "SELECT * FROM targets WHERE id = $1",
             target_id,
         )
-        return dict(row) if row else None
+        return TargetQueries._parse_json_fields(dict(row)) if row else None
 
     @staticmethod
     async def get_by_email(
@@ -72,7 +81,7 @@ class TargetQueries:
             org_id,
             email,
         )
-        return dict(row) if row else None
+        return TargetQueries._parse_json_fields(dict(row)) if row else None
 
     @staticmethod
     async def list(
@@ -122,7 +131,7 @@ class TargetQueries:
             """,
             *params,
         )
-        return [dict(row) for row in rows]
+        return [TargetQueries._parse_json_fields(dict(row)) for row in rows]
 
     @staticmethod
     async def update(
@@ -163,7 +172,7 @@ class TargetQueries:
             """,
             *params,
         )
-        return dict(row) if row else None
+        return TargetQueries._parse_json_fields(dict(row)) if row else None
 
     @staticmethod
     async def update_status(
@@ -230,7 +239,7 @@ class TargetQueries:
             org_id,
             phone_normalized,
         )
-        return dict(row) if row else None
+        return TargetQueries._parse_json_fields(dict(row)) if row else None
 
     @staticmethod
     async def find_by_email_or_phone(
@@ -391,7 +400,7 @@ class TargetQueries:
             json.dumps(custom_fields or {}),
             json.dumps(metadata or {}),
         )
-        return dict(row), "created", None
+        return TargetQueries._parse_json_fields(dict(row)), "created", None
 
     @staticmethod
     async def bulk_upsert(
