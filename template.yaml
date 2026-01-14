@@ -317,6 +317,59 @@ Resources:
                 - ses:SendBulkEmail
               Resource: '*'
 
+  # Sequence Scheduler Function
+  SequenceSchedulerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub envoy-sequence-scheduler-${Environment}
+      CodeUri: functions/sequence_scheduler/
+      Handler: handler.lambda_handler
+      Timeout: 900
+      MemorySize: 2048
+      Layers:
+        - !Ref SharedLayer
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref MavenLambdaSecurityGroup
+        SubnetIds:
+          - !Ref MavenPrivateSubnet1
+          - !Ref MavenPrivateSubnet2
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          AURORA_SECRET_ARN: !Ref AuroraSecret
+          AURORA_CLUSTER_ARN: !GetAtt AuroraCluster.DBClusterArn
+          AURORA_DATABASE: envoy
+          AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
+          MAVEN_AGENT_URL: !Ref MavenAgentURL
+          MAVEN_SERVICE_JWT_SECRET_ARN: !Ref MavenServiceJWTSecretARN
+      Events:
+        ScheduleRule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Enabled: true
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Ref AuroraSecret
+                - !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:envoy/*
+                - !Ref MavenServiceJWTSecretARN
+            - Effect: Allow
+              Action:
+                - rds-data:ExecuteStatement
+                - rds-data:BatchExecuteStatement
+              Resource: !GetAtt AuroraCluster.DBClusterArn
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
+              Resource: '*'
+
   # Warmup Function
   WarmupFunction:
     Type: AWS::Serverless::Function

@@ -304,6 +304,124 @@ class OutboxStats(BaseModel):
     failed: int = 0
 
 
+# Sequence schemas
+class SequenceCreate(BaseModel):
+    """Schema for creating a sequence."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    target_type_id: UUID
+    status: str = Field(default="draft", pattern="^(draft|active|archived)$")
+
+
+class SequenceUpdate(BaseModel):
+    """Schema for updating a sequence."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    status: Optional[str] = Field(None, pattern="^(draft|active|archived)$")
+
+
+class SequenceStepContentResponse(BaseModel):
+    """Schema for step content in response."""
+
+    id: UUID
+    content_id: UUID
+    priority: int
+
+    model_config = {"from_attributes": True}
+
+
+class SequenceStepResponse(BaseModel):
+    """Schema for step in response."""
+
+    id: UUID
+    position: int
+    default_delay_hours: int
+    contents: list[SequenceStepContentResponse] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
+
+
+class SequenceResponse(BaseModel):
+    """Schema for sequence response."""
+
+    id: UUID
+    organization_id: UUID
+    name: str
+    target_type_id: UUID
+    status: str
+    steps: list[SequenceStepResponse] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SequenceStepCreate(BaseModel):
+    """Schema for creating a sequence step."""
+
+    position: int = Field(..., ge=1)
+    default_delay_hours: int = Field(default=24, ge=0)
+
+
+class SequenceStepUpdate(BaseModel):
+    """Schema for updating a sequence step."""
+
+    position: Optional[int] = Field(None, ge=1)
+    default_delay_hours: Optional[int] = Field(None, ge=0)
+
+
+class SequenceStepContentCreate(BaseModel):
+    """Schema for adding content to a step."""
+
+    content_id: UUID
+    priority: int = Field(default=1, ge=1)
+
+
+class EnrollmentCreate(BaseModel):
+    """Schema for enrolling a target in a sequence."""
+
+    target_id: UUID
+    first_step_delay_hours: int = Field(default=0, ge=0)
+
+
+class EnrollmentResponse(BaseModel):
+    """Schema for enrollment response."""
+
+    id: UUID
+    organization_id: UUID
+    target_id: UUID
+    sequence_id: UUID
+    current_step_position: int
+    status: str
+    exit_reason: Optional[str]
+    enrolled_at: datetime
+    last_step_completed_at: Optional[datetime]
+    next_evaluation_at: Optional[datetime]
+    paused_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+    sequence_name: Optional[str] = None
+    target_email: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class StepExecutionResponse(BaseModel):
+    """Schema for step execution response."""
+
+    id: UUID
+    enrollment_id: UUID
+    step_position: int
+    executed_at: datetime
+    content_id: Optional[UUID]
+    email_send_id: Optional[UUID]
+    status: str
+    created_at: datetime
+    content_name: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
 # List response wrapper
 class ListResponse(BaseModel):
     """Generic list response with pagination."""
