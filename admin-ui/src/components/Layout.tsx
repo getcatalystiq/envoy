@@ -14,7 +14,6 @@ import {
   Inbox,
   GitBranch,
   Palette,
-  AtSign,
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -29,7 +28,6 @@ const navigation = [
   { name: 'Content', href: '/content', icon: FileText },
   { name: 'Design', href: '/design-templates', icon: Palette },
   { name: 'Setup', href: '/setup', icon: Settings },
-  { name: 'Email Settings', href: '/email-settings', icon: AtSign },
 ];
 
 interface LayoutProps {

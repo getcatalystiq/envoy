@@ -16,7 +16,6 @@ import { SequenceBuilder } from './pages/SequenceBuilder';
 import { EmbeddedApp } from './pages/EmbeddedApp';
 import { DesignTemplates } from './pages/DesignTemplates';
 import { DesignTemplateEditor } from './pages/DesignTemplateEditor';
-import { EmailSettings } from './pages/EmailSettings';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn, isLoading } = useAuth();
@@ -143,13 +142,10 @@ export default function App() {
         }
       />
 
+      {/* Redirect old email-settings route to new location */}
       <Route
         path="/email-settings"
-        element={
-          <ProtectedRoute>
-            <EmailSettings />
-          </ProtectedRoute>
-        }
+        element={<Navigate to="/setup?tab=email" replace />}
       />
     </Routes>
   );

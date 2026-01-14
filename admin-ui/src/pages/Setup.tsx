@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api } from '@/api/client';
-import { CheckCircle, XCircle, Loader2, Zap, Users, Tags } from 'lucide-react';
+import { CheckCircle, XCircle, Loader2, Zap, Users, Tags, AtSign } from 'lucide-react';
 import { TargetTypesList } from './TargetTypes';
 import { SegmentsList } from './Segments';
+import { EmailSettings } from './EmailSettings';
 
 interface SetupStatus {
   maven_configured: boolean;
@@ -176,6 +177,10 @@ export function Setup() {
             <Tags className="w-4 h-4" />
             Segments
           </TabsTrigger>
+          <TabsTrigger value="email" className="flex items-center gap-2">
+            <AtSign className="w-4 h-4" />
+            Email
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="maven-skills" className="mt-6">
@@ -188,6 +193,10 @@ export function Setup() {
 
         <TabsContent value="segments" className="mt-6">
           <SegmentsList />
+        </TabsContent>
+
+        <TabsContent value="email" className="mt-6">
+          <EmailSettings />
         </TabsContent>
       </Tabs>
     </div>
