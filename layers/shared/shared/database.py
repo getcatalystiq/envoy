@@ -36,6 +36,22 @@ def _get_credentials() -> dict:
     return _credentials
 
 
+async def _init_connection(conn: asyncpg.Connection) -> None:
+    """Initialize connection with JSON codec for JSONB columns."""
+    await conn.set_type_codec(
+        "jsonb",
+        encoder=json.dumps,
+        decoder=json.loads,
+        schema="pg_catalog",
+    )
+    await conn.set_type_codec(
+        "json",
+        encoder=json.dumps,
+        decoder=json.loads,
+        schema="pg_catalog",
+    )
+
+
 async def get_pool() -> asyncpg.Pool:
     """Get or create connection pool with Lambda-optimized settings."""
     global _pool, _pool_loop
@@ -64,6 +80,7 @@ async def get_pool() -> asyncpg.Pool:
             command_timeout=30,
             statement_cache_size=100,
             max_inactive_connection_lifetime=60,
+            init=_init_connection,
         )
         _pool_loop = current_loop
 

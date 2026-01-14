@@ -32,6 +32,7 @@ class TargetWebhookPayload(BaseModel):
 
     # Extensible fields
     custom_fields: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def at_least_one_identifier(self) -> "TargetWebhookPayload":
@@ -145,6 +146,7 @@ async def ingest_target(
             segment_id=segment_id,
             lifecycle_stage=payload.lifecycle_stage,
             custom_fields=payload.custom_fields,
+            metadata=payload.metadata,
         )
 
     status_code = 201 if action == "created" else 200
@@ -199,6 +201,7 @@ async def ingest_targets_bulk(
                     segment_id=segment_id,
                     lifecycle_stage=target_data.lifecycle_stage,
                     custom_fields=target_data.custom_fields,
+                    metadata=target_data.metadata,
                 )
 
                 if action == "created":

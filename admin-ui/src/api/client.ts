@@ -61,14 +61,21 @@ export const api = {
 // API Types
 export interface Target {
   id: string;
+  organization_id: string;
   email: string;
-  name: string | null;
+  first_name: string | null;
+  last_name: string | null;
   company: string | null;
-  title: string | null;
-  linkedin_url: string | null;
-  context: Record<string, unknown>;
+  phone: string | null;
+  phone_normalized: string | null;
+  target_type_id: string | null;
+  segment_id: string | null;
+  lifecycle_stage: number;
+  custom_fields: Record<string, unknown>;
+  metadata: Record<string, unknown>;
   status: string;
   created_at: string;
+  updated_at: string;
 }
 
 export interface Campaign {

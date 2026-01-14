@@ -31,8 +31,16 @@ CREATE TABLE IF NOT EXISTS outbox (
 ALTER TABLE outbox ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policy: Organization isolation
-CREATE POLICY outbox_org_isolation ON outbox
-    USING (organization_id = current_setting('app.current_org_id', true)::uuid);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE tablename = 'outbox' AND policyname = 'outbox_org_isolation'
+    ) THEN
+        CREATE POLICY outbox_org_isolation ON outbox
+            USING (organization_id = current_setting('app.current_org_id', true)::uuid);
+    END IF;
+END
+$$;
 
 -- Performance indexes
 CREATE INDEX IF NOT EXISTS idx_outbox_org_status ON outbox(organization_id, status);
@@ -51,6 +59,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_outbox_updated_at ON outbox;
 CREATE TRIGGER trigger_outbox_updated_at
     BEFORE UPDATE ON outbox
     FOR EACH ROW

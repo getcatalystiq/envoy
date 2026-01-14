@@ -44,14 +44,18 @@ class TargetResponse(BaseModel):
     """Schema for target response."""
 
     id: UUID
+    organization_id: UUID
     email: str
     first_name: Optional[str]
     last_name: Optional[str]
     company: Optional[str]
+    phone: Optional[str] = None
+    phone_normalized: Optional[str] = None
     target_type_id: Optional[UUID]
     segment_id: Optional[UUID]
     lifecycle_stage: int
     custom_fields: dict[str, Any]
+    metadata: dict[str, Any] = Field(default_factory=dict)
     status: str
     created_at: datetime
     updated_at: datetime

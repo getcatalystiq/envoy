@@ -142,7 +142,7 @@ class TargetQueries:
             if value is not None:
                 set_clauses.append(f"{key} = ${param_idx}")
                 # Serialize dict values for JSONB columns
-                if key == "custom_fields" and isinstance(value, dict):
+                if key in ("custom_fields", "metadata") and isinstance(value, dict):
                     params.append(json.dumps(value))
                 else:
                     params.append(value)
@@ -282,6 +282,7 @@ class TargetQueries:
         segment_id: Optional[UUID] = None,
         lifecycle_stage: Optional[int] = None,
         custom_fields: Optional[dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> tuple[dict[str, Any], str, Optional[str]]:
         """
         Upsert a target - update if exists, create if not.
@@ -303,6 +304,7 @@ class TargetQueries:
             segment_id: Segment UUID
             lifecycle_stage: Lifecycle stage (0-6)
             custom_fields: Additional custom fields (JSONB)
+            metadata: Arbitrary key-value pairs (JSONB)
 
         Returns:
             Tuple of (target_dict, action, matched_on)
@@ -344,9 +346,19 @@ class TargetQueries:
             if lifecycle_stage is not None:
                 update_fields["lifecycle_stage"] = lifecycle_stage
             if custom_fields:
-                # Merge custom fields
-                merged_custom = {**(existing.get("custom_fields") or {}), **custom_fields}
+                # Merge custom fields (handle JSON string from DB)
+                existing_custom = existing.get("custom_fields") or {}
+                if isinstance(existing_custom, str):
+                    existing_custom = json.loads(existing_custom) if existing_custom else {}
+                merged_custom = {**existing_custom, **custom_fields}
                 update_fields["custom_fields"] = merged_custom
+            if metadata:
+                # Merge metadata (handle JSON string from DB)
+                existing_metadata = existing.get("metadata") or {}
+                if isinstance(existing_metadata, str):
+                    existing_metadata = json.loads(existing_metadata) if existing_metadata else {}
+                merged_metadata = {**existing_metadata, **metadata}
+                update_fields["metadata"] = merged_metadata
 
             if update_fields:
                 updated = await TargetQueries.update(conn, existing["id"], **update_fields)
@@ -362,8 +374,8 @@ class TargetQueries:
             INSERT INTO targets (
                 organization_id, email, phone, phone_normalized,
                 first_name, last_name, company,
-                target_type_id, segment_id, lifecycle_stage, custom_fields
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                target_type_id, segment_id, lifecycle_stage, custom_fields, metadata
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
             """,
             org_id,
@@ -377,6 +389,7 @@ class TargetQueries:
             segment_id,
             lifecycle_stage or 0,
             json.dumps(custom_fields or {}),
+            json.dumps(metadata or {}),
         )
         return dict(row), "created", None
 
@@ -415,6 +428,7 @@ class TargetQueries:
                     segment_id=target_data.get("segment_id"),
                     lifecycle_stage=target_data.get("lifecycle_stage"),
                     custom_fields=target_data.get("custom_fields"),
+                    metadata=target_data.get("metadata"),
                 )
                 if action == "created":
                     created += 1
