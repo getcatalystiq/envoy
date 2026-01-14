@@ -309,7 +309,7 @@ class SequenceCreate(BaseModel):
     """Schema for creating a sequence."""
 
     name: str = Field(..., min_length=1, max_length=255)
-    target_type_id: UUID
+    target_type_id: Optional[UUID] = None
     status: str = Field(default="draft", pattern="^(draft|active|archived)$")
 
 

@@ -50,7 +50,8 @@ def run_migrations(conn) -> list[str]:
             results.append(f"Applied: {migration_name}")
         except psycopg2.Error as e:
             conn.rollback()
-            if "already applied" in str(e).lower():
+            error_msg = str(e).lower()
+            if "already applied" in error_msg or "already exists" in error_msg:
                 results.append(f"Skipped: {migration_name} (already applied)")
             else:
                 results.append(f"Error in {migration_name}: {e}")

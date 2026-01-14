@@ -21,7 +21,7 @@ class SequenceQueries:
         conn: asyncpg.Connection,
         org_id: str,
         name: str,
-        target_type_id: UUID,
+        target_type_id: Optional[UUID] = None,
         status: str = "draft",
     ) -> dict[str, Any]:
         """Create a new sequence."""
