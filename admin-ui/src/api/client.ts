@@ -253,12 +253,30 @@ export interface AddStepContentInput {
 }
 
 // Design Template types
+export type EditorType = 'mjml' | 'maily';
+
+// Maily JSON content type (Tiptap format)
+export interface MailyContent {
+  type: 'doc';
+  content: MailyNode[];
+}
+
+export interface MailyNode {
+  type: string;
+  attrs?: Record<string, unknown>;
+  content?: MailyNode[];
+  text?: string;
+  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>;
+}
+
 export interface DesignTemplate {
   id: string;
   organization_id: string;
   name: string;
   description: string | null;
-  mjml_source: string;
+  editor_type: EditorType;
+  mjml_source: string | null;
+  maily_content: MailyContent | null;
   html_compiled: string | null;
   archived: boolean;
   created_at: string;
@@ -268,13 +286,16 @@ export interface DesignTemplate {
 export interface DesignTemplateCreate {
   name: string;
   description?: string;
-  mjml_source: string;
+  editor_type?: EditorType;
+  mjml_source?: string;
+  maily_content?: MailyContent;
 }
 
 export interface DesignTemplateUpdate {
   name?: string;
   description?: string;
   mjml_source?: string;
+  maily_content?: MailyContent;
   archived?: boolean;
 }
 
@@ -314,4 +335,36 @@ export async function previewDesignTemplate(
     mjml_source: mjmlSource,
     sample_data: sampleData,
   });
+}
+
+// Organization settings types
+export interface DNSRecord {
+  type: 'CNAME' | 'TXT' | 'MX';
+  name: string;
+  value: string;
+}
+
+export interface OrganizationSettings {
+  id: string;
+  name: string;
+  email_domain: string | null;
+  email_domain_verified: boolean;
+  email_from_name: string | null;
+  dns_records: DNSRecord[];
+}
+
+// Organization API functions
+export async function getOrganization(): Promise<OrganizationSettings> {
+  return api.get<OrganizationSettings>('/organization');
+}
+
+export async function updateOrganization(data: {
+  email_domain?: string;
+  email_from_name?: string;
+}): Promise<OrganizationSettings> {
+  return api.patch<OrganizationSettings>('/organization', data);
+}
+
+export async function checkDomainVerificationStatus(): Promise<OrganizationSettings> {
+  return api.post<OrganizationSettings>('/organization/verify-domain');
 }

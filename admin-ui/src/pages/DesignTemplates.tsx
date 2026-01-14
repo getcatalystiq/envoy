@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Edit, Trash2, Archive, MoreVertical, Palette } from 'lucide-react';
+import { Plus, Edit, Trash2, Archive, MoreVertical, Palette, Code, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -28,32 +28,6 @@ import {
   deleteDesignTemplate,
   type DesignTemplate,
 } from '@/api/client';
-
-const DEFAULT_MJML = `<mjml>
-  <mj-body>
-    <mj-section background-color="#f4f4f4" padding="20px">
-      <mj-column>
-        <mj-text align="center" font-size="24px" color="#333">
-          {{ content_subject }}
-        </mj-text>
-      </mj-column>
-    </mj-section>
-    <mj-section background-color="#ffffff" padding="20px">
-      <mj-column>
-        <mj-text>
-          {{ content_body }}
-        </mj-text>
-      </mj-column>
-    </mj-section>
-    <mj-section background-color="#f4f4f4" padding="20px">
-      <mj-column>
-        <mj-text align="center" color="#666" font-size="12px">
-          Your Company Name
-        </mj-text>
-      </mj-column>
-    </mj-section>
-  </mj-body>
-</mjml>`;
 
 export function DesignTemplates() {
   const navigate = useNavigate();
@@ -91,7 +65,7 @@ export function DesignTemplates() {
       const template = await createDesignTemplate({
         name: newName,
         description: newDescription || undefined,
-        mjml_source: DEFAULT_MJML,
+        editor_type: 'maily', // Use Maily visual editor by default
       });
       setCreateOpen(false);
       setNewName('');
@@ -240,7 +214,20 @@ export function DesignTemplates() {
                 </div>
               </CardHeader>
               <CardContent>
-                {template.archived && <Badge variant="outline" className="mb-2">Archived</Badge>}
+                <div className="flex items-center gap-2 mb-2">
+                  {template.editor_type === 'maily' ? (
+                    <Badge variant="secondary" className="flex items-center gap-1">
+                      <FileText className="h-3 w-3" />
+                      Visual
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="flex items-center gap-1">
+                      <Code className="h-3 w-3" />
+                      MJML
+                    </Badge>
+                  )}
+                  {template.archived && <Badge variant="outline">Archived</Badge>}
+                </div>
                 {template.description && (
                   <p className="text-sm text-muted-foreground line-clamp-2">{template.description}</p>
                 )}

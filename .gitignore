@@ -74,3 +74,6 @@ dmypy.json
 *.pem
 *.key
 secrets/
+.logs/
+.tmp-*
+functions/migration/migrations

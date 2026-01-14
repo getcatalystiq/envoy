@@ -438,7 +438,9 @@ class DesignTemplateCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
-    mjml_source: str = Field(..., min_length=1)
+    editor_type: str = Field(default="maily")  # "mjml" or "maily"
+    mjml_source: Optional[str] = Field(None, min_length=1)
+    maily_content: Optional[dict] = None  # Maily/Tiptap JSON content
 
 
 class DesignTemplateUpdate(BaseModel):
@@ -447,6 +449,7 @@ class DesignTemplateUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
     mjml_source: Optional[str] = Field(None, min_length=1)
+    maily_content: Optional[dict] = None
     archived: Optional[bool] = None
 
 
@@ -457,7 +460,9 @@ class DesignTemplateResponse(BaseModel):
     organization_id: UUID
     name: str
     description: Optional[str] = None
-    mjml_source: str
+    editor_type: str = "mjml"
+    mjml_source: Optional[str] = None
+    maily_content: Optional[dict] = None
     html_compiled: Optional[str] = None
     archived: bool
     created_at: datetime
@@ -469,7 +474,8 @@ class DesignTemplateResponse(BaseModel):
 class DesignTemplatePreviewRequest(BaseModel):
     """Schema for design template preview request."""
 
-    mjml_source: str = Field(..., min_length=1)
+    mjml_source: Optional[str] = Field(None, min_length=1)
+    maily_content: Optional[dict] = None
     sample_data: Optional[dict[str, str]] = None
 
 

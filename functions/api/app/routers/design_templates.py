@@ -18,6 +18,19 @@ from shared.queries.design_templates import DesignTemplateQueries
 router = APIRouter()
 
 
+# Default Maily content structure for new templates
+DEFAULT_MAILY_CONTENT = {
+    "type": "doc",
+    "content": [
+        {
+            "type": "paragraph",
+            "attrs": {"textAlign": "left"},
+            "content": [{"type": "text", "text": "Start writing your email here..."}],
+        }
+    ],
+}
+
+
 @router.get("", response_model=list[DesignTemplateResponse])
 async def list_templates(
     org_id: CurrentOrg,
@@ -36,17 +49,27 @@ async def create_template(
     db: DBConnection,
 ) -> DesignTemplateResponse:
     """Create a new design template."""
-    # Compile MJML (validates syntax)
-    html_compiled, errors = mjml.compile(data.mjml_source)
-    if errors:
-        raise HTTPException(400, f"Invalid MJML: {errors}")
+    html_compiled = None
+
+    if data.editor_type == "mjml" and data.mjml_source:
+        # Compile MJML (validates syntax)
+        html_compiled, errors = mjml.compile(data.mjml_source)
+        if errors:
+            raise HTTPException(400, f"Invalid MJML: {errors}")
+
+    # Use default Maily content if creating a Maily template without content
+    maily_content = data.maily_content
+    if data.editor_type == "maily" and not maily_content:
+        maily_content = DEFAULT_MAILY_CONTENT
 
     template = await DesignTemplateQueries.create(
         db,
         org_id=org_id,
         name=data.name,
         description=data.description,
+        editor_type=data.editor_type,
         mjml_source=data.mjml_source,
+        maily_content=maily_content,
         html_compiled=html_compiled,
     )
     return DesignTemplateResponse(**template)
@@ -87,6 +110,7 @@ async def update_template(
         name=data.name,
         description=data.description,
         mjml_source=data.mjml_source,
+        maily_content=data.maily_content,
         html_compiled=html_compiled,
         archived=data.archived,
     )
@@ -119,9 +143,21 @@ async def delete_template(
 async def preview_template(
     request: DesignTemplatePreviewRequest,
 ) -> DesignTemplatePreviewResponse:
-    """Generate preview HTML from MJML source."""
-    try:
-        html, text = mjml.preview(request.mjml_source, request.sample_data)
-        return DesignTemplatePreviewResponse(html=html, text=text)
-    except ValueError as e:
-        return DesignTemplatePreviewResponse(html="", text="", errors=[str(e)])
+    """Generate preview HTML from MJML source.
+
+    Note: Maily content preview is handled client-side using @maily-to/render.
+    This endpoint is primarily for MJML templates.
+    """
+    if request.mjml_source:
+        try:
+            html, text = mjml.preview(request.mjml_source, request.sample_data)
+            return DesignTemplatePreviewResponse(html=html, text=text)
+        except ValueError as e:
+            return DesignTemplatePreviewResponse(html="", text="", errors=[str(e)])
+
+    # For Maily content, return empty - client handles rendering
+    return DesignTemplatePreviewResponse(
+        html="",
+        text="",
+        errors=["Maily content preview is handled client-side"],
+    )

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Eye } from 'lucide-react';
+import { ArrowLeft, Save, Eye, Code, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -8,9 +8,12 @@ import {
   updateDesignTemplate,
   previewDesignTemplate,
   type DesignTemplate,
+  type MailyContent,
+  type EditorType,
 } from '@/api/client';
 import CodeMirror from '@uiw/react-codemirror';
 import { xml } from '@codemirror/lang-xml';
+import { MailyEditor } from '@/components/MailyEditor';
 
 export function DesignTemplateEditor() {
   const { id } = useParams<{ id: string }>();
@@ -18,7 +21,9 @@ export function DesignTemplateEditor() {
 
   const [template, setTemplate] = useState<DesignTemplate | null>(null);
   const [name, setName] = useState('');
+  const [editorType, setEditorType] = useState<EditorType>('maily');
   const [mjmlSource, setMjmlSource] = useState('');
+  const [mailyContent, setMailyContent] = useState<MailyContent | null>(null);
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,7 +41,9 @@ export function DesignTemplateEditor() {
       const data = await getDesignTemplate(id!);
       setTemplate(data);
       setName(data.name);
-      setMjmlSource(data.mjml_source);
+      setEditorType(data.editor_type || 'maily');
+      setMjmlSource(data.mjml_source || '');
+      setMailyContent(data.maily_content);
       if (data.html_compiled) {
         setPreviewHtml(data.html_compiled);
       }
@@ -48,6 +55,11 @@ export function DesignTemplateEditor() {
   }
 
   async function handlePreview() {
+    if (editorType === 'maily') {
+      // Maily preview is handled automatically by the MailyEditor component
+      return;
+    }
+
     setPreviewError(null);
     setPreviewing(true);
     try {
@@ -68,10 +80,15 @@ export function DesignTemplateEditor() {
     if (!template) return;
     setSaving(true);
     try {
-      const updated = await updateDesignTemplate(template.id, {
-        name,
-        mjml_source: mjmlSource,
-      });
+      const updateData: Parameters<typeof updateDesignTemplate>[1] = { name };
+
+      if (editorType === 'mjml') {
+        updateData.mjml_source = mjmlSource;
+      } else {
+        updateData.maily_content = mailyContent || undefined;
+      }
+
+      const updated = await updateDesignTemplate(template.id, updateData);
       setTemplate(updated);
       setHasChanges(false);
       if (updated.html_compiled) {
@@ -84,10 +101,20 @@ export function DesignTemplateEditor() {
     }
   }
 
-  function handleSourceChange(value: string) {
+  function handleMjmlSourceChange(value: string) {
     setMjmlSource(value);
     setHasChanges(true);
   }
+
+  const handleMailyContentChange = useCallback((content: MailyContent) => {
+    setMailyContent(content);
+    setHasChanges(true);
+  }, []);
+
+  const handleMailyPreviewHtml = useCallback((html: string) => {
+    setPreviewHtml(html);
+    setPreviewError(null);
+  }, []);
 
   function handleNameChange(value: string) {
     setName(value);
@@ -128,12 +155,27 @@ export function DesignTemplateEditor() {
             onChange={(e) => handleNameChange(e.target.value)}
             className="w-64 font-semibold"
           />
+          <div className="flex items-center gap-1 text-sm text-muted-foreground bg-muted px-2 py-1 rounded">
+            {editorType === 'maily' ? (
+              <>
+                <FileText className="h-3 w-3" />
+                <span>Visual Editor</span>
+              </>
+            ) : (
+              <>
+                <Code className="h-3 w-3" />
+                <span>MJML</span>
+              </>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handlePreview} disabled={previewing}>
-            <Eye className="h-4 w-4 mr-2" />
-            {previewing ? 'Loading...' : 'Preview'}
-          </Button>
+          {editorType === 'mjml' && (
+            <Button variant="outline" size="sm" onClick={handlePreview} disabled={previewing}>
+              <Eye className="h-4 w-4 mr-2" />
+              {previewing ? 'Loading...' : 'Preview'}
+            </Button>
+          )}
           <Button size="sm" onClick={handleSave} disabled={!hasChanges || saving}>
             <Save className="h-4 w-4 mr-2" />
             {saving ? 'Saving...' : 'Save'}
@@ -143,22 +185,32 @@ export function DesignTemplateEditor() {
 
       {/* Editor */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Code Editor */}
+        {/* Code/Visual Editor */}
         <div className="w-1/2 border-r flex flex-col">
-          <div className="border-b px-4 py-2 text-sm font-medium bg-muted/30">MJML Source</div>
+          <div className="border-b px-4 py-2 text-sm font-medium bg-muted/30">
+            {editorType === 'maily' ? 'Visual Editor' : 'MJML Source'}
+          </div>
           <div className="flex-1 overflow-auto">
-            <CodeMirror
-              value={mjmlSource}
-              height="100%"
-              extensions={[xml()]}
-              onChange={handleSourceChange}
-              className="h-full"
-              basicSetup={{
-                lineNumbers: true,
-                highlightActiveLine: true,
-                foldGutter: true,
-              }}
-            />
+            {editorType === 'maily' ? (
+              <MailyEditor
+                content={mailyContent}
+                onChange={handleMailyContentChange}
+                onPreviewHtml={handleMailyPreviewHtml}
+              />
+            ) : (
+              <CodeMirror
+                value={mjmlSource}
+                height="100%"
+                extensions={[xml()]}
+                onChange={handleMjmlSourceChange}
+                className="h-full"
+                basicSetup={{
+                  lineNumbers: true,
+                  highlightActiveLine: true,
+                  foldGutter: true,
+                }}
+              />
+            )}
           </div>
         </div>
 

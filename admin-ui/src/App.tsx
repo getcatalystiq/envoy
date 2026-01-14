@@ -16,6 +16,7 @@ import { SequenceBuilder } from './pages/SequenceBuilder';
 import { EmbeddedApp } from './pages/EmbeddedApp';
 import { DesignTemplates } from './pages/DesignTemplates';
 import { DesignTemplateEditor } from './pages/DesignTemplateEditor';
+import { EmailSettings } from './pages/EmailSettings';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn, isLoading } = useAuth();
@@ -138,6 +139,15 @@ export default function App() {
         element={
           <ProtectedRoute>
             <DesignTemplateEditor />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/email-settings"
+        element={
+          <ProtectedRoute>
+            <EmailSettings />
           </ProtectedRoute>
         }
       />

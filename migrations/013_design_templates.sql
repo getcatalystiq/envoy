@@ -25,6 +25,7 @@ CREATE INDEX IF NOT EXISTS idx_design_templates_org_archived ON design_templates
 ALTER TABLE design_templates ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policy: Organization isolation
+DROP POLICY IF EXISTS design_templates_org_isolation ON design_templates;
 CREATE POLICY design_templates_org_isolation ON design_templates
     USING (organization_id = current_setting('app.current_org_id', true)::uuid);
 
@@ -37,6 +38,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_design_templates_updated_at ON design_templates;
 CREATE TRIGGER trigger_design_templates_updated_at
     BEFORE UPDATE ON design_templates
     FOR EACH ROW

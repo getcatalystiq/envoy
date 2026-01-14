@@ -1,4 +1,4 @@
-"""PKCE (Proof Key for Code Exchange) utilities."""
+"""PKCE (Proof Key for Code Exchange) utilities for OAuth 2.1."""
 
 import base64
 import hashlib
