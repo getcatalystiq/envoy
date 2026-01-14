@@ -147,9 +147,9 @@ function MavenSkillsTab() {
   );
 }
 
-export function Setup() {
+export function Settings() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') || 'maven-skills';
+  const activeTab = searchParams.get('tab') || 'email';
 
   const handleTabChange = (value: string) => {
     setSearchParams({ tab: value });
@@ -159,15 +159,15 @@ export function Setup() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Setup</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
         <p className="text-gray-600">Configure your organization settings</p>
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList>
-          <TabsTrigger value="maven-skills" className="flex items-center gap-2">
-            <Zap className="w-4 h-4" />
-            Maven Skills
+          <TabsTrigger value="email" className="flex items-center gap-2">
+            <AtSign className="w-4 h-4" />
+            Email
           </TabsTrigger>
           <TabsTrigger value="target-types" className="flex items-center gap-2">
             <Users className="w-4 h-4" />
@@ -177,14 +177,14 @@ export function Setup() {
             <Tags className="w-4 h-4" />
             Segments
           </TabsTrigger>
-          <TabsTrigger value="email" className="flex items-center gap-2">
-            <AtSign className="w-4 h-4" />
-            Email
+          <TabsTrigger value="maven-skills" className="flex items-center gap-2">
+            <Zap className="w-4 h-4" />
+            Maven Skills
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="maven-skills" className="mt-6">
-          <MavenSkillsTab />
+        <TabsContent value="email" className="mt-6">
+          <EmailSettings />
         </TabsContent>
 
         <TabsContent value="target-types" className="mt-6">
@@ -195,8 +195,8 @@ export function Setup() {
           <SegmentsList />
         </TabsContent>
 
-        <TabsContent value="email" className="mt-6">
-          <EmailSettings />
+        <TabsContent value="maven-skills" className="mt-6">
+          <MavenSkillsTab />
         </TabsContent>
       </Tabs>
     </div>
