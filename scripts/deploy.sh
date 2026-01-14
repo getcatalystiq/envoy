@@ -27,6 +27,11 @@ for cmd in sam aws python3; do
     fi
 done
 
+# Copy migrations to Lambda function directory
+echo "==> Syncing migrations to Lambda function"
+mkdir -p functions/migration/migrations
+rsync -av --delete migrations/*.sql functions/migration/migrations/
+
 # Install shared layer dependencies
 echo "==> Installing shared layer dependencies"
 if command -v uv &> /dev/null; then
