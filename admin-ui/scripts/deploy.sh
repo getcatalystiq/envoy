@@ -79,6 +79,9 @@ if [ -z "$S3_BUCKET" ]; then
     exit 1
 fi
 
+# Append /api/v1 to the API URL for the frontend
+API_URL="${API_URL}/api/v1"
+
 echo -e "  S3 Bucket:    ${GREEN}${S3_BUCKET}${NC}"
 echo -e "  CloudFront:   ${GREEN}${CLOUDFRONT_DISTRIBUTION_ID}${NC}"
 echo -e "  API URL:      ${GREEN}${API_URL}${NC}"

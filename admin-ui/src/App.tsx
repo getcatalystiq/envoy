@@ -12,6 +12,8 @@ import { Analytics } from './pages/Analytics';
 import { Setup } from './pages/Setup';
 import { Outbox } from './pages/Outbox';
 import { EmbeddedApp } from './pages/EmbeddedApp';
+import { DesignTemplates } from './pages/DesignTemplates';
+import { DesignTemplateEditor } from './pages/DesignTemplateEditor';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn, isLoading } = useAuth();
@@ -98,6 +100,24 @@ export default function App() {
         element={
           <ProtectedRoute>
             <Outbox />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/design-templates"
+        element={
+          <ProtectedRoute>
+            <DesignTemplates />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/design-templates/:id"
+        element={
+          <ProtectedRoute>
+            <DesignTemplateEditor />
           </ProtectedRoute>
         }
       />

@@ -12,6 +12,7 @@ import {
   X,
   Settings,
   Inbox,
+  Palette,
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -22,6 +23,7 @@ const navigation = [
   { name: 'Campaigns', href: '/campaigns', icon: Mail },
   { name: 'Targets', href: '/targets', icon: Users },
   { name: 'Content', href: '/content', icon: FileText },
+  { name: 'Design Templates', href: '/design-templates', icon: Palette },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Setup', href: '/setup', icon: Settings },
 ];

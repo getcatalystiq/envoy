@@ -312,3 +312,93 @@ class ListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+# Design Template schemas
+class DesignTemplateCreate(BaseModel):
+    """Schema for creating a design template."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    mjml_source: str = Field(..., min_length=1)
+
+
+class DesignTemplateUpdate(BaseModel):
+    """Schema for updating a design template."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = None
+    mjml_source: Optional[str] = Field(None, min_length=1)
+    archived: Optional[bool] = None
+
+
+class DesignTemplateResponse(BaseModel):
+    """Schema for design template response."""
+
+    id: UUID
+    organization_id: UUID
+    name: str
+    description: Optional[str] = None
+    mjml_source: str
+    html_compiled: Optional[str] = None
+    archived: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DesignTemplatePreviewRequest(BaseModel):
+    """Schema for design template preview request."""
+
+    mjml_source: str = Field(..., min_length=1)
+    sample_data: Optional[dict[str, str]] = None
+
+
+class DesignTemplatePreviewResponse(BaseModel):
+    """Schema for design template preview response."""
+
+    html: str
+    text: str
+    errors: Optional[list[str]] = None
+
+
+# Organization schemas
+class OrganizationUpdate(BaseModel):
+    """Schema for updating organization settings."""
+
+    email_domain: Optional[str] = Field(None, max_length=255)
+    email_from_name: Optional[str] = Field(None, max_length=100)
+
+    @field_validator("email_domain")
+    @classmethod
+    def validate_domain(cls, v: Optional[str]) -> Optional[str]:
+        if v:
+            # Basic domain validation
+            import re
+
+            if not re.match(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$", v.lower()):
+                raise ValueError("Invalid domain format")
+            return v.lower()
+        return v
+
+
+class DNSRecord(BaseModel):
+    """Schema for DNS record."""
+
+    type: str
+    name: str
+    value: str
+
+
+class OrganizationResponse(BaseModel):
+    """Schema for organization response."""
+
+    id: UUID
+    name: str
+    email_domain: Optional[str] = None
+    email_domain_verified: bool = False
+    email_from_name: Optional[str] = None
+    dns_records: list[DNSRecord] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}

@@ -200,13 +200,15 @@ async def send_queued_emails() -> dict[str, Any]:
     ses = SESClient()
 
     async with pool.acquire() as conn:
-        # Get queued emails ready to send
+        # Get queued emails ready to send with org domain settings
         sends = await conn.fetch(
             """
-            SELECT * FROM email_sends
-            WHERE status = 'queued'
-              AND (scheduled_at IS NULL OR scheduled_at <= NOW())
-            ORDER BY created_at ASC
+            SELECT es.*, o.email_domain, o.email_domain_verified, o.email_from_name
+            FROM email_sends es
+            JOIN organizations o ON o.id = es.organization_id
+            WHERE es.status = 'queued'
+              AND (es.scheduled_at IS NULL OR es.scheduled_at <= NOW())
+            ORDER BY es.created_at ASC
             LIMIT 100
             """
         )
@@ -215,10 +217,18 @@ async def send_queued_emails() -> dict[str, Any]:
     failed_count = 0
 
     for send in sends:
+        # Build from_email if org has verified domain
+        from_email = None
+        if send["email_domain"] and send["email_domain_verified"]:
+            from_name = send["email_from_name"] or "noreply"
+            from_email = f"{from_name}@{send['email_domain']}"
+
         result = await ses.send_email(
             to_email=send["email"],
             subject=send["subject"],
             body_html=send["body"],
+            from_email=from_email,
+            unsubscribe_url=f"https://api.envoy.app/unsubscribe/{send['target_id']}",
         )
 
         async with pool.acquire() as conn:

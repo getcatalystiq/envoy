@@ -241,6 +241,9 @@ Resources:
               Action:
                 - ses:SendEmail
                 - ses:SendRawEmail
+                - ses:CreateEmailIdentity
+                - ses:GetEmailIdentity
+                - ses:DeleteEmailIdentity
               Resource: '*'
 
   # HTTP API Gateway

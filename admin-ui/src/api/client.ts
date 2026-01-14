@@ -95,11 +95,16 @@ export interface Campaign {
 export interface ContentTemplate {
   id: string;
   name: string;
-  subject_template: string;
-  body_template: string;
-  variant_label: string | null;
-  is_active: boolean;
+  content_type: string;
+  channel: string;
+  subject: string | null;
+  body: string;
+  target_type_id: string | null;
+  segment_id: string | null;
+  lifecycle_stage: number | null;
+  status: string;
   created_at: string;
+  updated_at: string;
 }
 
 export interface Analytics {
@@ -155,4 +160,68 @@ export interface OutboxStats {
   snoozed: number;
   sent: number;
   failed: number;
+}
+
+// Design Template types
+export interface DesignTemplate {
+  id: string;
+  organization_id: string;
+  name: string;
+  description: string | null;
+  mjml_source: string;
+  html_compiled: string | null;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DesignTemplateCreate {
+  name: string;
+  description?: string;
+  mjml_source: string;
+}
+
+export interface DesignTemplateUpdate {
+  name?: string;
+  description?: string;
+  mjml_source?: string;
+  archived?: boolean;
+}
+
+export interface DesignTemplatePreview {
+  html: string;
+  text: string;
+  errors?: string[];
+}
+
+// Design Template API functions
+export async function listDesignTemplates(includeArchived = false): Promise<DesignTemplate[]> {
+  const query = includeArchived ? '?include_archived=true' : '';
+  return api.get<DesignTemplate[]>(`/api/v1/design-templates${query}`);
+}
+
+export async function getDesignTemplate(id: string): Promise<DesignTemplate> {
+  return api.get<DesignTemplate>(`/api/v1/design-templates/${id}`);
+}
+
+export async function createDesignTemplate(data: DesignTemplateCreate): Promise<DesignTemplate> {
+  return api.post<DesignTemplate>('/api/v1/design-templates', data);
+}
+
+export async function updateDesignTemplate(id: string, data: DesignTemplateUpdate): Promise<DesignTemplate> {
+  return api.patch<DesignTemplate>(`/api/v1/design-templates/${id}`, data);
+}
+
+export async function deleteDesignTemplate(id: string): Promise<void> {
+  await api.delete(`/api/v1/design-templates/${id}`);
+}
+
+export async function previewDesignTemplate(
+  mjmlSource: string,
+  sampleData?: Record<string, string>
+): Promise<DesignTemplatePreview> {
+  return api.post<DesignTemplatePreview>('/api/v1/design-templates/preview', {
+    mjml_source: mjmlSource,
+    sample_data: sampleData,
+  });
 }

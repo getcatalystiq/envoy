@@ -65,12 +65,26 @@ async def send_email(
         body,
     )
 
+    # Get org email domain settings
+    org = await db.fetchrow(
+        "SELECT email_domain, email_domain_verified, email_from_name FROM organizations WHERE id = $1",
+        org_id,
+    )
+
+    # Build from_email if org has verified domain
+    from_email = None
+    if org and org["email_domain"] and org["email_domain_verified"]:
+        from_name = org["email_from_name"] or "noreply"
+        from_email = f"{from_name}@{org['email_domain']}"
+
     # Send via SES
     ses = SESClient()
     result = await ses.send_email(
         to_email=target["email"],
         subject=subject,
         body_html=body,
+        from_email=from_email,
+        unsubscribe_url=f"https://api.envoy.app/unsubscribe/{data.target_id}",
     )
 
     # Update send record
