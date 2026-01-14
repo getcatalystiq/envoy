@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api } from '@/api/client';
-import { CheckCircle, XCircle, Loader2, Zap } from 'lucide-react';
+import { CheckCircle, XCircle, Loader2, Zap, Users, Tags } from 'lucide-react';
+import { TargetTypesList } from './TargetTypes';
+import { SegmentsList } from './Segments';
 
 interface SetupStatus {
   maven_configured: boolean;
@@ -17,7 +21,7 @@ const SKILLS = [
   { slug: 'envoy-timing', name: 'Send Timing', description: 'Optimize email send timing' },
 ];
 
-export function Setup() {
+function MavenSkillsTab() {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isProvisioning, setIsProvisioning] = useState(false);
@@ -31,7 +35,7 @@ export function Setup() {
     try {
       const data = await api.get<SetupStatus>('/setup/status');
       setStatus(data);
-    } catch (err) {
+    } catch {
       setError('Failed to load setup status');
     } finally {
       setIsLoading(false);
@@ -66,87 +70,126 @@ export function Setup() {
   }
 
   return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Zap className="w-5 h-5" />
+          Maven Skills
+        </CardTitle>
+        <CardDescription>
+          Envoy requires these AI skills to generate personalized content
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Skills List */}
+        <div className="space-y-3">
+          {SKILLS.map((skill) => {
+            const skillStatus = getSkillStatus(skill.slug);
+            return (
+              <div key={skill.slug} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div>
+                  <p className="font-medium">{skill.name}</p>
+                  <p className="text-sm text-gray-600">{skill.description}</p>
+                </div>
+                <Badge variant={
+                  skillStatus === 'success' ? 'default' :
+                  skillStatus === 'error' ? 'destructive' : 'secondary'
+                }>
+                  {skillStatus === 'success' && <CheckCircle className="w-3 h-3 mr-1" />}
+                  {skillStatus === 'error' && <XCircle className="w-3 h-3 mr-1" />}
+                  {skillStatus === 'success' ? 'Active' :
+                   skillStatus === 'error' ? 'Failed' : 'Not Provisioned'}
+                </Badge>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+            {error}
+          </div>
+        )}
+
+        {/* Provision Button */}
+        <Button
+          onClick={provisionSkills}
+          disabled={isProvisioning || !status?.maven_configured}
+          className="w-full"
+        >
+          {isProvisioning ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Provisioning Skills...
+            </>
+          ) : status?.skills_provisioned_at ? (
+            'Re-provision Skills'
+          ) : (
+            'Provision Skills'
+          )}
+        </Button>
+
+        {!status?.maven_configured && (
+          <p className="text-sm text-amber-600 text-center">
+            Maven tenant ID not configured for this organization
+          </p>
+        )}
+
+        {status?.skills_provisioned_at && (
+          <p className="text-sm text-gray-500 text-center">
+            Last provisioned: {new Date(status.skills_provisioned_at).toLocaleString()}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function Setup() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'maven-skills';
+
+  const handleTabChange = (value: string) => {
+    setSearchParams({ tab: value });
+  };
+
+  return (
     <div className="space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Setup</h1>
-        <p className="text-gray-600">Configure Envoy to work with Maven AI</p>
+        <p className="text-gray-600">Configure your organization settings</p>
       </div>
 
-      {/* Maven Skills Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Zap className="w-5 h-5" />
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
+        <TabsList>
+          <TabsTrigger value="maven-skills" className="flex items-center gap-2">
+            <Zap className="w-4 h-4" />
             Maven Skills
-          </CardTitle>
-          <CardDescription>
-            Envoy requires these AI skills to generate personalized content
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Skills List */}
-          <div className="space-y-3">
-            {SKILLS.map((skill) => {
-              const skillStatus = getSkillStatus(skill.slug);
-              return (
-                <div key={skill.slug} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div>
-                    <p className="font-medium">{skill.name}</p>
-                    <p className="text-sm text-gray-600">{skill.description}</p>
-                  </div>
-                  <Badge variant={
-                    skillStatus === 'success' ? 'default' :
-                    skillStatus === 'error' ? 'destructive' : 'secondary'
-                  }>
-                    {skillStatus === 'success' && <CheckCircle className="w-3 h-3 mr-1" />}
-                    {skillStatus === 'error' && <XCircle className="w-3 h-3 mr-1" />}
-                    {skillStatus === 'success' ? 'Active' :
-                     skillStatus === 'error' ? 'Failed' : 'Not Provisioned'}
-                  </Badge>
-                </div>
-              );
-            })}
-          </div>
+          </TabsTrigger>
+          <TabsTrigger value="target-types" className="flex items-center gap-2">
+            <Users className="w-4 h-4" />
+            Target Types
+          </TabsTrigger>
+          <TabsTrigger value="segments" className="flex items-center gap-2">
+            <Tags className="w-4 h-4" />
+            Segments
+          </TabsTrigger>
+        </TabsList>
 
-          {/* Error Message */}
-          {error && (
-            <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
+        <TabsContent value="maven-skills" className="mt-6">
+          <MavenSkillsTab />
+        </TabsContent>
 
-          {/* Provision Button */}
-          <Button
-            onClick={provisionSkills}
-            disabled={isProvisioning || !status?.maven_configured}
-            className="w-full"
-          >
-            {isProvisioning ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Provisioning Skills...
-              </>
-            ) : status?.skills_provisioned_at ? (
-              'Re-provision Skills'
-            ) : (
-              'Provision Skills'
-            )}
-          </Button>
+        <TabsContent value="target-types" className="mt-6">
+          <TargetTypesList />
+        </TabsContent>
 
-          {!status?.maven_configured && (
-            <p className="text-sm text-amber-600 text-center">
-              Maven tenant ID not configured for this organization
-            </p>
-          )}
-
-          {status?.skills_provisioned_at && (
-            <p className="text-sm text-gray-500 text-center">
-              Last provisioned: {new Date(status.skills_provisioned_at).toLocaleString()}
-            </p>
-          )}
-        </CardContent>
-      </Card>
+        <TabsContent value="segments" className="mt-6">
+          <SegmentsList />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
