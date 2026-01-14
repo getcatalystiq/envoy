@@ -24,12 +24,15 @@ class TargetCreate(BaseModel):
 class TargetUpdate(BaseModel):
     """Schema for updating a target."""
 
+    email: Optional[EmailStr] = None
     first_name: Optional[str] = Field(None, max_length=100)
     last_name: Optional[str] = Field(None, max_length=100)
     company: Optional[str] = Field(None, max_length=255)
+    phone: Optional[str] = Field(None, max_length=50)
     target_type_id: Optional[UUID] = None
     segment_id: Optional[UUID] = None
     lifecycle_stage: Optional[int] = Field(None, ge=0, le=6)
+    custom_fields: Optional[dict[str, Any]] = None
     status: Optional[str] = None
 
     @field_validator("status")
@@ -485,6 +488,87 @@ class DesignTemplatePreviewResponse(BaseModel):
     html: str
     text: str
     errors: Optional[list[str]] = None
+
+
+# Target Type schemas
+class TargetTypeCreate(BaseModel):
+    """Schema for creating a target type."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+
+
+class TargetTypeUpdate(BaseModel):
+    """Schema for updating a target type."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+
+
+class TargetTypeResponse(BaseModel):
+    """Schema for target type response."""
+
+    id: UUID
+    organization_id: UUID
+    name: str
+    description: Optional[str] = None
+    lifecycle_stages: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TargetTypeUsageCount(BaseModel):
+    """Schema for target type usage count."""
+
+    segments: int = 0
+    targets: int = 0
+    sequences: int = 0
+    content: int = 0
+
+
+# Segment schemas
+class SegmentCreate(BaseModel):
+    """Schema for creating a segment."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    target_type_id: UUID
+    pain_points: Optional[list[str]] = None
+    objections: Optional[list[str]] = None
+
+
+class SegmentUpdate(BaseModel):
+    """Schema for updating a segment."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    target_type_id: Optional[UUID] = None
+    pain_points: Optional[list[str]] = None
+    objections: Optional[list[str]] = None
+
+
+class SegmentResponse(BaseModel):
+    """Schema for segment response."""
+
+    id: UUID
+    organization_id: UUID
+    target_type_id: UUID
+    target_type_name: Optional[str] = None
+    name: str
+    description: Optional[str] = None
+    pain_points: list[str] = Field(default_factory=list)
+    objections: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SegmentUsageCount(BaseModel):
+    """Schema for segment usage count."""
+
+    targets: int = 0
+    content: int = 0
 
 
 # Organization schemas

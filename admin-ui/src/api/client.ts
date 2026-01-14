@@ -83,6 +83,71 @@ export interface Target {
   updated_at: string;
 }
 
+export interface LifecycleStage {
+  stage: number;
+  name: string;
+  criteria: string;
+}
+
+export interface TargetType {
+  id: string;
+  organization_id: string;
+  name: string;
+  description: string | null;
+  lifecycle_stages: LifecycleStage[];
+  created_at: string;
+}
+
+export interface TargetTypeCreate {
+  name: string;
+  description?: string;
+}
+
+export interface TargetTypeUpdate {
+  name?: string;
+  description?: string;
+}
+
+export interface TargetTypeUsageCount {
+  segments: number;
+  targets: number;
+  sequences: number;
+  content: number;
+}
+
+export interface Segment {
+  id: string;
+  organization_id: string;
+  target_type_id: string;
+  target_type_name: string | null;
+  name: string;
+  description: string | null;
+  pain_points: string[];
+  objections: string[];
+  created_at: string;
+}
+
+export interface SegmentCreate {
+  name: string;
+  description?: string;
+  target_type_id: string;
+  pain_points?: string[];
+  objections?: string[];
+}
+
+export interface SegmentUpdate {
+  name?: string;
+  description?: string;
+  target_type_id?: string;
+  pain_points?: string[];
+  objections?: string[];
+}
+
+export interface SegmentUsageCount {
+  targets: number;
+  content: number;
+}
+
 export interface Campaign {
   id: string;
   name: string;
@@ -367,4 +432,55 @@ export async function updateOrganization(data: {
 
 export async function checkDomainVerificationStatus(): Promise<OrganizationSettings> {
   return api.post<OrganizationSettings>('/organization/verify-domain');
+}
+
+// Target Type API functions
+export async function listTargetTypes(): Promise<TargetType[]> {
+  return api.get<TargetType[]>('/target-types');
+}
+
+export async function getTargetType(id: string): Promise<TargetType> {
+  return api.get<TargetType>(`/target-types/${id}`);
+}
+
+export async function createTargetType(data: TargetTypeCreate): Promise<TargetType> {
+  return api.post<TargetType>('/target-types', data);
+}
+
+export async function updateTargetType(id: string, data: TargetTypeUpdate): Promise<TargetType> {
+  return api.patch<TargetType>(`/target-types/${id}`, data);
+}
+
+export async function deleteTargetType(id: string): Promise<void> {
+  await api.delete(`/target-types/${id}`);
+}
+
+export async function getTargetTypeUsage(id: string): Promise<TargetTypeUsageCount> {
+  return api.get<TargetTypeUsageCount>(`/target-types/${id}/usage`);
+}
+
+// Segment API functions
+export async function listSegments(targetTypeId?: string): Promise<Segment[]> {
+  const query = targetTypeId ? `?target_type_id=${targetTypeId}` : '';
+  return api.get<Segment[]>(`/segments${query}`);
+}
+
+export async function getSegment(id: string): Promise<Segment> {
+  return api.get<Segment>(`/segments/${id}`);
+}
+
+export async function createSegment(data: SegmentCreate): Promise<Segment> {
+  return api.post<Segment>('/segments', data);
+}
+
+export async function updateSegment(id: string, data: SegmentUpdate): Promise<Segment> {
+  return api.patch<Segment>(`/segments/${id}`, data);
+}
+
+export async function deleteSegment(id: string): Promise<void> {
+  await api.delete(`/segments/${id}`);
+}
+
+export async function getSegmentUsage(id: string): Promise<SegmentUsageCount> {
+  return api.get<SegmentUsageCount>(`/segments/${id}/usage`);
 }
