@@ -30,6 +30,11 @@ async function request<T>(
     throw new Error(error.detail || 'Request failed');
   }
 
+  // Handle 204 No Content responses
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return response.json();
 }
 
@@ -197,30 +202,30 @@ export interface DesignTemplatePreview {
 // Design Template API functions
 export async function listDesignTemplates(includeArchived = false): Promise<DesignTemplate[]> {
   const query = includeArchived ? '?include_archived=true' : '';
-  return api.get<DesignTemplate[]>(`/api/v1/design-templates${query}`);
+  return api.get<DesignTemplate[]>(`/design-templates${query}`);
 }
 
 export async function getDesignTemplate(id: string): Promise<DesignTemplate> {
-  return api.get<DesignTemplate>(`/api/v1/design-templates/${id}`);
+  return api.get<DesignTemplate>(`/design-templates/${id}`);
 }
 
 export async function createDesignTemplate(data: DesignTemplateCreate): Promise<DesignTemplate> {
-  return api.post<DesignTemplate>('/api/v1/design-templates', data);
+  return api.post<DesignTemplate>('/design-templates', data);
 }
 
 export async function updateDesignTemplate(id: string, data: DesignTemplateUpdate): Promise<DesignTemplate> {
-  return api.patch<DesignTemplate>(`/api/v1/design-templates/${id}`, data);
+  return api.patch<DesignTemplate>(`/design-templates/${id}`, data);
 }
 
 export async function deleteDesignTemplate(id: string): Promise<void> {
-  await api.delete(`/api/v1/design-templates/${id}`);
+  await api.delete(`/design-templates/${id}`);
 }
 
 export async function previewDesignTemplate(
   mjmlSource: string,
   sampleData?: Record<string, string>
 ): Promise<DesignTemplatePreview> {
-  return api.post<DesignTemplatePreview>('/api/v1/design-templates/preview', {
+  return api.post<DesignTemplatePreview>('/design-templates/preview', {
     mjml_source: mjmlSource,
     sample_data: sampleData,
   });

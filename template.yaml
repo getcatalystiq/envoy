@@ -245,6 +245,9 @@ Resources:
                 - ses:GetEmailIdentity
                 - ses:DeleteEmailIdentity
               Resource: '*'
+    Metadata:
+      BuildMethod: python3.12
+      BuildArchitecture: arm64
 
   # HTTP API Gateway
   HttpApi:
