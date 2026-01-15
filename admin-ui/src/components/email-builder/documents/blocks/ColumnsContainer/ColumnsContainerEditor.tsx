@@ -1,6 +1,6 @@
 
 
-import { ColumnsContainer as BaseColumnsContainer } from '@usewaypoint/block-columns-container';
+import { ColumnsContainer as BaseColumnsContainer } from '../../../blocks/ColumnsContainer';
 
 import { useCurrentBlockId } from '../../editor/EditorBlock';
 import { setDocument, setSelectedBlockId } from '../../editor/EditorContext';

@@ -374,7 +374,7 @@ export function Outbox() {
                         {formatDate(item.created_at)}
                       </span>
                     </div>
-                    {item.status === 'failed' && item.send_result?.error && (
+                    {item.status === 'failed' && !!item.send_result?.error && (
                       <div className="mt-2 flex items-center gap-2 text-sm text-red-600">
                         <AlertCircle className="w-4 h-4 flex-shrink-0" />
                         <span className="truncate">{String(item.send_result.error)}</span>
@@ -484,7 +484,7 @@ export function Outbox() {
                 </div>
 
                 {/* Subject */}
-                {(selectedItem.subject || editMode) && (
+                {!!(selectedItem.subject || editMode) && (
                   <div>
                     <label className="text-sm font-medium text-gray-700">
                       Subject
@@ -522,7 +522,7 @@ export function Outbox() {
                 </div>
 
                 {/* Error for failed items */}
-                {selectedItem.status === 'failed' && selectedItem.send_result?.error && (
+                {selectedItem.status === 'failed' && !!selectedItem.send_result?.error && (
                   <div>
                     <label className="text-sm font-medium text-gray-700">
                       Error

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 import { HeightOutlined } from '@mui/icons-material';
-import { SpacerProps, SpacerPropsDefaults, SpacerPropsSchema } from '@usewaypoint/block-spacer';
+import { SpacerProps, SpacerPropsDefaults, SpacerPropsSchema } from '../../../../blocks';
 
 import BaseSidebarPanel from './helpers/BaseSidebarPanel';
 import SliderInput from './helpers/inputs/SliderInput';

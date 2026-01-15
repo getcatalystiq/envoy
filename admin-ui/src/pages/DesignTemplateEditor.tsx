@@ -13,7 +13,7 @@ import {
 import CodeMirror from '@uiw/react-codemirror';
 import { xml } from '@codemirror/lang-xml';
 import { EmailBuilderEditor } from '@/components/EmailBuilderEditor';
-import type { TReaderDocument } from '@usewaypoint/email-builder';
+import type { TEditorConfiguration } from '@/components/email-builder/documents/editor/core';
 
 export function DesignTemplateEditor() {
   const { id } = useParams<{ id: string }>();
@@ -23,7 +23,7 @@ export function DesignTemplateEditor() {
   const [name, setName] = useState('');
   const [editorType, setEditorType] = useState<EditorType>('email_builder');
   const [mjmlSource, setMjmlSource] = useState('');
-  const [builderContent, setBuilderContent] = useState<TReaderDocument | null>(null);
+  const [builderContent, setBuilderContent] = useState<TEditorConfiguration | null>(null);
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,7 +43,7 @@ export function DesignTemplateEditor() {
       setName(data.name);
       setEditorType(data.editor_type || 'email_builder');
       setMjmlSource(data.mjml_source || '');
-      setBuilderContent(data.builder_content as TReaderDocument | null);
+      setBuilderContent(data.builder_content as TEditorConfiguration | null);
       if (data.html_compiled) {
         setPreviewHtml(data.html_compiled);
       }
@@ -108,7 +108,7 @@ export function DesignTemplateEditor() {
     setHasChanges(true);
   }
 
-  const handleBuilderContentChange = useCallback((content: TReaderDocument) => {
+  const handleBuilderContentChange = useCallback((content: TEditorConfiguration) => {
     setBuilderContent(content);
     setHasChanges(true);
   }, []);

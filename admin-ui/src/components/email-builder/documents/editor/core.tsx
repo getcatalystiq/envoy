@@ -1,19 +1,20 @@
-
 import { z } from 'zod';
 
-import { Avatar, AvatarPropsSchema } from '@usewaypoint/block-avatar';
-import { Button, ButtonPropsSchema } from '@usewaypoint/block-button';
-import { Divider, DividerPropsSchema } from '@usewaypoint/block-divider';
-import { Heading, HeadingPropsSchema } from '@usewaypoint/block-heading';
-import { Html, HtmlPropsSchema } from '@usewaypoint/block-html';
-import { Image, ImagePropsSchema } from '@usewaypoint/block-image';
-import { Spacer, SpacerPropsSchema } from '@usewaypoint/block-spacer';
-import { Text, TextPropsSchema } from '@usewaypoint/block-text';
+import {
+  Avatar, AvatarPropsSchema,
+  Button, ButtonPropsSchema,
+  Divider, DividerPropsSchema,
+  Heading, HeadingPropsSchema,
+  Html, HtmlPropsSchema,
+  Image, ImagePropsSchema,
+  Spacer, SpacerPropsSchema,
+  Text, TextPropsSchema,
+} from '../../blocks';
 import {
   buildBlockComponent,
   buildBlockConfigurationDictionary,
   buildBlockConfigurationSchema,
-} from '@usewaypoint/document-core';
+} from '../../core';
 
 import ColumnsContainerEditor from '../blocks/ColumnsContainer/ColumnsContainerEditor';
 import ColumnsContainerPropsSchema from '../blocks/ColumnsContainer/ColumnsContainerPropsSchema';

@@ -13,6 +13,10 @@ export default function InspectorDrawer() {
   const selectedSidebarTab = useSelectedSidebarTab();
   const inspectorDrawerOpen = useInspectorDrawerOpen();
 
+  const handleSidebarTabChange = (_: unknown, value: string) => {
+    setSidebarTab(value as 'block-configuration' | 'styles');
+  };
+
   const renderCurrentSidebarPanel = () => {
     switch (selectedSidebarTab) {
       case 'block-configuration':
@@ -30,21 +34,35 @@ export default function InspectorDrawer() {
       sx={{
         width: inspectorDrawerOpen ? INSPECTOR_DRAWER_WIDTH : 0,
         '& .MuiDrawer-paper': {
-          top: '53px', // Account for parent header
-          height: 'calc(100% - 53px)',
+          top: '89px', // Account for parent header
+          height: 'calc(100% - 89px)',
+          right: '23px',
+          borderLeft: 1,
+          borderColor: 'divider',
         },
       }}
     >
-      <Box sx={{ width: INSPECTOR_DRAWER_WIDTH, height: 49, borderBottom: 1, borderColor: 'divider' }}>
-        <Box px={2}>
-          <Tabs value={selectedSidebarTab} onChange={(_, v) => setSidebarTab(v)}>
-            <Tab value="styles" label="Styles" />
-            <Tab value="block-configuration" label="Inspect" />
-          </Tabs>
+      <Box sx={{ width: INSPECTOR_DRAWER_WIDTH, height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <Tabs
+          value={selectedSidebarTab}
+          onChange={handleSidebarTabChange}
+          sx={{
+            borderBottom: 1,
+            borderColor: 'divider',
+            minHeight: 48,
+            '& .MuiTab-root': {
+              textTransform: 'none',
+              fontSize: '0.875rem',
+              minHeight: 48,
+            },
+          }}
+        >
+          <Tab label="Styles" value="styles" />
+          <Tab label="Inspect" value="block-configuration" />
+        </Tabs>
+        <Box sx={{ flex: 1, overflow: 'auto' }}>
+          {renderCurrentSidebarPanel()}
         </Box>
-      </Box>
-      <Box sx={{ width: INSPECTOR_DRAWER_WIDTH, height: 'calc(100% - 49px)', overflow: 'auto' }}>
-        {renderCurrentSidebarPanel()}
       </Box>
     </Drawer>
   );

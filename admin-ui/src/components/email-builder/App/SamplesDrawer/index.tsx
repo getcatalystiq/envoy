@@ -20,8 +20,8 @@ export default function SamplesDrawer() {
       sx={{
         width: samplesDrawerOpen ? SAMPLES_DRAWER_WIDTH : 0,
         '& .MuiDrawer-paper': {
-          top: '53px', // Account for parent header
-          height: 'calc(100% - 53px)',
+          top: '102px', // Account for parent header (53px) + toolbar (49px)
+          height: 'calc(100% - 102px)',
         },
       }}
     >

@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { ThemeProvider, CssBaseline } from '@mui/material';
-import { renderToStaticMarkup, type TReaderDocument } from '@usewaypoint/email-builder';
+import { renderToStaticMarkup } from './email-builder/renderers';
+import { type TReaderDocument } from './email-builder/Reader';
+import { type TEditorConfiguration } from './email-builder/documents/editor/core';
 
 import theme from './email-builder/theme';
 import App from './email-builder/App';
@@ -10,7 +12,7 @@ import {
 } from './email-builder/documents/editor/EditorContext';
 
 // Default empty email template
-export const DEFAULT_EMAIL_BUILDER_CONTENT: TReaderDocument = {
+export const DEFAULT_EMAIL_BUILDER_CONTENT: TEditorConfiguration = {
   root: {
     type: 'EmailLayout',
     data: {
@@ -31,8 +33,8 @@ export const DEFAULT_EMAIL_BUILDER_CONTENT: TReaderDocument = {
 };
 
 interface EmailBuilderEditorProps {
-  content: TReaderDocument | null;
-  onChange: (content: TReaderDocument) => void;
+  content: TEditorConfiguration | null;
+  onChange: (content: TEditorConfiguration) => void;
   onPreviewHtml?: (html: string) => void;
 }
 
@@ -40,7 +42,7 @@ interface EmailBuilderEditorProps {
 function EmailBuilderInner({ content, onChange, onPreviewHtml }: EmailBuilderEditorProps) {
   const document = useDocument();
   const isInitialized = useRef(false);
-  const lastContent = useRef<TReaderDocument | null>(null);
+  const lastContent = useRef<TEditorConfiguration | null>(null);
 
   // Initialize the editor with the provided content
   useEffect(() => {
@@ -65,7 +67,7 @@ function EmailBuilderInner({ content, onChange, onPreviewHtml }: EmailBuilderEdi
 
     if (docString !== lastString) {
       lastContent.current = document;
-      onChange(document as TReaderDocument);
+      onChange(document);
 
       // Generate preview HTML
       if (onPreviewHtml) {

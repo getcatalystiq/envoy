@@ -1,6 +1,6 @@
 
 
-import { Container as BaseContainer } from '@usewaypoint/block-container';
+import { Container as BaseContainer } from '../../../blocks/Container';
 
 import { useCurrentBlockId } from '../../editor/EditorBlock';
 import { setDocument, setSelectedBlockId, useDocument } from '../../editor/EditorContext';

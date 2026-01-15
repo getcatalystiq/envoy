@@ -164,16 +164,6 @@ export function Sequences() {
     }
   };
 
-  const getTargetTypeName = (id: string | null) => {
-    if (!id) return 'All targets';
-    const targetType = targetTypes.find((t) => t.id === id);
-    return targetType?.name || 'Unknown';
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString();
-  };
-
   const filteredSequences = sequences;
   const counts = {
     all: sequences.length,

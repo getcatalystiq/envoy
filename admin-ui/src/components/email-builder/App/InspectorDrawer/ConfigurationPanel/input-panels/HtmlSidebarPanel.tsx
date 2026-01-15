@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { HtmlProps, HtmlPropsSchema } from '@usewaypoint/block-html';
+import { HtmlProps, HtmlPropsSchema } from '../../../../blocks';
 
 import BaseSidebarPanel from './helpers/BaseSidebarPanel';
 import TextInput from './helpers/inputs/TextInput';
