@@ -130,6 +130,7 @@ def _create_access_token(
     org_id: str,
     scopes: list[str],
     client_id: str,
+    role: str = "member",
     expires_delta: Optional[timedelta] = None,
 ) -> str:
     """Create a JWT access token."""
@@ -146,6 +147,7 @@ def _create_access_token(
         "org_id": org_id,
         "scope": " ".join(scopes),
         "client_id": client_id,
+        "role": role,
         "iat": now,
         "exp": expire,
         "token_type": "access_token",
@@ -642,6 +644,7 @@ async def _handle_authorization_code_grant(
             org_id=user["organization_id"],
             scopes=scopes,
             client_id=client_id,
+            role=user.get("role", "member"),
         )
 
         refresh_token_value, _ = await OAuthRefreshTokenQueries.create(
@@ -710,6 +713,7 @@ async def _handle_refresh_token_grant(
             org_id=token_data["org_id"],
             scopes=token_data["scopes"],
             client_id=client_id,
+            role=token_data.get("role", "member"),
         )
 
         new_refresh_token, _ = await OAuthRefreshTokenQueries.create(
@@ -1019,6 +1023,7 @@ async def login(request: Request) -> JSONResponse:
         org_id=user["organization_id"],
         scopes=user.get("scopes", ["read", "write"]),
         client_id="direct_login",
+        role=user.get("role", "member"),
     )
 
     return JSONResponse(content={

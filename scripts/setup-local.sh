@@ -2,16 +2,18 @@
 set -euo pipefail
 
 # Envoy Local Development Setup Script
-# Usage: ./scripts/setup-local.sh [--skip-deps] [--tunnel|--local-db] [--migrate] [--terminal]
+# Usage: ./scripts/setup-local.sh [--skip-deps] [--tunnel|--local-db] [--migrate] [--terminal] [--no-scheduler] [--no-email-scheduler]
 #
 # Options:
-#   --skip-deps   Skip dependency installation (faster restart)
-#   --tunnel      Use remote dev database via SSM tunnel (default)
-#   --local-db    Use local PostgreSQL database
-#   --migrate     Force run migrations (local-db only)
-#   --bg          Run as background processes (default)
-#   --terminal    Open Terminal/Warp windows instead of background
-#   --warp        Use Warp terminal (with --terminal)
+#   --skip-deps           Skip dependency installation (faster restart)
+#   --tunnel              Use remote dev database via SSM tunnel (default)
+#   --local-db            Use local PostgreSQL database
+#   --migrate             Force run migrations (local-db only)
+#   --bg                  Run as background processes (default)
+#   --terminal            Open Terminal/Warp windows instead of background
+#   --warp                Use Warp terminal (with --terminal)
+#   --no-scheduler        Skip starting the sequence scheduler
+#   --no-email-scheduler  Skip starting the email scheduler
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -29,6 +31,8 @@ USE_TUNNEL=true
 FORCE_MIGRATE=false
 USE_WARP=false
 USE_BG=true
+RUN_SCHEDULER=true
+RUN_EMAIL_SCHEDULER=true
 
 # Parse arguments
 for arg in "$@"; do
@@ -54,17 +58,25 @@ for arg in "$@"; do
         --terminal|--no-bg)
             USE_BG=false
             ;;
+        --no-scheduler)
+            RUN_SCHEDULER=false
+            ;;
+        --no-email-scheduler)
+            RUN_EMAIL_SCHEDULER=false
+            ;;
         --help|-h)
-            echo "Usage: ./scripts/setup-local.sh [--skip-deps] [--tunnel|--local-db] [--migrate] [--terminal]"
+            echo "Usage: ./scripts/setup-local.sh [--skip-deps] [--tunnel|--local-db] [--migrate] [--terminal] [--no-scheduler] [--no-email-scheduler]"
             echo ""
             echo "Options:"
-            echo "  --skip-deps   Skip dependency installation (faster restart)"
-            echo "  --tunnel      Use remote dev database via SSM tunnel (default)"
-            echo "  --local-db    Use local PostgreSQL database"
-            echo "  --migrate     Force run migrations (local-db only)"
-            echo "  --bg          Run as background processes (default)"
-            echo "  --terminal    Open Terminal/Warp windows instead of background"
-            echo "  --warp        Use Warp terminal (with --terminal)"
+            echo "  --skip-deps           Skip dependency installation (faster restart)"
+            echo "  --tunnel              Use remote dev database via SSM tunnel (default)"
+            echo "  --local-db            Use local PostgreSQL database"
+            echo "  --migrate             Force run migrations (local-db only)"
+            echo "  --bg                  Run as background processes (default)"
+            echo "  --terminal            Open Terminal/Warp windows instead of background"
+            echo "  --warp                Use Warp terminal (with --terminal)"
+            echo "  --no-scheduler        Skip starting the sequence scheduler"
+            echo "  --no-email-scheduler  Skip starting the email scheduler"
             exit 0
             ;;
     esac
@@ -83,7 +95,7 @@ cd "$PROJECT_DIR"
 echo -e "${YELLOW}[0/6] Cleaning up existing processes...${NC}"
 
 # Ports used by our services
-PORTS=(3000 8000 5432)
+PORTS=(3000 8000 5433)
 
 kill_port() {
     local port=$1
@@ -103,11 +115,13 @@ done
 pkill -f "\.tmp-db-tunnel\.sh" 2>/dev/null || true
 pkill -f "\.tmp-backend\.sh" 2>/dev/null || true
 pkill -f "\.tmp-frontend\.sh" 2>/dev/null || true
+pkill -f "\.tmp-scheduler\.sh" 2>/dev/null || true
+pkill -f "\.tmp-email-scheduler\.sh" 2>/dev/null || true
 
 # Clean up any leftover tmp files
-rm -f "$PROJECT_DIR/.tmp-db-tunnel.sh" "$PROJECT_DIR/.tmp-backend.sh" "$PROJECT_DIR/.tmp-frontend.sh" 2>/dev/null || true
+rm -f "$PROJECT_DIR/.tmp-db-tunnel.sh" "$PROJECT_DIR/.tmp-backend.sh" "$PROJECT_DIR/.tmp-frontend.sh" "$PROJECT_DIR/.tmp-scheduler.sh" "$PROJECT_DIR/.tmp-email-scheduler.sh" 2>/dev/null || true
 
-echo -e "${GREEN}✓ Ports 3000, 8000, 5432 cleared${NC}"
+echo -e "${GREEN}✓ Ports 3000, 8000, 5433 cleared${NC}"
 echo ""
 
 # =============================================================================
@@ -296,7 +310,7 @@ echo "════════════════════════�
 echo "  DATABASE TUNNEL - Connecting to dev Aurora..."
 echo "═══════════════════════════════════════════════════════════"
 echo ""
-./scripts/db-tunnel.sh dev 5432
+./scripts/db-tunnel.sh dev 5433
 TUNNEL_SCRIPT
     chmod +x "$PROJECT_DIR/.tmp-db-tunnel.sh"
 fi
@@ -329,6 +343,93 @@ npm run dev
 FRONTEND_SCRIPT
 chmod +x "$PROJECT_DIR/.tmp-frontend.sh"
 
+# Sequence scheduler script (runs in a loop)
+if $RUN_SCHEDULER; then
+    cat > "$PROJECT_DIR/.tmp-scheduler.sh" << SCHEDULER_SCRIPT
+#!/bin/bash
+cd "$PROJECT_DIR"
+source .venv/bin/activate
+echo "═══════════════════════════════════════════════════════════"
+echo "  SEQUENCE SCHEDULER - Running every 30 seconds"
+echo "═══════════════════════════════════════════════════════════"
+echo ""
+sleep 5  # Wait for backend and DB to be ready
+
+export PYTHONPATH="$PROJECT_DIR/layers/shared:$PROJECT_DIR/functions/sequence_scheduler"
+export AURORA_SECRET_ARN=envoy-dev-aurora-credentials
+export AURORA_HOST=localhost
+export AURORA_PORT=5433
+export AURORA_DATABASE=envoy
+export MAVEN_AGENT_URL="\${MAVEN_AGENT_URL:-http://localhost:8001/api/agent}"
+
+while true; do
+    echo ""
+    echo "[\$(date '+%Y-%m-%d %H:%M:%S')] Running sequence scheduler..."
+    python -c "
+import asyncio
+import sys
+sys.path.insert(0, '$PROJECT_DIR/layers/shared')
+sys.path.insert(0, '$PROJECT_DIR/functions/sequence_scheduler')
+from handler import main
+try:
+    result = asyncio.run(main())
+    print(f\"  Processed {result.get('processed', 0)} enrollments\")
+    for r in result.get('results', []):
+        print(f\"    - {r.get('enrollment_id')}: {r.get('action')}\")
+except Exception as e:
+    print(f\"  Error: {e}\")
+"
+    echo "[\$(date '+%Y-%m-%d %H:%M:%S')] Sleeping for 30 seconds..."
+    sleep 30
+done
+SCHEDULER_SCRIPT
+    chmod +x "$PROJECT_DIR/.tmp-scheduler.sh"
+fi
+
+# Email scheduler script (runs in a loop)
+if $RUN_EMAIL_SCHEDULER; then
+    cat > "$PROJECT_DIR/.tmp-email-scheduler.sh" << EMAIL_SCHEDULER_SCRIPT
+#!/bin/bash
+cd "$PROJECT_DIR"
+source .venv/bin/activate
+echo "═══════════════════════════════════════════════════════════"
+echo "  EMAIL SCHEDULER - Running every 60 seconds"
+echo "═══════════════════════════════════════════════════════════"
+echo ""
+sleep 5  # Wait for backend and DB to be ready
+
+export PYTHONPATH="$PROJECT_DIR/layers/shared:$PROJECT_DIR/functions/email_scheduler"
+export AURORA_SECRET_ARN=envoy-dev-aurora-credentials
+export AURORA_HOST=localhost
+export AURORA_PORT=5433
+export AURORA_DATABASE=envoy
+export MAVEN_AGENT_URL="\${MAVEN_AGENT_URL:-http://localhost:8001/api/agent}"
+
+while true; do
+    echo ""
+    echo "[\$(date '+%Y-%m-%d %H:%M:%S')] Running email scheduler..."
+    python -c "
+import asyncio
+import sys
+sys.path.insert(0, '$PROJECT_DIR/layers/shared')
+sys.path.insert(0, '$PROJECT_DIR/functions/email_scheduler')
+from handler import main
+try:
+    result = asyncio.run(main())
+    campaigns = result.get('campaigns', {})
+    emails = result.get('emails', {})
+    print(f\"  Campaigns processed: {campaigns.get('campaigns_processed', 0)}\")
+    print(f\"  Emails sent: {emails.get('sent', 0)}, failed: {emails.get('failed', 0)}\")
+except Exception as e:
+    print(f\"  Error: {e}\")
+"
+    echo "[\$(date '+%Y-%m-%d %H:%M:%S')] Sleeping for 60 seconds..."
+    sleep 60
+done
+EMAIL_SCHEDULER_SCRIPT
+    chmod +x "$PROJECT_DIR/.tmp-email-scheduler.sh"
+fi
+
 # Launch services
 if $USE_BG; then
     # Background mode - output commands for Claude Code to run as background tasks
@@ -341,23 +442,39 @@ if $USE_BG; then
     echo ""
     if $USE_TUNNEL; then
         echo "# DB Tunnel"
-        echo "$PROJECT_DIR/scripts/db-tunnel.sh dev 5432"
+        echo "$PROJECT_DIR/scripts/db-tunnel.sh dev 5433"
         echo ""
     fi
     echo "# Backend API"
-    echo "source $PROJECT_DIR/.venv/bin/activate && PYTHONPATH=\"$PROJECT_DIR/layers/shared:$PROJECT_DIR/functions/api\" DB_PROXY_ENDPOINT=localhost DB_PORT=5432 DB_NAME=envoy DB_USER=envoy_app DB_PASSWORD=localdev JWT_PUBLIC_KEY=\"\" JWT_ISSUER=\"http://localhost\" python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --app-dir \"$PROJECT_DIR/functions/api\""
+    echo "source $PROJECT_DIR/.venv/bin/activate && PYTHONPATH=\"$PROJECT_DIR/layers/shared:$PROJECT_DIR/functions/api\" AURORA_SECRET_ARN=envoy-dev-aurora-credentials AURORA_HOST=localhost AURORA_PORT=5433 AURORA_DATABASE=envoy JWT_PUBLIC_KEY=\"\" JWT_ISSUER=\"http://localhost\" python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --app-dir \"$PROJECT_DIR/functions/api\""
     echo ""
     echo "# Frontend"
     echo "cd $PROJECT_DIR/admin-ui && npm run dev"
     echo ""
+    if $RUN_SCHEDULER; then
+        echo "# Sequence Scheduler"
+        echo "$PROJECT_DIR/.tmp-scheduler.sh"
+        echo ""
+    fi
+    if $RUN_EMAIL_SCHEDULER; then
+        echo "# Email Scheduler"
+        echo "$PROJECT_DIR/.tmp-email-scheduler.sh"
+        echo ""
+    fi
 
     # Output in a parseable format for automation
     echo "---CLAUDE_CODE_COMMANDS---"
     if $USE_TUNNEL; then
-        echo "DB Tunnel|$PROJECT_DIR/scripts/db-tunnel.sh dev 5432"
+        echo "DB Tunnel|$PROJECT_DIR/scripts/db-tunnel.sh dev 5433"
     fi
-    echo "Backend API|source $PROJECT_DIR/.venv/bin/activate && PYTHONPATH=\"$PROJECT_DIR/layers/shared:$PROJECT_DIR/functions/api\" DB_PROXY_ENDPOINT=localhost DB_PORT=5432 DB_NAME=envoy DB_USER=envoy_app DB_PASSWORD=localdev JWT_PUBLIC_KEY=\"\" JWT_ISSUER=\"http://localhost\" python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --app-dir \"$PROJECT_DIR/functions/api\""
+    echo "Backend API|source $PROJECT_DIR/.venv/bin/activate && PYTHONPATH=\"$PROJECT_DIR/layers/shared:$PROJECT_DIR/functions/api\" AURORA_SECRET_ARN=envoy-dev-aurora-credentials AURORA_HOST=localhost AURORA_PORT=5433 AURORA_DATABASE=envoy JWT_PUBLIC_KEY=\"\" JWT_ISSUER=\"http://localhost\" python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --app-dir \"$PROJECT_DIR/functions/api\""
     echo "Frontend|cd $PROJECT_DIR/admin-ui && npm run dev"
+    if $RUN_SCHEDULER; then
+        echo "Scheduler|$PROJECT_DIR/.tmp-scheduler.sh"
+    fi
+    if $RUN_EMAIL_SCHEDULER; then
+        echo "Email Scheduler|$PROJECT_DIR/.tmp-email-scheduler.sh"
+    fi
 
 elif [[ "$OSTYPE" == "darwin"* ]]; then
     # Open terminals
@@ -394,11 +511,50 @@ elif [[ "$OSTYPE" == "darwin"* ]]; then
         osascript -e "tell application \"System Events\" to keystroke \"cd '$PROJECT_DIR' && ./.tmp-frontend.sh; rm -f ./.tmp-frontend.sh\"" 2>/dev/null
         sleep 0.2
         osascript -e 'tell application "System Events" to key code 36' 2>/dev/null
+        sleep 0.5
+
+        if $RUN_SCHEDULER; then
+            osascript -e 'tell application "System Events" to keystroke "t" using command down' 2>/dev/null
+            sleep 0.5
+            osascript -e "tell application \"System Events\" to keystroke \"cd '$PROJECT_DIR' && ./.tmp-scheduler.sh; rm -f ./.tmp-scheduler.sh\"" 2>/dev/null
+            sleep 0.2
+            osascript -e 'tell application "System Events" to key code 36' 2>/dev/null
+        fi
+
+        if $RUN_EMAIL_SCHEDULER; then
+            osascript -e 'tell application "System Events" to keystroke "t" using command down' 2>/dev/null
+            sleep 0.5
+            osascript -e "tell application \"System Events\" to keystroke \"cd '$PROJECT_DIR' && ./.tmp-email-scheduler.sh; rm -f ./.tmp-email-scheduler.sh\"" 2>/dev/null
+            sleep 0.2
+            osascript -e 'tell application "System Events" to key code 36' 2>/dev/null
+        fi
 
         echo -e "${GREEN}✓ Warp tabs opened${NC}"
     else
         # Use Terminal.app with windows
         if $USE_TUNNEL; then
+            SCHEDULER_CMD=""
+            if $RUN_SCHEDULER; then
+                SCHEDULER_CMD="
+    delay 0.5
+
+    -- Scheduler window
+    do script \"cd '$PROJECT_DIR' && ./.tmp-scheduler.sh; rm -f ./.tmp-scheduler.sh\"
+    set schedulerWindow to front window
+    set custom title of schedulerWindow to \"Envoy: Scheduler\"
+"
+            fi
+            EMAIL_SCHEDULER_CMD=""
+            if $RUN_EMAIL_SCHEDULER; then
+                EMAIL_SCHEDULER_CMD="
+    delay 0.5
+
+    -- Email Scheduler window
+    do script \"cd '$PROJECT_DIR' && ./.tmp-email-scheduler.sh; rm -f ./.tmp-email-scheduler.sh\"
+    set emailSchedulerWindow to front window
+    set custom title of emailSchedulerWindow to \"Envoy: Email Scheduler\"
+"
+            fi
             osascript << APPLESCRIPT
 tell application "Terminal"
     activate
@@ -421,10 +577,32 @@ tell application "Terminal"
     do script "cd '$PROJECT_DIR' && ./.tmp-frontend.sh; rm -f ./.tmp-frontend.sh"
     set frontendWindow to front window
     set custom title of frontendWindow to "Envoy: Frontend"
-
+$SCHEDULER_CMD$EMAIL_SCHEDULER_CMD
 end tell
 APPLESCRIPT
         else
+            SCHEDULER_CMD=""
+            if $RUN_SCHEDULER; then
+                SCHEDULER_CMD="
+    delay 0.5
+
+    -- Scheduler window
+    do script \"cd '$PROJECT_DIR' && ./.tmp-scheduler.sh; rm -f ./.tmp-scheduler.sh\"
+    set schedulerWindow to front window
+    set custom title of schedulerWindow to \"Envoy: Scheduler\"
+"
+            fi
+            EMAIL_SCHEDULER_CMD=""
+            if $RUN_EMAIL_SCHEDULER; then
+                EMAIL_SCHEDULER_CMD="
+    delay 0.5
+
+    -- Email Scheduler window
+    do script \"cd '$PROJECT_DIR' && ./.tmp-email-scheduler.sh; rm -f ./.tmp-email-scheduler.sh\"
+    set emailSchedulerWindow to front window
+    set custom title of emailSchedulerWindow to \"Envoy: Email Scheduler\"
+"
+            fi
             osascript << APPLESCRIPT
 tell application "Terminal"
     activate
@@ -440,7 +618,7 @@ tell application "Terminal"
     do script "cd '$PROJECT_DIR' && ./.tmp-frontend.sh; rm -f ./.tmp-frontend.sh"
     set frontendWindow to front window
     set custom title of frontendWindow to "Envoy: Frontend"
-
+$SCHEDULER_CMD$EMAIL_SCHEDULER_CMD
 end tell
 APPLESCRIPT
         fi
@@ -448,11 +626,22 @@ APPLESCRIPT
     fi
 else
     echo -e "${YELLOW}Not on macOS - please start services manually:${NC}"
+    TERM_NUM=1
     if $USE_TUNNEL; then
-        echo "  Terminal 1: ./scripts/db-tunnel.sh dev 5432"
+        echo "  Terminal $TERM_NUM: ./scripts/db-tunnel.sh dev 5433"
+        TERM_NUM=$((TERM_NUM + 1))
     fi
-    echo "  Terminal 2: ./scripts/local-dev.sh"
-    echo "  Terminal 3: cd admin-ui && npm run dev"
+    echo "  Terminal $TERM_NUM: ./scripts/local-dev.sh"
+    TERM_NUM=$((TERM_NUM + 1))
+    echo "  Terminal $TERM_NUM: cd admin-ui && npm run dev"
+    if $RUN_SCHEDULER; then
+        TERM_NUM=$((TERM_NUM + 1))
+        echo "  Terminal $TERM_NUM: ./.tmp-scheduler.sh"
+    fi
+    if $RUN_EMAIL_SCHEDULER; then
+        TERM_NUM=$((TERM_NUM + 1))
+        echo "  Terminal $TERM_NUM: ./.tmp-email-scheduler.sh"
+    fi
 fi
 
 echo ""
@@ -470,10 +659,16 @@ else
 fi
 echo ""
 if $USE_TUNNEL; then
-    echo -e "  ${BLUE}DB Tunnel${NC}  → Connecting to dev Aurora on localhost:5432"
+    echo -e "  ${BLUE}DB Tunnel${NC}  → Connecting to dev Aurora on localhost:5433"
 fi
 echo -e "  ${BLUE}Backend${NC}    → http://localhost:8000 (API docs: /docs)"
 echo -e "  ${BLUE}Frontend${NC}   → http://localhost:3000"
+if $RUN_SCHEDULER; then
+    echo -e "  ${BLUE}Scheduler${NC}  → Running every 30 seconds"
+fi
+if $RUN_EMAIL_SCHEDULER; then
+    echo -e "  ${BLUE}Email Sched${NC} → Running every 60 seconds"
+fi
 echo ""
 if ! $USE_BG; then
     echo "Wait a few seconds for services to start, then open:"

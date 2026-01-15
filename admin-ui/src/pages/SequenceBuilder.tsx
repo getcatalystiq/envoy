@@ -73,6 +73,7 @@ export function SequenceBuilder() {
   const [availableContent, setAvailableContent] = useState<ContentTemplate[]>([]);
   const [selectedContentId, setSelectedContentId] = useState<string>('');
   const [contentPriority, setContentPriority] = useState(1);
+  const [isLoadingContent, setIsLoadingContent] = useState(false);
 
   // Enrollment state
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
@@ -143,14 +144,15 @@ export function SequenceBuilder() {
   };
 
   const loadAvailableContent = async () => {
+    setIsLoadingContent(true);
     try {
-      const endpoint = sequence?.target_type_id
-        ? `/content?target_type_id=${sequence.target_type_id}`
-        : '/content';
-      const data = await api.get<{ items: ContentTemplate[] }>(endpoint);
+      // Load all content (don't filter by target_type_id to give more options)
+      const data = await api.get<{ items: ContentTemplate[] }>('/content');
       setAvailableContent(data.items || []);
     } catch (err) {
       console.error('Failed to load content:', err);
+    } finally {
+      setIsLoadingContent(false);
     }
   };
 
@@ -195,14 +197,20 @@ export function SequenceBuilder() {
   };
 
   const handleUpdateStepDelay = async (stepId: string, delayHours: number) => {
+    // Optimistically update local state
+    setSteps((prev) =>
+      prev.map((s) => (s.id === stepId ? { ...s, default_delay_hours: delayHours } : s))
+    );
+
     try {
       await api.patch(`/sequences/${id}/steps/${stepId}`, {
         default_delay_hours: delayHours,
       });
-      await loadSequence();
     } catch (err) {
       console.error('Failed to update step:', err);
       setError('Failed to update step');
+      // Revert on error
+      await loadSequence();
     }
   };
 
@@ -350,11 +358,12 @@ export function SequenceBuilder() {
   };
 
   const formatDelay = (hours: number) => {
-    if (hours < 24) return `${hours} hours`;
+    if (hours === 0) return 'Immediately';
+    if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} delay`;
     const days = Math.floor(hours / 24);
     const remainingHours = hours % 24;
-    if (remainingHours === 0) return `${days} day${days > 1 ? 's' : ''}`;
-    return `${days} day${days > 1 ? 's' : ''} ${remainingHours}h`;
+    if (remainingHours === 0) return `${days} day${days > 1 ? 's' : ''} delay`;
+    return `${days} day${days > 1 ? 's' : ''} ${remainingHours}h delay`;
   };
 
   const canEdit = sequence?.status === 'draft';
@@ -493,9 +502,13 @@ export function SequenceBuilder() {
                           <CardContent className="p-4">
                             <div className="flex items-center justify-between">
                               <div>
-                                <div className="font-medium">Step {step.position}</div>
+                                <div className="font-medium">
+                                  {step.contents && step.contents.length > 0
+                                    ? step.contents.sort((a, b) => a.priority - b.priority)[0]?.content_subject || `Step ${step.position}`
+                                    : `Step ${step.position}`}
+                                </div>
                                 <div className="text-sm text-gray-600">
-                                  Wait {formatDelay(step.default_delay_hours)} from previous step
+                                  {formatDelay(step.default_delay_hours)}
                                 </div>
                               </div>
                               {canEdit && (
@@ -546,14 +559,17 @@ export function SequenceBuilder() {
                                     <Label>Delay (hours):</Label>
                                     <Input
                                       type="number"
-                                      min="1"
+                                      min="0"
                                       className="w-24"
                                       value={step.default_delay_hours}
                                       onChange={(e) =>
-                                        handleUpdateStepDelay(step.id, parseInt(e.target.value) || 1)
+                                        handleUpdateStepDelay(step.id, parseInt(e.target.value) || 0)
                                       }
                                       onClick={(e) => e.stopPropagation()}
                                     />
+                                    {step.default_delay_hours === 0 && (
+                                      <span className="text-sm text-muted-foreground">Immediately</span>
+                                    )}
                                   </div>
                                 )}
 
@@ -576,7 +592,7 @@ export function SequenceBuilder() {
                                                 P{content.priority}
                                               </Badge>
                                               <span className="text-sm">
-                                                {content.content_name || 'Untitled'}
+                                                {content.content_subject || content.content_name || 'Untitled'}
                                               </span>
                                             </div>
                                             {canEdit && (
@@ -833,12 +849,12 @@ export function SequenceBuilder() {
               <Input
                 id="delay"
                 type="number"
-                min="1"
+                min="0"
                 value={newStepDelay}
-                onChange={(e) => setNewStepDelay(parseInt(e.target.value) || 1)}
+                onChange={(e) => setNewStepDelay(parseInt(e.target.value) || 0)}
               />
               <p className="text-sm text-gray-500">
-                How long to wait after the previous step before sending
+                {newStepDelay === 0 ? 'Send immediately after previous step' : 'How long to wait after the previous step before sending'}
               </p>
             </div>
           </div>
@@ -860,37 +876,49 @@ export function SequenceBuilder() {
             <DialogTitle>Add Content to Step</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Content</Label>
-              <Select value={selectedContentId} onValueChange={setSelectedContentId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select content..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableContent.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Priority (lower = higher priority)</Label>
-              <Input
-                type="number"
-                min="1"
-                max="10"
-                value={contentPriority}
-                onChange={(e) => setContentPriority(parseInt(e.target.value) || 1)}
-              />
-            </div>
+            {isLoadingContent ? (
+              <div className="flex items-center justify-center py-4">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+              </div>
+            ) : availableContent.length === 0 ? (
+              <div className="text-center py-4 text-muted-foreground">
+                No content templates available. Create content first.
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label>Content</Label>
+                  <Select value={selectedContentId} onValueChange={setSelectedContentId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select content..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableContent.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.subject || c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Priority (lower = higher priority)</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={contentPriority}
+                    onChange={(e) => setContentPriority(parseInt(e.target.value) || 1)}
+                  />
+                </div>
+              </>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowContentPicker(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAddContent} disabled={!selectedContentId}>
+            <Button onClick={handleAddContent} disabled={!selectedContentId || isLoadingContent}>
               Add Content
             </Button>
           </DialogFooter>

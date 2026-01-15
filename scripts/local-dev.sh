@@ -11,11 +11,26 @@ cd "$PROJECT_DIR"
 
 # Export environment variables for local dev
 export ENVIRONMENT=dev
-export DB_PROXY_ENDPOINT=localhost
-export DB_PORT=5432
-export DB_NAME=envoy
-export DB_USER=envoy_app
-export DB_PASSWORD=localdev
+
+# Database configuration
+# For remote DB via SSM tunnel: set AURORA_SECRET_ARN and AURORA_PORT=5433
+# For local Postgres: use DB_* variables below
+if [ -n "${AURORA_SECRET_ARN:-}" ]; then
+    # Remote DB mode - credentials from AWS Secrets Manager
+    export AURORA_HOST="${AURORA_HOST:-localhost}"
+    export AURORA_PORT="${AURORA_PORT:-5433}"
+    export AURORA_DATABASE="${AURORA_DATABASE:-envoy}"
+    echo "    Using remote DB via tunnel (port $AURORA_PORT)"
+else
+    # Local Postgres mode
+    export DB_PROXY_ENDPOINT=localhost
+    export DB_PORT="${DB_PORT:-5432}"
+    export DB_NAME=envoy
+    export DB_USER=envoy_app
+    export DB_PASSWORD=localdev
+    echo "    Using local Postgres (port $DB_PORT)"
+fi
+
 export JWT_PUBLIC_KEY=""
 export JWT_ISSUER="http://localhost"
 export MAVEN_AGENT_URL="http://localhost:8001/api/agent"

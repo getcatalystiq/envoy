@@ -1,6 +1,6 @@
 ---
-name: envoy-content-email
-description: Generate personalized sales email content based on target profile and engagement history
+name: envoy-content-generation
+description: Generate personalized content based on target profile and engagement history
 access:
   allowed_services:
     - "envoy-service"

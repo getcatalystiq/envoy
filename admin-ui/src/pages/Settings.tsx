@@ -17,9 +17,7 @@ interface SetupStatus {
 }
 
 const SKILLS = [
-  { slug: 'envoy-content-email', name: 'Content Generation', description: 'Generate personalized email content' },
-  { slug: 'envoy-stage-assessment', name: 'Stage Assessment', description: 'Assess sales lifecycle stage' },
-  { slug: 'envoy-timing', name: 'Send Timing', description: 'Optimize email send timing' },
+  { slug: 'envoy-content-generation', name: 'Content Generation', description: 'Generate personalized content' },
 ];
 
 function MavenSkillsTab() {

@@ -59,13 +59,16 @@ class SequenceQueries:
                                         json_build_object(
                                             'id', ssc.id,
                                             'content_id', ssc.content_id,
-                                            'priority', ssc.priority
+                                            'priority', ssc.priority,
+                                            'content_name', c.name,
+                                            'content_subject', c.subject
                                         )
                                         ORDER BY ssc.priority
                                     ),
                                     '[]'
                                 )
                                 FROM sequence_step_contents ssc
+                                JOIN content c ON c.id = ssc.content_id
                                 WHERE ssc.sequence_step_id = ss.id
                             )
                         )
@@ -578,7 +581,8 @@ class SequenceQueries:
         rows = await conn.fetch(
             """
             SELECT e.*, s.name as sequence_name, t.email as target_email,
-                   t.data as target_data, t.converted, t.unsubscribed,
+                   t.first_name as target_first_name, t.last_name as target_last_name,
+                   t.company as target_company, t.custom_fields as target_custom_fields,
                    t.status as target_status
             FROM sequence_enrollments e
             JOIN sequences s ON s.id = e.sequence_id

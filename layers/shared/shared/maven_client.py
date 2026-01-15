@@ -52,34 +52,8 @@ class MavenClient:
     ) -> dict[str, Any]:
         """Generate content for a target."""
         return await self.invoke_skill(
-            "envoy-content-email",
+            "envoy-content-generation",
             {"target": target, "content_type": content_type},
-            session_id,
-        )
-
-    async def assess_stage(
-        self,
-        target: dict[str, Any],
-        engagements: list[dict[str, Any]],
-        session_id: Optional[str] = None,
-    ) -> dict[str, Any]:
-        """Assess lifecycle stage for a target."""
-        return await self.invoke_skill(
-            "envoy-stage-assessment",
-            {"target": target, "engagements": engagements},
-            session_id,
-        )
-
-    async def get_optimal_timing(
-        self,
-        target: dict[str, Any],
-        past_sends: list[dict[str, Any]],
-        session_id: Optional[str] = None,
-    ) -> dict[str, Any]:
-        """Get optimal send timing for a target."""
-        return await self.invoke_skill(
-            "envoy-timing",
-            {"target": target, "past_sends": past_sends},
             session_id,
         )
 

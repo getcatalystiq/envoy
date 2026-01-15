@@ -77,7 +77,7 @@ export function Targets() {
 
   const loadTargetTypes = async () => {
     try {
-      const data = await api.get<TargetType[]>('/targets/types');
+      const data = await api.get<TargetType[]>('/target-types');
       setTargetTypes(data || []);
     } catch (error) {
       console.error('Failed to load target types:', error);
@@ -86,7 +86,7 @@ export function Targets() {
 
   const loadSegments = async () => {
     try {
-      const data = await api.get<Segment[]>('/targets/segments');
+      const data = await api.get<Segment[]>('/segments');
       setSegments(data || []);
     } catch (error) {
       console.error('Failed to load segments:', error);

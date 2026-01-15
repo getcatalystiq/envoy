@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { handleCallback } from '@/auth/oauth';
 import { useSetUser } from '@/auth/AuthContext';
@@ -8,8 +8,13 @@ export function Callback() {
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const setUser = useSetUser();
+  const processedRef = useRef(false);
 
   useEffect(() => {
+    // Prevent double-processing in React StrictMode
+    if (processedRef.current) return;
+    processedRef.current = true;
+
     const processCallback = async () => {
       try {
         const userInfo = await handleCallback();
