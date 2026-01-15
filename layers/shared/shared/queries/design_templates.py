@@ -21,7 +21,7 @@ class DesignTemplateQueries:
         """List all design templates for an organization."""
         query = """
             SELECT id, organization_id, name, description, editor_type,
-                   mjml_source, maily_content, html_compiled, archived,
+                   mjml_source, builder_content, html_compiled, archived,
                    created_at, updated_at
             FROM design_templates
             WHERE organization_id = $1
@@ -34,9 +34,9 @@ class DesignTemplateQueries:
         results = []
         for row in rows:
             d = dict(row)
-            # Parse JSONB maily_content if present
-            if d.get("maily_content") and isinstance(d["maily_content"], str):
-                d["maily_content"] = json.loads(d["maily_content"])
+            # Parse JSONB builder_content if present
+            if d.get("builder_content") and isinstance(d["builder_content"], str):
+                d["builder_content"] = json.loads(d["builder_content"])
             results.append(d)
         return results
 
@@ -50,7 +50,7 @@ class DesignTemplateQueries:
         row = await conn.fetchrow(
             """
             SELECT id, organization_id, name, description, editor_type,
-                   mjml_source, maily_content, html_compiled, archived,
+                   mjml_source, builder_content, html_compiled, archived,
                    created_at, updated_at
             FROM design_templates
             WHERE id = $1 AND organization_id = $2
@@ -61,9 +61,9 @@ class DesignTemplateQueries:
         if not row:
             return None
         d = dict(row)
-        # Parse JSONB maily_content if present
-        if d.get("maily_content") and isinstance(d["maily_content"], str):
-            d["maily_content"] = json.loads(d["maily_content"])
+        # Parse JSONB builder_content if present
+        if d.get("builder_content") and isinstance(d["builder_content"], str):
+            d["builder_content"] = json.loads(d["builder_content"])
         return d
 
     @staticmethod
@@ -71,25 +71,25 @@ class DesignTemplateQueries:
         conn: asyncpg.Connection,
         org_id: UUID,
         name: str,
-        editor_type: str = "maily",
+        editor_type: str = "email_builder",
         mjml_source: Optional[str] = None,
-        maily_content: Optional[dict] = None,
+        builder_content: Optional[dict] = None,
         html_compiled: Optional[str] = None,
         description: Optional[str] = None,
     ) -> dict[str, Any]:
         """Create a new design template."""
-        # Serialize maily_content to JSON string for JSONB storage
-        maily_json = json.dumps(maily_content) if maily_content else None
+        # Serialize builder_content to JSON string for JSONB storage
+        builder_json = json.dumps(builder_content) if builder_content else None
 
         row = await conn.fetchrow(
             """
             INSERT INTO design_templates (
                 organization_id, name, description, editor_type,
-                mjml_source, maily_content, html_compiled
+                mjml_source, builder_content, html_compiled
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id, organization_id, name, description, editor_type,
-                      mjml_source, maily_content, html_compiled, archived,
+                      mjml_source, builder_content, html_compiled, archived,
                       created_at, updated_at
             """,
             org_id,
@@ -97,12 +97,12 @@ class DesignTemplateQueries:
             description,
             editor_type,
             mjml_source,
-            maily_json,
+            builder_json,
             html_compiled,
         )
         d = dict(row)
-        if d.get("maily_content") and isinstance(d["maily_content"], str):
-            d["maily_content"] = json.loads(d["maily_content"])
+        if d.get("builder_content") and isinstance(d["builder_content"], str):
+            d["builder_content"] = json.loads(d["builder_content"])
         return d
 
     @staticmethod
@@ -113,7 +113,7 @@ class DesignTemplateQueries:
         name: Optional[str] = None,
         description: Optional[str] = None,
         mjml_source: Optional[str] = None,
-        maily_content: Optional[dict] = None,
+        builder_content: Optional[dict] = None,
         html_compiled: Optional[str] = None,
         archived: Optional[bool] = None,
     ) -> Optional[dict[str, Any]]:
@@ -135,9 +135,9 @@ class DesignTemplateQueries:
             updates.append(f"mjml_source = ${param_idx}")
             params.append(mjml_source)
             param_idx += 1
-        if maily_content is not None:
-            updates.append(f"maily_content = ${param_idx}")
-            params.append(json.dumps(maily_content))
+        if builder_content is not None:
+            updates.append(f"builder_content = ${param_idx}")
+            params.append(json.dumps(builder_content))
             param_idx += 1
         if html_compiled is not None:
             updates.append(f"html_compiled = ${param_idx}")
@@ -157,15 +157,15 @@ class DesignTemplateQueries:
             SET {', '.join(updates)}
             WHERE id = ${param_idx} AND organization_id = ${param_idx + 1}
             RETURNING id, organization_id, name, description, editor_type,
-                      mjml_source, maily_content, html_compiled, archived,
+                      mjml_source, builder_content, html_compiled, archived,
                       created_at, updated_at
         """
         row = await conn.fetchrow(query, *params)
         if not row:
             return None
         d = dict(row)
-        if d.get("maily_content") and isinstance(d["maily_content"], str):
-            d["maily_content"] = json.loads(d["maily_content"])
+        if d.get("builder_content") and isinstance(d["builder_content"], str):
+            d["builder_content"] = json.loads(d["builder_content"])
         return d
 
     @staticmethod

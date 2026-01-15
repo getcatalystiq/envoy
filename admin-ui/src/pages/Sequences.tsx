@@ -32,10 +32,9 @@ import {
   GitBranch,
   MoreVertical,
   Play,
+  Pause,
   Archive,
   Trash2,
-  Users,
-  Layers,
   AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -126,6 +125,16 @@ export function Sequences() {
     } catch (err) {
       console.error('Failed to archive sequence:', err);
       setError('Failed to archive sequence');
+    }
+  };
+
+  const handlePause = async (sequence: Sequence) => {
+    try {
+      await api.patch(`/sequences/${sequence.id}`, { status: 'draft' });
+      await loadSequences();
+    } catch (err) {
+      console.error('Failed to pause sequence:', err);
+      setError('Failed to pause sequence');
     }
   };
 
@@ -287,7 +296,7 @@ export function Sequences() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {filteredSequences.map((sequence) => (
             <Card
               key={sequence.id}
@@ -295,30 +304,13 @@ export function Sequences() {
               onClick={() => navigate(`/sequences/${sequence.id}`)}
             >
               <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        {sequence.name}
-                      </h3>
-                      {getStatusBadge(sequence.status)}
-                    </div>
-                    <p className="text-sm text-gray-600 mb-4">
-                      Target type: {getTargetTypeName(sequence.target_type_id)}
-                    </p>
-                    <div className="flex items-center gap-6 text-sm">
-                      <div className="flex items-center gap-2 text-gray-600">
-                        <Layers className="w-4 h-4" />
-                        <span>{sequence.step_count ?? 0} steps</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-gray-600">
-                        <Users className="w-4 h-4" />
-                        <span>{sequence.active_enrollments ?? 0} active enrollments</span>
-                      </div>
-                      <div className="text-gray-500">
-                        Created {formatDate(sequence.created_at)}
-                      </div>
-                    </div>
+                {/* Header */}
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      {sequence.name}
+                    </h3>
+                    {getStatusBadge(sequence.status)}
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild onClick={(e: React.MouseEvent) => e.stopPropagation()}>
@@ -339,15 +331,26 @@ export function Sequences() {
                         </DropdownMenuItem>
                       )}
                       {sequence.status === 'active' && (
-                        <DropdownMenuItem
-                          onClick={(e: React.MouseEvent) => {
-                            e.stopPropagation();
-                            handleArchive(sequence);
-                          }}
-                        >
-                          <Archive className="w-4 h-4 mr-2" />
-                          Archive
-                        </DropdownMenuItem>
+                        <>
+                          <DropdownMenuItem
+                            onClick={(e: React.MouseEvent) => {
+                              e.stopPropagation();
+                              handlePause(sequence);
+                            }}
+                          >
+                            <Pause className="w-4 h-4 mr-2" />
+                            Pause
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={(e: React.MouseEvent) => {
+                              e.stopPropagation();
+                              handleArchive(sequence);
+                            }}
+                          >
+                            <Archive className="w-4 h-4 mr-2" />
+                            Archive
+                          </DropdownMenuItem>
+                        </>
                       )}
                       {sequence.status !== 'active' && (
                         <DropdownMenuItem
@@ -364,6 +367,47 @@ export function Sequences() {
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                </div>
+
+                {/* Subtitle */}
+                <p className="text-sm text-gray-500 italic mb-6">
+                  A {sequence.total_duration_days ?? 0} day sequence with {sequence.step_count ?? 0} emails
+                </p>
+
+                {/* Stats */}
+                <div className="grid grid-cols-4 gap-4">
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+                      Subscribers
+                    </p>
+                    <p className="text-xl font-bold text-gray-900">
+                      {sequence.total_enrollments ?? 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+                      Open Rate
+                    </p>
+                    <p className="text-xl font-bold text-gray-900">
+                      {sequence.open_rate ?? 0}%
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+                      Click Rate
+                    </p>
+                    <p className="text-xl font-bold text-gray-900">
+                      {sequence.click_rate ?? 0}%
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+                      Unsubscribers
+                    </p>
+                    <p className="text-xl font-bold text-gray-900">
+                      {sequence.exited_enrollments ?? 0}
+                    </p>
+                  </div>
                 </div>
               </CardContent>
             </Card>

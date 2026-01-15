@@ -245,7 +245,12 @@ export interface Sequence {
   updated_at: string;
   steps?: SequenceStep[];
   step_count?: number;
+  total_duration_days?: number;
+  total_enrollments?: number;
   active_enrollments?: number;
+  exited_enrollments?: number;
+  open_rate?: number;
+  click_rate?: number;
 }
 
 export interface SequenceStep {
@@ -318,20 +323,15 @@ export interface AddStepContentInput {
 }
 
 // Design Template types
-export type EditorType = 'mjml' | 'maily';
+export type EditorType = 'mjml' | 'email_builder';
 
-// Maily JSON content type (Tiptap format)
-export interface MailyContent {
-  type: 'doc';
-  content: MailyNode[];
-}
-
-export interface MailyNode {
-  type: string;
-  attrs?: Record<string, unknown>;
-  content?: MailyNode[];
-  text?: string;
-  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>;
+// Email builder JSON content type (TReaderDocument format from @usewaypoint/email-builder)
+// The full type is imported from the library when needed, this is a simplified version for API types
+export interface BuilderContent {
+  [blockId: string]: {
+    type: string;
+    data: Record<string, unknown>;
+  };
 }
 
 export interface DesignTemplate {
@@ -341,7 +341,7 @@ export interface DesignTemplate {
   description: string | null;
   editor_type: EditorType;
   mjml_source: string | null;
-  maily_content: MailyContent | null;
+  builder_content: BuilderContent | null;
   html_compiled: string | null;
   archived: boolean;
   created_at: string;
@@ -353,14 +353,15 @@ export interface DesignTemplateCreate {
   description?: string;
   editor_type?: EditorType;
   mjml_source?: string;
-  maily_content?: MailyContent;
+  builder_content?: BuilderContent;
 }
 
 export interface DesignTemplateUpdate {
   name?: string;
   description?: string;
   mjml_source?: string;
-  maily_content?: MailyContent;
+  builder_content?: BuilderContent;
+  html_compiled?: string;
   archived?: boolean;
 }
 

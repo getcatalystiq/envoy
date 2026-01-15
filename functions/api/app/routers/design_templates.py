@@ -18,16 +18,25 @@ from shared.queries.design_templates import DesignTemplateQueries
 router = APIRouter()
 
 
-# Default Maily content structure for new templates
-DEFAULT_MAILY_CONTENT = {
-    "type": "doc",
-    "content": [
-        {
-            "type": "paragraph",
-            "attrs": {"textAlign": "left"},
-            "content": [{"type": "text", "text": "Start writing your email here..."}],
-        }
-    ],
+# Default email-builder-js content structure for new templates (TReaderDocument format)
+DEFAULT_BUILDER_CONTENT = {
+    "root": {
+        "type": "EmailLayout",
+        "data": {
+            "backdropColor": "#F5F5F5",
+            "canvasColor": "#FFFFFF",
+            "textColor": "#242424",
+            "fontFamily": "MODERN_SANS",
+            "childrenIds": ["content-block"],
+        },
+    },
+    "content-block": {
+        "type": "Text",
+        "data": {
+            "style": {"padding": {"top": 24, "bottom": 24, "left": 24, "right": 24}},
+            "props": {"text": "Start writing your email here..."},
+        },
+    },
 }
 
 
@@ -57,10 +66,10 @@ async def create_template(
         if errors:
             raise HTTPException(400, f"Invalid MJML: {errors}")
 
-    # Use default Maily content if creating a Maily template without content
-    maily_content = data.maily_content
-    if data.editor_type == "maily" and not maily_content:
-        maily_content = DEFAULT_MAILY_CONTENT
+    # Use default builder content if creating an email_builder template without content
+    builder_content = data.builder_content
+    if data.editor_type == "email_builder" and not builder_content:
+        builder_content = DEFAULT_BUILDER_CONTENT
 
     template = await DesignTemplateQueries.create(
         db,
@@ -69,7 +78,7 @@ async def create_template(
         description=data.description,
         editor_type=data.editor_type,
         mjml_source=data.mjml_source,
-        maily_content=maily_content,
+        builder_content=builder_content,
         html_compiled=html_compiled,
     )
     return DesignTemplateResponse(**template)
@@ -97,7 +106,7 @@ async def update_template(
 ) -> DesignTemplateResponse:
     """Update a design template."""
     # Recompile if MJML changed
-    html_compiled = None
+    html_compiled = data.html_compiled  # Use client-provided HTML for email_builder
     if data.mjml_source:
         html_compiled, errors = mjml.compile(data.mjml_source)
         if errors:
@@ -110,7 +119,7 @@ async def update_template(
         name=data.name,
         description=data.description,
         mjml_source=data.mjml_source,
-        maily_content=data.maily_content,
+        builder_content=data.builder_content,
         html_compiled=html_compiled,
         archived=data.archived,
     )
@@ -145,7 +154,7 @@ async def preview_template(
 ) -> DesignTemplatePreviewResponse:
     """Generate preview HTML from MJML source.
 
-    Note: Maily content preview is handled client-side using @maily-to/render.
+    Note: email-builder-js content preview is handled client-side using @usewaypoint/email-builder.
     This endpoint is primarily for MJML templates.
     """
     if request.mjml_source:
@@ -155,9 +164,9 @@ async def preview_template(
         except ValueError as e:
             return DesignTemplatePreviewResponse(html="", text="", errors=[str(e)])
 
-    # For Maily content, return empty - client handles rendering
+    # For email-builder content, return empty - client handles rendering
     return DesignTemplatePreviewResponse(
         html="",
         text="",
-        errors=["Maily content preview is handled client-side"],
+        errors=["Email builder content preview is handled client-side"],
     )

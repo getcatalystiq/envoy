@@ -11,8 +11,10 @@
   },
   "dependencies": {
     "@codemirror/lang-xml": "^6.1.0",
-    "@maily-to/core": "^0.3.4",
-    "@maily-to/render": "^0.2.2",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^7.3.7",
+    "@mui/material": "^7.3.7",
     "@radix-ui/react-checkbox": "^1.1.4",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
@@ -22,13 +24,19 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "@tiptap/core": "^3.15.3",
     "@uiw/react-codemirror": "^4.23.0",
+    "@usewaypoint/email-builder": "^0.0.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "highlight.js": "^11.11.1",
     "lucide-react": "^0.562.0",
+    "prettier": "^3.8.0",
     "react": "^19.0.0",
+    "react-colorful": "^5.6.1",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.1",
-    "tailwind-merge": "^3.4.0"
+    "tailwind-merge": "^3.4.0",
+    "zod": "^4.3.5",
+    "zustand": "^5.0.10"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

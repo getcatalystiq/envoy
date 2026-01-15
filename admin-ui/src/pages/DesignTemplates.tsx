@@ -65,7 +65,7 @@ export function DesignTemplates() {
       const template = await createDesignTemplate({
         name: newName,
         description: newDescription || undefined,
-        editor_type: 'maily', // Use Maily visual editor by default
+        editor_type: 'email_builder', // Use email-builder-js visual editor by default
       });
       setCreateOpen(false);
       setNewName('');
@@ -215,7 +215,7 @@ export function DesignTemplates() {
               </CardHeader>
               <CardContent>
                 <div className="flex items-center gap-2 mb-2">
-                  {template.editor_type === 'maily' ? (
+                  {template.editor_type === 'email_builder' ? (
                     <Badge variant="secondary" className="flex items-center gap-1">
                       <FileText className="h-3 w-3" />
                       Visual

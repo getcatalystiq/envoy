@@ -374,9 +374,16 @@ class SequenceResponse(BaseModel):
     id: UUID
     organization_id: UUID
     name: str
-    target_type_id: UUID
+    target_type_id: Optional[UUID] = None
     status: str
     steps: list[SequenceStepResponse] = Field(default_factory=list)
+    step_count: int = 0
+    total_duration_days: int = 0
+    total_enrollments: int = 0
+    active_enrollments: int = 0
+    exited_enrollments: int = 0
+    open_rate: float = 0
+    click_rate: float = 0
     created_at: datetime
     updated_at: datetime
 
@@ -465,9 +472,9 @@ class DesignTemplateCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
-    editor_type: str = Field(default="maily")  # "mjml" or "maily"
+    editor_type: str = Field(default="email_builder")  # "mjml" or "email_builder"
     mjml_source: Optional[str] = Field(None, min_length=1)
-    maily_content: Optional[dict] = None  # Maily/Tiptap JSON content
+    builder_content: Optional[dict] = None  # email-builder-js TReaderDocument JSON
 
 
 class DesignTemplateUpdate(BaseModel):
@@ -476,7 +483,8 @@ class DesignTemplateUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
     mjml_source: Optional[str] = Field(None, min_length=1)
-    maily_content: Optional[dict] = None
+    builder_content: Optional[dict] = None
+    html_compiled: Optional[str] = None
     archived: Optional[bool] = None
 
 
@@ -487,9 +495,9 @@ class DesignTemplateResponse(BaseModel):
     organization_id: UUID
     name: str
     description: Optional[str] = None
-    editor_type: str = "mjml"
+    editor_type: str = "email_builder"
     mjml_source: Optional[str] = None
-    maily_content: Optional[dict] = None
+    builder_content: Optional[dict] = None
     html_compiled: Optional[str] = None
     archived: bool
     created_at: datetime
@@ -502,7 +510,7 @@ class DesignTemplatePreviewRequest(BaseModel):
     """Schema for design template preview request."""
 
     mjml_source: Optional[str] = Field(None, min_length=1)
-    maily_content: Optional[dict] = None
+    builder_content: Optional[dict] = None
     sample_data: Optional[dict[str, str]] = None
 
 

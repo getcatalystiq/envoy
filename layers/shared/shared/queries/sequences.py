@@ -94,18 +94,18 @@ class SequenceQueries:
         limit: int = 100,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """List sequences with optional filters."""
-        conditions = ["organization_id = $1"]
+        """List sequences with optional filters and stats."""
+        conditions = ["s.organization_id = $1"]
         params: list[Any] = [org_id]
         param_idx = 2
 
         if status:
-            conditions.append(f"status = ${param_idx}")
+            conditions.append(f"s.status = ${param_idx}")
             params.append(status)
             param_idx += 1
 
         if target_type_id:
-            conditions.append(f"target_type_id = ${param_idx}")
+            conditions.append(f"s.target_type_id = ${param_idx}")
             params.append(target_type_id)
             param_idx += 1
 
@@ -113,9 +113,52 @@ class SequenceQueries:
 
         rows = await conn.fetch(
             f"""
-            SELECT * FROM sequences
+            SELECT
+                s.*,
+                COALESCE(step_stats.step_count, 0) as step_count,
+                COALESCE(step_stats.total_duration_days, 0) as total_duration_days,
+                COALESCE(enrollment_stats.total_enrollments, 0) as total_enrollments,
+                COALESCE(enrollment_stats.active_enrollments, 0) as active_enrollments,
+                COALESCE(enrollment_stats.exited_enrollments, 0) as exited_enrollments,
+                CASE
+                    WHEN COALESCE(email_stats.sent_count, 0) > 0
+                    THEN ROUND(COALESCE(email_stats.opened_count, 0)::numeric / email_stats.sent_count * 100, 2)
+                    ELSE 0
+                END as open_rate,
+                CASE
+                    WHEN COALESCE(email_stats.sent_count, 0) > 0
+                    THEN ROUND(COALESCE(email_stats.clicked_count, 0)::numeric / email_stats.sent_count * 100, 2)
+                    ELSE 0
+                END as click_rate
+            FROM sequences s
+            LEFT JOIN LATERAL (
+                SELECT
+                    COUNT(*) as step_count,
+                    COALESCE(SUM(default_delay_hours) / 24, 0) as total_duration_days
+                FROM sequence_steps
+                WHERE sequence_id = s.id
+            ) step_stats ON true
+            LEFT JOIN LATERAL (
+                SELECT
+                    COUNT(*) as total_enrollments,
+                    COUNT(*) FILTER (WHERE status = 'active') as active_enrollments,
+                    COUNT(*) FILTER (WHERE status = 'exited') as exited_enrollments
+                FROM sequence_enrollments
+                WHERE sequence_id = s.id
+            ) enrollment_stats ON true
+            LEFT JOIN LATERAL (
+                SELECT
+                    COUNT(*) as sent_count,
+                    COUNT(*) FILTER (WHERE es.opened_at IS NOT NULL) as opened_count,
+                    COUNT(*) FILTER (WHERE es.clicked_at IS NOT NULL) as clicked_count
+                FROM sequence_step_executions sse
+                JOIN email_sends es ON es.id = sse.email_send_id
+                WHERE sse.enrollment_id IN (
+                    SELECT id FROM sequence_enrollments WHERE sequence_id = s.id
+                )
+            ) email_stats ON true
             WHERE {" AND ".join(conditions)}
-            ORDER BY created_at DESC
+            ORDER BY s.created_at DESC
             LIMIT ${param_idx} OFFSET ${param_idx + 1}
             """,
             *params,
