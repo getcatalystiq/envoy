@@ -23,7 +23,7 @@ const navigation = [
   { name: 'Outbox', href: '/outbox', icon: Inbox },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Targets', href: '/targets', icon: Users },
-  { name: 'Campaigns', href: '/campaigns', icon: Mail },
+  { name: 'Campaigns', href: '/campaigns', icon: Mail, comingSoon: true },
   { name: 'Sequences', href: '/sequences', icon: GitBranch },
   { name: 'Content', href: '/content', icon: FileText },
   { name: 'Design', href: '/design-templates', icon: Palette },
@@ -87,6 +87,20 @@ export function Layout({ children, embedded = false }: LayoutProps) {
           <nav className="flex-1 px-4 py-4 space-y-1">
             {navigation.map((item) => {
               const isActive = location.pathname === item.href;
+
+              if (item.comingSoon) {
+                return (
+                  <div
+                    key={item.name}
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-400 cursor-not-allowed"
+                  >
+                    <item.icon className="w-5 h-5" />
+                    <span>{item.name}</span>
+                    <span className="text-[10px] text-gray-400">(coming soon)</span>
+                  </div>
+                );
+              }
+
               return (
                 <Link
                   key={item.name}

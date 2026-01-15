@@ -328,7 +328,7 @@ class OAuthRefreshTokenQueries:
 
         row = await conn.fetchrow(
             """
-            SELECT rt.user_id, rt.client_id, rt.scope, u.organization_id as org_id
+            SELECT rt.user_id, rt.client_id, rt.scope, u.organization_id as org_id, u.role
             FROM oauth_refresh_tokens rt
             JOIN users u ON rt.user_id = u.id
             WHERE rt.token_hash = $1
@@ -346,6 +346,7 @@ class OAuthRefreshTokenQueries:
             "org_id": str(row["org_id"]),
             "scopes": row["scope"].split(),
             "client_id": row["client_id"],
+            "role": row["role"],
         }
 
     @staticmethod

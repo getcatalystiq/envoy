@@ -7,6 +7,7 @@ from typing import Any
 
 from shared.database import get_pool, get_transaction
 from shared.maven_client import MavenClient
+from shared.queries import OutboxQueries
 from shared.ses_client import SESClient
 
 BATCH_SIZE = 50
@@ -242,14 +243,26 @@ async def send_queued_emails() -> dict[str, Any]:
                     result["message_id"],
                     send["id"],
                 )
+                # Update outbox status if linked
+                if send.get("outbox_id"):
+                    await OutboxQueries.mark_sent(
+                        conn,
+                        send["outbox_id"],
+                        {"message_id": result["message_id"]},
+                    )
                 sent_count += 1
             else:
+                error_msg = f"{result.get('error_code')}: {result.get('error_message')}"
+                print(f"    Email failed: {send['email']} - {error_msg}")
                 await conn.execute(
                     """
                     UPDATE email_sends SET status = 'failed' WHERE id = $1
                     """,
                     send["id"],
                 )
+                # Update outbox status if linked
+                if send.get("outbox_id"):
+                    await OutboxQueries.mark_failed(conn, send["outbox_id"], error_msg)
                 failed_count += 1
 
     return {"sent": sent_count, "failed": failed_count}

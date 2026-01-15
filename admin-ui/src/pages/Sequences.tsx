@@ -85,8 +85,8 @@ export function Sequences() {
 
   const loadTargetTypes = async () => {
     try {
-      const data = await api.get<{ items: TargetType[] }>('/targets/types');
-      setTargetTypes(data.items || []);
+      const data = await api.get<TargetType[]>('/target-types');
+      setTargetTypes(data || []);
     } catch (err) {
       console.error('Failed to load target types:', err);
     }

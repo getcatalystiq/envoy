@@ -7,7 +7,7 @@ from uuid import UUID
 
 from shared.database import get_pool
 from shared.maven_client import MavenClient
-from shared.queries import SequenceQueries
+from shared.queries import OutboxQueries, SequenceQueries
 from shared.ses_client import SESClient
 
 BATCH_SIZE = 100
@@ -19,11 +19,12 @@ async def check_exit_conditions(target: dict) -> Optional[tuple[str, str]]:
 
     Returns (status, reason) tuple if should exit, None otherwise.
     """
-    if target.get("converted"):
+    target_status = target.get("target_status")
+    if target_status == "converted":
         return ("converted", "converted")
-    if target.get("unsubscribed"):
+    if target_status == "unsubscribed":
         return ("exited", "unsubscribed")
-    if target.get("target_status") == "bounced":
+    if target_status == "bounced":
         return ("exited", "bounced")
     return None
 
@@ -45,10 +46,10 @@ async def personalize_content(
                 },
                 "target": {
                     "email": target.get("target_email"),
-                    "first_name": target.get("target_data", {}).get("first_name"),
-                    "last_name": target.get("target_data", {}).get("last_name"),
-                    "company": target.get("target_data", {}).get("company"),
-                    "data": target.get("target_data", {}),
+                    "first_name": target.get("target_first_name"),
+                    "last_name": target.get("target_last_name"),
+                    "company": target.get("target_company"),
+                    "data": target.get("target_custom_fields") or {},
                 },
                 "context": {
                     "sequence_name": enrollment.get("sequence_name"),
@@ -136,32 +137,33 @@ async def process_enrollment(
                     )
                     return {"enrollment_id": str(enrollment_id), "action": "completed"}
 
-            # Personalize content
-            personalized = await personalize_content(maven, content, enrollment, enrollment)
+            # TODO: Re-enable personalization once Maven is configured
+            # personalized = await personalize_content(maven, content, enrollment, enrollment)
+            # For now, use content as-is
+            subject = content.get("content_subject", "")
+            body = content.get("content_body", "")
 
-            # Create email send
-            email_send = await conn.fetchrow(
-                """
-                INSERT INTO email_sends
-                    (organization_id, target_id, email, subject, body, status)
-                VALUES ($1, $2, $3, $4, $5, 'queued')
-                RETURNING id
-                """,
-                org_id,
-                enrollment["target_id"],
-                enrollment["target_email"],
-                personalized["subject"],
-                personalized["body"],
+            # Create outbox item for approval
+            outbox_item = await OutboxQueries.create(
+                conn,
+                org_id=org_id,
+                target_id=enrollment["target_id"],
+                channel="email",
+                subject=subject,
+                body=body,
+                skill_name="sequence-scheduler",
+                skill_reasoning=f"Step {enrollment['current_step_position']} of sequence '{enrollment.get('sequence_name', 'Unknown')}'",
+                priority=5,
             )
 
-            # Record execution
+            # Record execution (outbox item created, awaiting approval)
             await SequenceQueries.record_execution(
                 conn,
                 org_id=org_id,
                 enrollment_id=enrollment_id,
                 step_position=enrollment["current_step_position"],
                 content_id=content["content_id"],
-                email_send_id=email_send["id"],
+                email_send_id=None,  # Will be set when outbox item is approved and sent
                 status="executed",
             )
 
@@ -183,8 +185,8 @@ async def process_enrollment(
 
             return {
                 "enrollment_id": str(enrollment_id),
-                "action": "executed",
-                "email_send_id": str(email_send["id"]),
+                "action": "queued_for_approval",
+                "outbox_id": str(outbox_item["id"]),
             }
 
         finally:

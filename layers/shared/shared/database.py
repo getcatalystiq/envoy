@@ -71,7 +71,7 @@ async def get_pool() -> asyncpg.Pool:
         creds = _get_credentials()
         _pool = await asyncpg.create_pool(
             host=os.environ.get("AURORA_HOST", creds.get("host", "localhost")),
-            port=int(creds.get("port", 5432)),
+            port=int(os.environ.get("AURORA_PORT", creds.get("port", 5432))),
             database=os.environ.get("AURORA_DATABASE", "envoy"),
             user=creds["username"],
             password=creds["password"],

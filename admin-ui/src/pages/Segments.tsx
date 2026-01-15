@@ -291,6 +291,7 @@ export function SegmentsList() {
                 <th className="h-10 px-4 text-left font-medium text-muted-foreground">Name</th>
                 <th className="h-10 px-4 text-left font-medium text-muted-foreground">Target Type</th>
                 <th className="h-10 px-4 text-left font-medium text-muted-foreground">Pain Points</th>
+                <th className="h-10 px-4 text-left font-medium text-muted-foreground">Objections</th>
                 <th className="h-10 px-4 text-left font-medium text-muted-foreground">Created</th>
                 <th className="h-10 px-4 text-right font-medium text-muted-foreground">Actions</th>
               </tr>
@@ -321,6 +322,20 @@ export function SegmentsList() {
                       {segment.pain_points.length > 2 && (
                         <Badge variant="outline" className="text-xs">
                           +{segment.pain_points.length - 2} more
+                        </Badge>
+                      )}
+                    </div>
+                  </td>
+                  <td className="h-12 px-4">
+                    <div className="flex flex-wrap gap-1 max-w-xs">
+                      {segment.objections?.slice(0, 2).map((objection) => (
+                        <Badge key={objection} variant="outline" className="text-xs">
+                          {objection}
+                        </Badge>
+                      ))}
+                      {(segment.objections?.length ?? 0) > 2 && (
+                        <Badge variant="outline" className="text-xs">
+                          +{(segment.objections?.length ?? 0) - 2} more
                         </Badge>
                       )}
                     </div>

@@ -24,6 +24,7 @@ import {
   Edit2,
   MessageSquare,
   Smartphone,
+  RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -106,6 +107,17 @@ export function Outbox() {
       setSnoozeUntil('');
     } catch (error) {
       console.error('Failed to snooze:', error);
+    }
+  };
+
+  const handleRetry = async (id: string) => {
+    try {
+      await api.post(`/outbox/${id}/retry`);
+      await loadOutbox();
+      await loadStats();
+      setSelectedItem(null);
+    } catch (error) {
+      console.error('Failed to retry:', error);
     }
   };
 
@@ -362,6 +374,12 @@ export function Outbox() {
                         {formatDate(item.created_at)}
                       </span>
                     </div>
+                    {item.status === 'failed' && item.send_result?.error && (
+                      <div className="mt-2 flex items-center gap-2 text-sm text-red-600">
+                        <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                        <span className="truncate">{String(item.send_result.error)}</span>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 ml-4">
                     <Button
@@ -400,6 +418,19 @@ export function Outbox() {
                           <X className="w-4 h-4" />
                         </Button>
                       </>
+                    )}
+                    {item.status === 'failed' && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          handleRetry(item.id);
+                        }}
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                      </Button>
                     )}
                   </div>
                 </div>
@@ -490,6 +521,19 @@ export function Outbox() {
                   )}
                 </div>
 
+                {/* Error for failed items */}
+                {selectedItem.status === 'failed' && selectedItem.send_result?.error && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      Error
+                    </label>
+                    <div className="mt-1 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-900 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      <span>{String(selectedItem.send_result.error)}</span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Reasoning */}
                 {selectedItem.skill_reasoning && (
                   <div>
@@ -570,6 +614,14 @@ export function Outbox() {
                       </>
                     )}
                   </>
+                )}
+                {selectedItem.status === 'failed' && (
+                  <Button
+                    onClick={() => handleRetry(selectedItem.id)}
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    Retry
+                  </Button>
                 )}
               </DialogFooter>
             </>

@@ -11,16 +11,52 @@ from shared.ses_client import SESClient
 router = APIRouter()
 
 
-def format_dkim_records(domain: str, tokens: list[str]) -> list[DNSRecord]:
-    """Format DKIM tokens as DNS CNAME records."""
-    return [
-        DNSRecord(
-            type="CNAME",
-            name=f"{token}._domainkey.{domain}",
-            value=f"{token}.dkim.amazonses.com",
+def format_dns_records(domain: str, tokens: list[str], region: str = "us-east-1") -> list[DNSRecord]:
+    """Format all DNS records needed for SES domain verification.
+
+    Returns DKIM CNAMEs, MAIL FROM (MX + SPF), and DMARC records.
+    """
+    records = []
+
+    # DKIM CNAME records
+    for token in tokens:
+        records.append(
+            DNSRecord(
+                type="CNAME",
+                name=f"{token}._domainkey.{domain}",
+                value=f"{token}.dkim.amazonses.com",
+            )
         )
-        for token in tokens
-    ]
+
+    # MAIL FROM MX record (for custom bounce domain)
+    mail_from_subdomain = f"mail.{domain}"
+    records.append(
+        DNSRecord(
+            type="MX",
+            name=mail_from_subdomain,
+            value=f"10 feedback-smtp.{region}.amazonses.com",
+        )
+    )
+
+    # MAIL FROM SPF record
+    records.append(
+        DNSRecord(
+            type="TXT",
+            name=mail_from_subdomain,
+            value="v=spf1 include:amazonses.com ~all",
+        )
+    )
+
+    # DMARC record
+    records.append(
+        DNSRecord(
+            type="TXT",
+            name=f"_dmarc.{domain}",
+            value="v=DMARC1; p=none; rua=mailto:dmarc@{domain}".replace("{domain}", domain),
+        )
+    )
+
+    return records
 
 
 @router.get("", response_model=OrganizationResponse)
@@ -41,7 +77,7 @@ async def get_organization(
 
     dns_records = []
     if org["email_domain"] and org["email_domain_dkim_tokens"]:
-        dns_records = format_dkim_records(org["email_domain"], org["email_domain_dkim_tokens"])
+        dns_records = format_dns_records(org["email_domain"], org["email_domain_dkim_tokens"])
 
     return OrganizationResponse(
         id=org["id"],

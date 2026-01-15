@@ -69,7 +69,7 @@ async def list_outbox(
     total = await OutboxQueries.count(db, org_id, status)
 
     return ListResponse(
-        items=[OutboxResponse(**item) for item in items],
+        items=[OutboxWithTarget(**item) for item in items],
         total=total,
         limit=limit,
         offset=offset,
@@ -158,6 +158,7 @@ async def update_outbox_item(
 @router.post("/{outbox_id}/approve", response_model=OutboxResponse)
 async def approve_outbox_item(
     outbox_id: UUID,
+    org_id: CurrentOrg,
     user: CurrentUser,
     db: DBConnection,
 ) -> OutboxResponse:
@@ -173,6 +174,23 @@ async def approve_outbox_item(
     item = await OutboxQueries.approve(db, outbox_id, user_id)
     if not item:
         raise HTTPException(status_code=400, detail="Failed to approve item")
+
+    # Create email_sends record for the email scheduler to pick up
+    if item["channel"] == "email":
+        await db.execute(
+            """
+            INSERT INTO email_sends
+                (organization_id, target_id, email, subject, body, status, outbox_id)
+            SELECT $1, $2, t.email, $3, $4, 'queued', $5
+            FROM targets t
+            WHERE t.id = $2
+            """,
+            org_id,
+            item["target_id"],
+            item.get("subject", ""),
+            item.get("body", ""),
+            outbox_id,
+        )
 
     return OutboxResponse(**item)
 
@@ -225,6 +243,46 @@ async def snooze_outbox_item(
     return OutboxResponse(**item)
 
 
+@router.post("/{outbox_id}/retry", response_model=OutboxResponse)
+async def retry_outbox_item(
+    outbox_id: UUID,
+    org_id: CurrentOrg,
+    user: CurrentUser,
+    db: DBConnection,
+) -> OutboxResponse:
+    """Retry a failed outbox item by re-queueing it for sending."""
+    existing = await OutboxQueries.get_by_id(db, outbox_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Outbox item not found")
+
+    if existing["status"] != "failed":
+        raise HTTPException(status_code=400, detail="Can only retry failed items")
+
+    # Reset status to approved so email scheduler picks it up again
+    item = await OutboxQueries.retry(db, outbox_id)
+    if not item:
+        raise HTTPException(status_code=400, detail="Failed to retry item")
+
+    # Re-create email_sends record for the email scheduler
+    if item["channel"] == "email":
+        await db.execute(
+            """
+            INSERT INTO email_sends
+                (organization_id, target_id, email, subject, body, status, outbox_id)
+            SELECT $1, $2, t.email, $3, $4, 'queued', $5
+            FROM targets t
+            WHERE t.id = $2
+            """,
+            org_id,
+            item["target_id"],
+            item.get("subject", ""),
+            item.get("body", ""),
+            outbox_id,
+        )
+
+    return OutboxResponse(**item)
+
+
 @router.delete("/{outbox_id}", status_code=204)
 async def delete_outbox_item(
     outbox_id: UUID,
@@ -246,6 +304,7 @@ async def delete_outbox_item(
 @router.post("/bulk/approve", response_model=dict)
 async def bulk_approve_outbox(
     outbox_ids: list[UUID],
+    org_id: CurrentOrg,
     user: CurrentUser,
     db: DBConnection,
 ) -> dict:
@@ -259,6 +318,22 @@ async def bulk_approve_outbox(
             item = await OutboxQueries.approve(db, outbox_id, user_id)
             if item:
                 approved += 1
+                # Create email_sends record for the email scheduler to pick up
+                if item["channel"] == "email":
+                    await db.execute(
+                        """
+                        INSERT INTO email_sends
+                            (organization_id, target_id, email, subject, body, status, outbox_id)
+                        SELECT $1, $2, t.email, $3, $4, 'queued', $5
+                        FROM targets t
+                        WHERE t.id = $2
+                        """,
+                        org_id,
+                        item["target_id"],
+                        item.get("subject", ""),
+                        item.get("body", ""),
+                        outbox_id,
+                    )
             else:
                 errors.append({"id": str(outbox_id), "error": "Item not pending"})
         except Exception as e:

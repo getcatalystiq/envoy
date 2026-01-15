@@ -73,22 +73,22 @@ class OutboxQueries:
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         """List outbox items with optional filters."""
-        conditions = ["organization_id = $1"]
+        conditions = ["o.organization_id = $1"]
         params: list[Any] = [org_id]
         param_idx = 2
 
         if status:
-            conditions.append(f"status = ${param_idx}")
+            conditions.append(f"o.status = ${param_idx}")
             params.append(status)
             param_idx += 1
 
         if channel:
-            conditions.append(f"channel = ${param_idx}")
+            conditions.append(f"o.channel = ${param_idx}")
             params.append(channel)
             param_idx += 1
 
         if target_id:
-            conditions.append(f"target_id = ${param_idx}")
+            conditions.append(f"o.target_id = ${param_idx}")
             params.append(target_id)
             param_idx += 1
 
@@ -97,9 +97,11 @@ class OutboxQueries:
 
         rows = await conn.fetch(
             f"""
-            SELECT * FROM outbox
+            SELECT o.*, t.email, t.first_name, t.last_name, t.company
+            FROM outbox o
+            LEFT JOIN targets t ON o.target_id = t.id
             WHERE {where_clause}
-            ORDER BY priority DESC, created_at DESC
+            ORDER BY o.priority DESC, o.created_at DESC
             LIMIT ${param_idx} OFFSET ${param_idx + 1}
             """,
             *params,
@@ -305,6 +307,23 @@ class OutboxQueries:
             """,
             outbox_id,
             json.dumps({"error": error}),
+        )
+        return dict(row) if row else None
+
+    @staticmethod
+    async def retry(
+        conn: asyncpg.Connection,
+        outbox_id: UUID,
+    ) -> Optional[dict[str, Any]]:
+        """Retry a failed outbox item by resetting to approved status."""
+        row = await conn.fetchrow(
+            """
+            UPDATE outbox
+            SET status = 'approved', send_result = NULL
+            WHERE id = $1 AND status = 'failed'
+            RETURNING *
+            """,
+            outbox_id,
         )
         return dict(row) if row else None
 

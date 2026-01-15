@@ -252,8 +252,76 @@ export function EmailSettings() {
                   </tr>
                 </thead>
                 <tbody>
-                  {settings.dns_records.map((record, idx) => (
-                    <tr key={idx} className="border-b last:border-0">
+                  {/* DKIM Records */}
+                  {settings.dns_records.filter(r => r.type === 'CNAME').length > 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-2 pt-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                        DKIM (Email Authentication)
+                      </td>
+                    </tr>
+                  )}
+                  {settings.dns_records.filter(r => r.type === 'CNAME').map((record, idx) => (
+                    <tr key={`cname-${idx}`} className="border-b">
+                      <td className="py-2 pr-4">
+                        <Badge variant="outline">{record.type}</Badge>
+                      </td>
+                      <td className="py-2 pr-4 font-mono text-xs break-all">
+                        {record.name}
+                      </td>
+                      <td className="py-2 font-mono text-xs break-all">
+                        {record.value}
+                      </td>
+                      <td className="py-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => copyToClipboard(record.value)}
+                        >
+                          <Copy className="w-4 h-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* MAIL FROM Records */}
+                  {settings.dns_records.filter(r => r.type === 'MX' || (r.type === 'TXT' && r.name.startsWith('mail.'))).length > 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-2 pt-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                        MAIL FROM (Bounce Handling)
+                      </td>
+                    </tr>
+                  )}
+                  {settings.dns_records.filter(r => r.type === 'MX' || (r.type === 'TXT' && r.name.startsWith('mail.'))).map((record, idx) => (
+                    <tr key={`mailfrom-${idx}`} className="border-b">
+                      <td className="py-2 pr-4">
+                        <Badge variant="outline">{record.type}</Badge>
+                      </td>
+                      <td className="py-2 pr-4 font-mono text-xs break-all">
+                        {record.name}
+                      </td>
+                      <td className="py-2 font-mono text-xs break-all">
+                        {record.value}
+                      </td>
+                      <td className="py-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => copyToClipboard(record.value)}
+                        >
+                          <Copy className="w-4 h-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* DMARC Record */}
+                  {settings.dns_records.filter(r => r.type === 'TXT' && r.name.startsWith('_dmarc.')).length > 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-2 pt-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                        DMARC (Email Policy)
+                      </td>
+                    </tr>
+                  )}
+                  {settings.dns_records.filter(r => r.type === 'TXT' && r.name.startsWith('_dmarc.')).map((record, idx) => (
+                    <tr key={`dmarc-${idx}`} className="border-b last:border-0">
                       <td className="py-2 pr-4">
                         <Badge variant="outline">{record.type}</Badge>
                       </td>

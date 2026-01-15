@@ -65,7 +65,7 @@ class SESClient:
 
         # Add List-Unsubscribe headers for Gmail/Yahoo compliance
         if unsubscribe_url:
-            kwargs["Headers"] = [
+            kwargs["Content"]["Simple"]["Headers"] = [
                 {"Name": "List-Unsubscribe", "Value": f"<{unsubscribe_url}>"},
                 {"Name": "List-Unsubscribe-Post", "Value": "List-Unsubscribe=One-Click"},
             ]

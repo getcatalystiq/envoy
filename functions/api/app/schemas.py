@@ -286,6 +286,28 @@ class OutboxResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_validator("send_result", mode="before")
+    @classmethod
+    def parse_send_result(cls, v: Any) -> Optional[dict[str, Any]]:
+        """Parse send_result from JSON string if needed."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            import json
+            return json.loads(v)
+        return v
+
+    @field_validator("edit_history", mode="before")
+    @classmethod
+    def parse_edit_history(cls, v: Any) -> list[dict[str, Any]]:
+        """Parse edit_history from JSON string if needed."""
+        if v is None:
+            return []
+        if isinstance(v, str):
+            import json
+            return json.loads(v)
+        return v
+
 
 class OutboxWithTarget(OutboxResponse):
     """Outbox response with target details."""
@@ -329,6 +351,8 @@ class SequenceStepContentResponse(BaseModel):
     id: UUID
     content_id: UUID
     priority: int
+    content_name: Optional[str] = None
+    content_subject: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
