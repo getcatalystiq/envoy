@@ -115,42 +115,46 @@ export default function PersonalizationSection() {
   const showPromptError = enabled && !localPrompt.trim();
 
   return (
-    <div className="border-t border-border pt-4 mt-4">
+    <div className="p-4">
       <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium block mb-4">
         Personalization
       </span>
 
-      <div className="flex items-center justify-between mb-4">
-        <Label htmlFor="personalization-toggle">Enable AI Personalization</Label>
-        <Switch
-          id="personalization-toggle"
-          checked={enabled}
-          onCheckedChange={(checked) => updatePersonalization({ enabled: checked })}
-        />
-      </div>
-
-      {enabled && (
-        <div className="animate-in fade-in slide-in-from-top-2 duration-200 space-y-2">
-          <Label htmlFor="personalization-prompt">Personalization Prompt</Label>
-          <Textarea
-            id="personalization-prompt"
-            value={localPrompt}
-            onChange={handlePromptChange}
-            placeholder="Describe how this content should be personalized for each recipient..."
-            className="min-h-[140px] p-4"
-            maxLength={MAX_PROMPT_LENGTH}
+      <div className="flex flex-col gap-5 mb-3">
+        <div className="flex flex-col gap-1.5 w-full">
+          <Label className="text-xs" htmlFor="personalization-toggle">
+            Enable AI Personalization
+          </Label>
+          <Switch
+            id="personalization-toggle"
+            checked={enabled}
+            onCheckedChange={(checked) => updatePersonalization({ enabled: checked })}
           />
-          <div className="flex justify-between items-center">
+        </div>
+
+        {enabled && (
+          <div className="flex flex-col gap-1.5 w-full">
+            <Label className="text-xs" htmlFor="personalization-prompt">
+              Prompt
+            </Label>
+            <Textarea
+              id="personalization-prompt"
+              value={localPrompt}
+              onChange={handlePromptChange}
+              placeholder="Describe how this content should be personalized for each recipient..."
+              rows={5}
+              maxLength={MAX_PROMPT_LENGTH}
+            />
             <p
-              className={`text-xs transition-opacity ${showPromptError ? 'text-orange-500' : 'text-muted-foreground opacity-50'}`}
+              className={`text-xs ${showPromptError ? 'text-orange-500' : 'text-muted-foreground'}`}
             >
               {showPromptError
                 ? 'Please enter a personalization prompt'
                 : `${localPrompt.length}/${MAX_PROMPT_LENGTH}`}
             </p>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
