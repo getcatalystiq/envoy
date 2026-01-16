@@ -22,7 +22,11 @@ function renderMessage(val: string) {
   );
 }
 
-export default function ConfigurationPanel() {
+interface ConfigurationPanelProps {
+  showPersonalization?: boolean;
+}
+
+export default function ConfigurationPanel({ showPersonalization = false }: ConfigurationPanelProps) {
   const document = useDocument();
   const selectedBlockId = useSelectedBlockId();
 
@@ -71,7 +75,7 @@ export default function ConfigurationPanel() {
   return (
     <>
       {renderPanel()}
-      <PersonalizationSection />
+      <PersonalizationSection show={showPersonalization} />
     </>
   );
 }

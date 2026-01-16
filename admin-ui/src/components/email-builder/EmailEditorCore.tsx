@@ -94,11 +94,11 @@ export function EmailEditorCore({
     // Default tabs
     switch (selectedSidebarTab) {
       case 'block-configuration':
-        return <ConfigurationPanel />;
+        return <ConfigurationPanel showPersonalization />;
       case 'styles':
         return <StylesPanel />;
       default:
-        return <ConfigurationPanel />;
+        return <ConfigurationPanel showPersonalization />;
     }
   };
 

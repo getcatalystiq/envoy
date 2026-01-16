@@ -25,7 +25,11 @@ function isSupportedBlockType(type: string | undefined): type is SupportedBlockT
   return type !== undefined && SUPPORTED_BLOCKS.includes(type as SupportedBlockType);
 }
 
-export default function PersonalizationSection() {
+interface PersonalizationSectionProps {
+  show?: boolean;
+}
+
+export default function PersonalizationSection({ show = true }: PersonalizationSectionProps) {
   const selectedBlockId = useSelectedBlockId();
   const document = useDocument();
 
@@ -107,7 +111,7 @@ export default function PersonalizationSection() {
     };
   }, []);
 
-  if (!selectedBlockId || !isSupported) {
+  if (!show || !selectedBlockId || !isSupported) {
     return null;
   }
 
