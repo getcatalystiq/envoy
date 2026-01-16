@@ -43,7 +43,7 @@ export default function EditorBlockWrapper({ children }: TEditorBlockWrapperProp
   const hasPersonalization = block?.data?.personalization?.enabled;
 
   const generateSparkles = useCallback(() =>
-    Array.from({ length: SPARKLE_COUNT }, (_, i) => ({
+    Array.from({ length: SPARKLE_COUNT }, () => ({
       id: Math.random(),
       position: generateRandomPosition(),
     })), []);
