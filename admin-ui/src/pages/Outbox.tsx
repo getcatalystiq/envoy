@@ -368,9 +368,6 @@ export function Outbox() {
                       {getStatusBadge(item.status)}
                       {getConfidenceBadge(item.confidence_score)}
                       <span className="text-xs text-gray-400">
-                        {item.skill_name}
-                      </span>
-                      <span className="text-xs text-gray-400">
                         {formatDate(item.created_at)}
                       </span>
                     </div>
@@ -471,10 +468,6 @@ export function Outbox() {
                       {selectedItem.company}
                     </p>
                   )}
-                  <p className="text-sm">
-                    <span className="text-gray-500">Skill:</span>{' '}
-                    {selectedItem.skill_name}
-                  </p>
                   {selectedItem.confidence_score !== null && (
                     <p className="text-sm flex items-center gap-2">
                       <span className="text-gray-500">Confidence:</span>
@@ -530,18 +523,6 @@ export function Outbox() {
                     <div className="mt-1 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-900 flex items-start gap-2">
                       <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                       <span>{String(selectedItem.send_result.error)}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Reasoning */}
-                {selectedItem.skill_reasoning && (
-                  <div>
-                    <label className="text-sm font-medium text-gray-700">
-                      AI Reasoning
-                    </label>
-                    <div className="mt-1 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900 whitespace-pre-wrap">
-                      {selectedItem.skill_reasoning}
                     </div>
                   </div>
                 )}

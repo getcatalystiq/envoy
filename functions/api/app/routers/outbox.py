@@ -36,8 +36,6 @@ async def create_outbox_item(
         channel=data.channel,
         subject=data.subject,
         body=data.body,
-        skill_name=data.skill_name,
-        skill_reasoning=data.skill_reasoning,
         confidence_score=data.confidence_score,
         priority=data.priority,
         scheduled_for=data.scheduled_for.isoformat() if data.scheduled_for else None,

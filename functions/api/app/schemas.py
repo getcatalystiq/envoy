@@ -226,8 +226,6 @@ class OutboxCreate(BaseModel):
     channel: str = Field(..., pattern="^(email|linkedin|sms)$")
     subject: Optional[str] = Field(None, max_length=500)
     body: str = Field(..., min_length=1)
-    skill_name: str = Field(..., min_length=1, max_length=100)
-    skill_reasoning: Optional[str] = None
     confidence_score: Optional[float] = Field(None, ge=0, le=1)
     priority: int = Field(default=5, ge=1, le=10)
     scheduled_for: Optional[datetime] = None
@@ -268,8 +266,6 @@ class OutboxResponse(BaseModel):
     channel: str
     subject: Optional[str]
     body: str
-    skill_name: str
-    skill_reasoning: Optional[str]
     confidence_score: Optional[float]
     status: str
     priority: int

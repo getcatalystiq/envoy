@@ -18,9 +18,7 @@ class OutboxQueries:
         target_id: UUID,
         channel: str,
         body: str,
-        skill_name: str,
         subject: Optional[str] = None,
-        skill_reasoning: Optional[str] = None,
         confidence_score: Optional[float] = None,
         priority: int = 5,
         scheduled_for: Optional[str] = None,
@@ -31,9 +29,8 @@ class OutboxQueries:
             """
             INSERT INTO outbox (
                 organization_id, target_id, channel, subject, body,
-                skill_name, skill_reasoning, confidence_score,
-                priority, scheduled_for, created_by
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                confidence_score, priority, scheduled_for, created_by
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
             """,
             org_id,
@@ -41,8 +38,6 @@ class OutboxQueries:
             channel,
             subject,
             body,
-            skill_name,
-            skill_reasoning,
             confidence_score,
             priority,
             scheduled_for,

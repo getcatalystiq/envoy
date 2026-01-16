@@ -195,8 +195,6 @@ export interface OutboxItem {
   channel: string;
   subject: string | null;
   body: string;
-  skill_name: string;
-  skill_reasoning: string | null;
   confidence_score: number | null;
   status: string;
   priority: number;

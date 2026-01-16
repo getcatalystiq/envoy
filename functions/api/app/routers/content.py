@@ -179,7 +179,6 @@ async def generate_content_to_outbox(
 
     # Extract confidence score from Maven result if available
     confidence_score = result.get("confidence_score")
-    skill_reasoning = result.get("reasoning") or result.get("transcript")
 
     # Create outbox item for human review
     outbox_item = await OutboxQueries.create(
@@ -189,8 +188,6 @@ async def generate_content_to_outbox(
         channel=data.channel,
         subject=result.get("subject"),
         body=result.get("body", result.get("raw", "")),
-        skill_name=data.content_type,
-        skill_reasoning=skill_reasoning,
         confidence_score=confidence_score,
         priority=data.priority,
     )

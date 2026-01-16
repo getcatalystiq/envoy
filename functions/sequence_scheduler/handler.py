@@ -151,8 +151,6 @@ async def process_enrollment(
                 channel="email",
                 subject=subject,
                 body=body,
-                skill_name="sequence-scheduler",
-                skill_reasoning=f"Step {enrollment['current_step_position']} of sequence '{enrollment.get('sequence_name', 'Unknown')}'",
                 priority=5,
             )
 
