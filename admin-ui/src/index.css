@@ -142,10 +142,9 @@
   .ai-sparkle {
     position: absolute;
     font-size: 8px;
-    color: rgba(192, 132, 252, 0.9);
     pointer-events: none;
     z-index: 10;
-    animation: sparkle-float 2.5s ease-in-out infinite;
+    animation: sparkle-float 2s ease-in-out infinite;
   }
 
   @keyframes shimmer-outline {
@@ -160,13 +159,30 @@
   }
 
   @keyframes sparkle-float {
-    0%, 100% {
+    0% {
       opacity: 0;
-      transform: scale(0.6);
+      transform: scale(0.5) translate(0, 0);
+      color: rgba(255, 255, 255, 0.9);
+    }
+    25% {
+      opacity: 1;
+      transform: scale(1) translate(3px, -2px);
+      color: rgba(233, 213, 255, 0.9);
     }
     50% {
       opacity: 1;
-      transform: scale(1.1);
+      transform: scale(1.2) translate(-2px, 3px);
+      color: rgba(192, 132, 252, 0.9);
+    }
+    75% {
+      opacity: 1;
+      transform: scale(1) translate(2px, 1px);
+      color: rgba(168, 85, 247, 0.9);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(0.5) translate(0, 0);
+      color: rgba(255, 255, 255, 0.9);
     }
   }
 }
