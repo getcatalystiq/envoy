@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.dependencies import CurrentOrg, DBConnection, MavenDep, TokenClaims
-from shared.queries import CampaignQueries, TargetQueries, ContentQueries
+from shared.queries import CampaignQueries, SequenceQueries, TargetQueries, ContentQueries
 
 router = APIRouter()
 
@@ -233,6 +233,93 @@ TOOLS = [
             "destructiveHint": False,
         },
     },
+    {
+        "name": "get_step_content",
+        "description": "Get the content blocks for a sequence step, including personalization settings. "
+                      "Returns the builder_content JSON with block IDs and their personalization config.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "step_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "The sequence step ID",
+                },
+            },
+            "required": ["step_id"],
+        },
+        "annotations": {
+            "title": "Get Step Content",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+        },
+    },
+    {
+        "name": "set_block_personalization",
+        "description": "Enable or disable AI personalization on a specific content block within a step. "
+                      "When enabled, the block content will be personalized for each recipient during scheduling.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "step_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "The sequence step ID",
+                },
+                "block_id": {
+                    "type": "string",
+                    "description": "Block ID within builder_content",
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether personalization is enabled for this block",
+                },
+                "prompt": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "description": "Personalization instructions for Maven AI",
+                },
+            },
+            "required": ["step_id", "block_id", "enabled"],
+        },
+        "annotations": {
+            "title": "Set Block Personalization",
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+        },
+    },
+    {
+        "name": "preview_block_personalization",
+        "description": "Preview what Maven AI would generate for a personalized block without scheduling. "
+                      "Useful for testing personalization prompts before enabling them.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "step_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "The sequence step ID",
+                },
+                "block_id": {
+                    "type": "string",
+                    "description": "Block ID within builder_content",
+                },
+                "target_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Target/lead ID to personalize for",
+                },
+            },
+            "required": ["step_id", "block_id", "target_id"],
+        },
+        "annotations": {
+            "title": "Preview Block Personalization",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": True,
+        },
+    },
 ]
 
 # Widget resources for OpenAI Apps SDK
@@ -398,6 +485,12 @@ async def _handle_call_tool(
             return await _tool_start_campaign(args, org_id, db)
         case "get_analytics":
             return await _tool_get_analytics(args, org_id, db)
+        case "get_step_content":
+            return await _tool_get_step_content(args, org_id, db)
+        case "set_block_personalization":
+            return await _tool_set_block_personalization(args, org_id, db)
+        case "preview_block_personalization":
+            return await _tool_preview_block_personalization(args, org_id, db, maven)
         case _:
             raise ValueError(f"Unknown tool: {tool_name}")
 
@@ -937,3 +1030,224 @@ def _get_analytics_widget() -> str:
     </script>
 </body>
 </html>"""
+
+
+# --------------------------------------------------------------------------
+# Personalization Tools
+# --------------------------------------------------------------------------
+
+async def _tool_get_step_content(
+    args: dict[str, Any],
+    org_id: str,
+    db: Any,
+) -> dict[str, Any]:
+    """Get step content with personalization settings."""
+    step_id = args.get("step_id")
+    if not step_id:
+        raise ValueError("step_id is required")
+
+    step = await SequenceQueries.get_step(db, UUID(step_id))
+    if not step:
+        return {
+            "content": [{"type": "text", "text": "Step not found."}],
+            "isError": True,
+        }
+
+    builder_content = step.get("builder_content") or {}
+
+    # Extract blocks with their personalization settings
+    blocks_summary = []
+    for block_id, block in builder_content.items():
+        personalization = block.get("data", {}).get("personalization", {})
+        blocks_summary.append({
+            "block_id": block_id,
+            "type": block.get("type"),
+            "has_personalization": personalization.get("enabled", False),
+            "prompt": personalization.get("prompt", "") if personalization.get("enabled") else None,
+        })
+
+    personalized_count = sum(1 for b in blocks_summary if b["has_personalization"])
+
+    return {
+        "content": [
+            {"type": "text", "text": f"Step has {len(blocks_summary)} blocks, {personalized_count} with personalization enabled."}
+        ],
+        "structuredContent": {
+            "step_id": str(step["id"]),
+            "subject": step.get("subject"),
+            "blocks": blocks_summary,
+            "builder_content": builder_content,
+        },
+    }
+
+
+async def _tool_set_block_personalization(
+    args: dict[str, Any],
+    org_id: str,
+    db: Any,
+) -> dict[str, Any]:
+    """Set personalization settings for a block."""
+    step_id = args.get("step_id")
+    block_id = args.get("block_id")
+    enabled = args.get("enabled")
+
+    if not step_id:
+        raise ValueError("step_id is required")
+    if not block_id:
+        raise ValueError("block_id is required")
+    if enabled is None:
+        raise ValueError("enabled is required")
+
+    step = await SequenceQueries.get_step(db, UUID(step_id))
+    if not step:
+        return {
+            "content": [{"type": "text", "text": "Step not found."}],
+            "isError": True,
+        }
+
+    builder_content = step.get("builder_content") or {}
+    if block_id not in builder_content:
+        return {
+            "content": [{"type": "text", "text": f"Block {block_id} not found in step."}],
+            "isError": True,
+        }
+
+    # Update personalization settings
+    block = builder_content[block_id]
+    if "data" not in block:
+        block["data"] = {}
+
+    block["data"]["personalization"] = {
+        "enabled": enabled,
+        "prompt": args.get("prompt", "") if enabled else "",
+    }
+
+    # Save updated builder_content
+    updated_step = await SequenceQueries.update_step(
+        db,
+        UUID(step_id),
+        builder_content=json.dumps(builder_content),
+        has_unpublished_changes=True,
+    )
+
+    action = "enabled" if enabled else "disabled"
+    return {
+        "content": [
+            {"type": "text", "text": f"Personalization {action} for block {block_id}."}
+        ],
+        "structuredContent": {
+            "step_id": str(step_id),
+            "block_id": block_id,
+            "personalization": block["data"]["personalization"],
+        },
+    }
+
+
+async def _tool_preview_block_personalization(
+    args: dict[str, Any],
+    org_id: str,
+    db: Any,
+    maven: Any,
+) -> dict[str, Any]:
+    """Preview personalization output for a block without scheduling."""
+    step_id = args.get("step_id")
+    block_id = args.get("block_id")
+    target_id = args.get("target_id")
+
+    if not step_id:
+        raise ValueError("step_id is required")
+    if not block_id:
+        raise ValueError("block_id is required")
+    if not target_id:
+        raise ValueError("target_id is required")
+
+    # Get step
+    step = await SequenceQueries.get_step(db, UUID(step_id))
+    if not step:
+        return {
+            "content": [{"type": "text", "text": "Step not found."}],
+            "isError": True,
+        }
+
+    builder_content = step.get("builder_content") or {}
+    if block_id not in builder_content:
+        return {
+            "content": [{"type": "text", "text": f"Block {block_id} not found in step."}],
+            "isError": True,
+        }
+
+    block = builder_content[block_id]
+    personalization = block.get("data", {}).get("personalization", {})
+
+    if not personalization.get("enabled"):
+        return {
+            "content": [{"type": "text", "text": "Personalization is not enabled for this block."}],
+            "isError": True,
+        }
+
+    prompt = personalization.get("prompt", "")
+    if not prompt.strip():
+        return {
+            "content": [{"type": "text", "text": "No personalization prompt set for this block."}],
+            "isError": True,
+        }
+
+    # Get target
+    target = await TargetQueries.get_by_id(db, UUID(target_id))
+    if not target:
+        return {
+            "content": [{"type": "text", "text": "Target not found."}],
+            "isError": True,
+        }
+
+    # Extract original content
+    block_type = block.get("type")
+    props = block.get("data", {}).get("props", {})
+    original_content = props.get("text") or props.get("contents") or ""
+
+    if not original_content:
+        return {
+            "content": [{"type": "text", "text": "Block has no content to personalize."}],
+            "isError": True,
+        }
+
+    # Generate preview via Maven
+    try:
+        result = await maven.invoke_skill(
+            "envoy-content-generation",
+            {
+                "mode": "block_personalization",
+                "original_content": original_content,
+                "prompt": prompt,
+                "target": {
+                    "email": target.get("email"),
+                    "first_name": target.get("first_name"),
+                    "last_name": target.get("last_name"),
+                    "company": target.get("company"),
+                },
+                "block_type": block_type,
+            },
+        )
+
+        personalized = result.get("body") or result.get("content") or original_content
+
+        return {
+            "content": [
+                {"type": "text", "text": f"**Original:**\n{original_content}\n\n**Personalized for {target.get('email')}:**\n{personalized}"}
+            ],
+            "structuredContent": {
+                "original": original_content,
+                "personalized": personalized,
+                "target": {
+                    "id": str(target["id"]),
+                    "email": target.get("email"),
+                    "name": f"{target.get('first_name', '')} {target.get('last_name', '')}".strip(),
+                },
+            },
+        }
+
+    except Exception as e:
+        return {
+            "content": [{"type": "text", "text": f"Personalization preview failed: {e}"}],
+            "isError": True,
+        }

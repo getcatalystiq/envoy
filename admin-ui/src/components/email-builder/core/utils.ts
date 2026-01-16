@@ -9,10 +9,20 @@ export type DocumentBlocksDictionary<T extends BaseZodDictionary> = {
   };
 };
 
+/**
+ * Personalization configuration that can be attached to any block.
+ */
+export type PersonalizationConfig = {
+  enabled: boolean;
+  prompt: string;
+};
+
 export type BlockConfiguration<T extends BaseZodDictionary> = {
   [TType in keyof T]: {
     type: TType;
-    data: z.infer<T[TType]>;
+    data: z.infer<T[TType]> & {
+      personalization?: PersonalizationConfig;
+    };
   };
 }[keyof T];
 

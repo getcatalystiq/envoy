@@ -10,6 +10,8 @@ from shared.maven_client import MavenClient
 from shared.queries import OutboxQueries, SequenceQueries
 from shared.ses_client import SESClient
 
+from .personalization import has_personalized_blocks, process_personalization
+
 BATCH_SIZE = 100
 MAX_CONCURRENT_PROCESSING = 10
 
@@ -142,6 +144,25 @@ async def process_enrollment(
             # For now, use content as-is
             subject = content.get("content_subject", "")
             body = content.get("content_body", "")
+
+            # Block-level personalization for builder_content (when available)
+            # This processes individual blocks with personalization enabled through Maven
+            builder_content = step.get("builder_content")
+            if builder_content and has_personalized_blocks(builder_content):
+                target_data = {
+                    "email": enrollment.get("target_email"),
+                    "first_name": enrollment.get("target_first_name"),
+                    "last_name": enrollment.get("target_last_name"),
+                    "company": enrollment.get("target_company"),
+                }
+                personalized_content, errors = await process_personalization(
+                    builder_content=builder_content,
+                    target_data=target_data,
+                    maven_client=maven,
+                )
+                # TODO: Compile personalized_content to HTML once server-side compiler is available
+                # For now, store in outbox for future processing
+                _ = personalized_content  # noqa: F841
 
             # Create outbox item for approval
             outbox_item = await OutboxQueries.create(

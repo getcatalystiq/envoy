@@ -12,6 +12,7 @@ import HtmlSidebarPanel from './input-panels/HtmlSidebarPanel';
 import ImageSidebarPanel from './input-panels/ImageSidebarPanel';
 import SpacerSidebarPanel from './input-panels/SpacerSidebarPanel';
 import TextSidebarPanel from './input-panels/TextSidebarPanel';
+import PersonalizationSection from './PersonalizationSection';
 
 function renderMessage(val: string) {
   return (
@@ -35,32 +36,42 @@ export default function ConfigurationPanel() {
 
   const setBlock = (conf: TEditorBlock) => setDocument({ [selectedBlockId]: conf });
   const { data, type } = block;
-  switch (type) {
-    case 'Avatar':
-      return <AvatarSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
-    case 'Button':
-      return <ButtonSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
-    case 'ColumnsContainer':
-      return (
-        <ColumnsContainerSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />
-      );
-    case 'Container':
-      return <ContainerSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
-    case 'Divider':
-      return <DividerSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
-    case 'Heading':
-      return <HeadingSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
-    case 'Html':
-      return <HtmlSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
-    case 'Image':
-      return <ImageSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
-    case 'EmailLayout':
-      return <EmailLayoutSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
-    case 'Spacer':
-      return <SpacerSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
-    case 'Text':
-      return <TextSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
-    default:
-      return <pre>{JSON.stringify(block, null, '  ')}</pre>;
-  }
+
+  const renderPanel = () => {
+    switch (type) {
+      case 'Avatar':
+        return <AvatarSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
+      case 'Button':
+        return <ButtonSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
+      case 'ColumnsContainer':
+        return (
+          <ColumnsContainerSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />
+        );
+      case 'Container':
+        return <ContainerSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
+      case 'Divider':
+        return <DividerSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
+      case 'Heading':
+        return <HeadingSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
+      case 'Html':
+        return <HtmlSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
+      case 'Image':
+        return <ImageSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
+      case 'EmailLayout':
+        return <EmailLayoutSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
+      case 'Spacer':
+        return <SpacerSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
+      case 'Text':
+        return <TextSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
+      default:
+        return <pre>{JSON.stringify(block, null, '  ')}</pre>;
+    }
+  };
+
+  return (
+    <>
+      {renderPanel()}
+      <PersonalizationSection />
+    </>
+  );
 }
