@@ -23,9 +23,9 @@ const generateRandomPosition = (): SparklePosition => {
 
   switch (side) {
     case 0: return { top: '-6px', left: `${percent}%` };
-    case 1: return { top: '-6px', right: `${percent}%` };
-    case 2: return { bottom: '-6px', left: `${percent}%` };
-    case 3: return { bottom: '-6px', right: `${percent}%` };
+    case 1: return { bottom: '-6px', left: `${percent}%` };
+    case 2: return { left: '-6px', top: `${percent}%` };
+    case 3: return { right: '-6px', top: `${percent}%` };
     default: return { top: '-6px', left: '50%' };
   }
 };
