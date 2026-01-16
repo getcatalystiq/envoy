@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 
 import { useCurrentBlockId } from '../../../editor/EditorBlock';
@@ -10,16 +10,27 @@ type TEditorBlockWrapperProps = {
   children: JSX.Element;
 };
 
-const SPARKLE_POSITIONS = [
-  { top: '-6px', left: '10%', delay: '0s' },
-  { top: '-6px', right: '20%', delay: '0.4s' },
-  { top: '30%', right: '-6px', delay: '0.8s' },
-  { bottom: '30%', right: '-6px', delay: '1.2s' },
-  { bottom: '-6px', right: '15%', delay: '1.6s' },
-  { bottom: '-6px', left: '25%', delay: '2s' },
-  { top: '40%', left: '-6px', delay: '0.6s' },
-  { top: '60%', left: '-6px', delay: '1.4s' },
-];
+type SparklePosition = {
+  top?: string;
+  bottom?: string;
+  left?: string;
+  right?: string;
+};
+
+const generateRandomPosition = (): SparklePosition => {
+  const side = Math.floor(Math.random() * 4);
+  const percent = Math.floor(Math.random() * 80) + 10;
+
+  switch (side) {
+    case 0: return { top: '-6px', left: `${percent}%` };
+    case 1: return { top: '-6px', right: `${percent}%` };
+    case 2: return { bottom: '-6px', left: `${percent}%` };
+    case 3: return { bottom: '-6px', right: `${percent}%` };
+    default: return { top: '-6px', left: '50%' };
+  }
+};
+
+const SPARKLE_COUNT = 6;
 
 export default function EditorBlockWrapper({ children }: TEditorBlockWrapperProps) {
   const selectedBlockId = useSelectedBlockId();
@@ -30,6 +41,25 @@ export default function EditorBlockWrapper({ children }: TEditorBlockWrapperProp
   const isSelected = selectedBlockId === blockId;
   const block = document[blockId];
   const hasPersonalization = block?.data?.personalization?.enabled;
+
+  const generateSparkles = useCallback(() =>
+    Array.from({ length: SPARKLE_COUNT }, (_, i) => ({
+      id: i,
+      position: generateRandomPosition(),
+      delay: `${i * 0.3}s`,
+    })), []);
+
+  const [sparkles, setSparkles] = useState(generateSparkles);
+
+  useEffect(() => {
+    if (!hasPersonalization) return;
+
+    const interval = setInterval(() => {
+      setSparkles(generateSparkles());
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [hasPersonalization, generateSparkles]);
 
   return (
     <div
@@ -52,13 +82,13 @@ export default function EditorBlockWrapper({ children }: TEditorBlockWrapperProp
         ev.preventDefault();
       }}
     >
-      {hasPersonalization && SPARKLE_POSITIONS.map((pos, i) => (
+      {hasPersonalization && sparkles.map((sparkle) => (
         <span
-          key={i}
+          key={`${sparkle.id}-${sparkle.position.top}-${sparkle.position.left}`}
           className="ai-sparkle"
           style={{
-            ...pos,
-            animationDelay: pos.delay,
+            ...sparkle.position,
+            animationDelay: sparkle.delay,
           }}
         >
           ✦
