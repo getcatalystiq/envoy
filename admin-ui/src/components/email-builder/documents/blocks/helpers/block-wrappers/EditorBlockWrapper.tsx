@@ -56,7 +56,7 @@ export default function EditorBlockWrapper({ children }: TEditorBlockWrapperProp
 
     const interval = setInterval(() => {
       setSparkles(generateSparkles());
-    }, 2000);
+    }, 3500);
 
     return () => clearInterval(interval);
   }, [hasPersonalization, generateSparkles]);
