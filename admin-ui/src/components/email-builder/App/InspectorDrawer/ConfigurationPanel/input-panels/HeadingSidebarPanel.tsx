@@ -5,14 +5,16 @@ import { HeadingProps, HeadingPropsDefaults, HeadingPropsSchema } from '../../..
 import BaseSidebarPanel from './helpers/BaseSidebarPanel';
 import RadioGroupInput from './helpers/inputs/RadioGroupInput';
 import TextInput from './helpers/inputs/TextInput';
+import PersonalizationInput from './helpers/inputs/PersonalizationInput';
 import MultiStylePropertyPanel from './helpers/style-inputs/MultiStylePropertyPanel';
 
 type HeadingSidebarPanelProps = {
   data: HeadingProps;
   setData: (v: HeadingProps) => void;
+  showPersonalization?: boolean;
 };
 
-export default function HeadingSidebarPanel({ data, setData }: HeadingSidebarPanelProps) {
+export default function HeadingSidebarPanel({ data, setData, showPersonalization }: HeadingSidebarPanelProps) {
   const [, setErrors] = useState<Zod.ZodError | null>(null);
 
   const updateData = (d: unknown) => {
@@ -52,6 +54,9 @@ export default function HeadingSidebarPanel({ data, setData }: HeadingSidebarPan
           H3
         </ToggleGroupItem>
       </RadioGroupInput>
+
+      {showPersonalization && <PersonalizationInput />}
+
       <MultiStylePropertyPanel
         names={['color', 'backgroundColor', 'fontFamily', 'fontWeight', 'textAlign', 'padding']}
         value={data.style}

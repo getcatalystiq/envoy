@@ -4,13 +4,15 @@ import { HtmlProps, HtmlPropsSchema } from '../../../../blocks';
 
 import BaseSidebarPanel from './helpers/BaseSidebarPanel';
 import TextInput from './helpers/inputs/TextInput';
+import PersonalizationInput from './helpers/inputs/PersonalizationInput';
 import MultiStylePropertyPanel from './helpers/style-inputs/MultiStylePropertyPanel';
 
 type HtmlSidebarPanelProps = {
   data: HtmlProps;
   setData: (v: HtmlProps) => void;
+  showPersonalization?: boolean;
 };
-export default function HtmlSidebarPanel({ data, setData }: HtmlSidebarPanelProps) {
+export default function HtmlSidebarPanel({ data, setData, showPersonalization }: HtmlSidebarPanelProps) {
   const [, setErrors] = useState<Zod.ZodError | null>(null);
 
   const updateData = (d: unknown) => {
@@ -31,6 +33,9 @@ export default function HtmlSidebarPanel({ data, setData }: HtmlSidebarPanelProp
         defaultValue={data.props?.contents ?? ''}
         onChange={(contents) => updateData({ ...data, props: { ...data.props, contents } })}
       />
+
+      {showPersonalization && <PersonalizationInput />}
+
       <MultiStylePropertyPanel
         names={['color', 'backgroundColor', 'fontFamily', 'fontSize', 'textAlign', 'padding']}
         value={data.style}
