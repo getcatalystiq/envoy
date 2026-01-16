@@ -134,19 +134,19 @@
   }
 
   .ai-shimmer-border {
-    outline: 2px solid transparent;
+    outline: 1px solid rgba(168, 85, 247, 0.6);
     outline-offset: -1px;
-    animation: shimmer-outline 2s ease-in-out infinite;
+    animation: shimmer-outline 3s ease-in-out infinite;
   }
 
   @keyframes shimmer-outline {
     0%, 100% {
-      outline-color: #a855f7;
-      box-shadow: 0 0 8px 2px rgba(168, 85, 247, 0.4);
+      outline-color: rgba(168, 85, 247, 0.5);
+      box-shadow: 0 0 4px 1px rgba(168, 85, 247, 0.2);
     }
     50% {
-      outline-color: #d946ef;
-      box-shadow: 0 0 12px 4px rgba(217, 70, 239, 0.5);
+      outline-color: rgba(192, 132, 252, 0.6);
+      box-shadow: 0 0 6px 2px rgba(192, 132, 252, 0.25);
     }
   }
 }
