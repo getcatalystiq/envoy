@@ -44,7 +44,7 @@ export default function ConfigurationPanel({ showPersonalization = false }: Conf
     case 'Avatar':
       return <AvatarSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
     case 'Button':
-      return <ButtonSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} showPersonalization={showPersonalization} />;
+      return <ButtonSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />;
     case 'ColumnsContainer':
       return (
         <ColumnsContainerSidebarPanel key={selectedBlockId} data={data} setData={(data) => setBlock({ type, data })} />

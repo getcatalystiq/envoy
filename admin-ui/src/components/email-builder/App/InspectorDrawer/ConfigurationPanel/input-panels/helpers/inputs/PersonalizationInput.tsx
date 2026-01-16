@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import { Sparkles } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -99,12 +100,19 @@ export default function PersonalizationInput() {
   }, []);
 
   const { enabled } = personalization;
-  const showPromptError = enabled && !localPrompt.trim();
 
   return (
     <div className="flex flex-col gap-1.5 w-full">
       <div className="flex items-center justify-between">
-        <Label className="text-xs" htmlFor="personalization-toggle">
+        <Label
+          className={`text-xs flex items-center gap-1.5 ${
+            enabled
+              ? 'bg-gradient-to-r from-violet-500 via-purple-500 to-fuchsia-500 bg-[length:200%_100%] bg-clip-text text-transparent animate-ai-shimmer'
+              : ''
+          }`}
+          htmlFor="personalization-toggle"
+        >
+          {enabled && <Sparkles className="h-3 w-3 text-purple-500 animate-sparkle" />}
           AI Personalization
         </Label>
         <Switch
@@ -117,7 +125,7 @@ export default function PersonalizationInput() {
       {enabled && (
         <div className="flex flex-col gap-1.5 w-full mt-2">
           <Label className="text-xs" htmlFor="personalization-prompt">
-            Prompt
+            Prompt (optional)
           </Label>
           <Textarea
             id="personalization-prompt"
@@ -127,12 +135,8 @@ export default function PersonalizationInput() {
             rows={3}
             maxLength={MAX_PROMPT_LENGTH}
           />
-          <p
-            className={`text-xs ${showPromptError ? 'text-orange-500' : 'text-muted-foreground'}`}
-          >
-            {showPromptError
-              ? 'Please enter a personalization prompt'
-              : `${localPrompt.length}/${MAX_PROMPT_LENGTH}`}
+          <p className="text-xs text-muted-foreground">
+            {localPrompt.length}/{MAX_PROMPT_LENGTH}
           </p>
         </div>
       )}

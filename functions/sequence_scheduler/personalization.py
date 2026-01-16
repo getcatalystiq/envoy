@@ -39,6 +39,7 @@ class PersonalizationResult:
 ALLOWED_TARGET_FIELDS = frozenset(["first_name", "last_name", "company", "role", "email"])
 
 
+
 def sanitize_target_data(target: dict[str, Any]) -> dict[str, str]:
     """Strict allowlist for target data passed to Maven."""
     return {
@@ -90,10 +91,7 @@ async def _personalize_block(
     if not personalization.get("enabled"):
         return block_id, None, None
 
-    prompt = personalization.get("prompt", "")
-    if not prompt.strip():
-        return block_id, None, None
-
+    prompt = personalization.get("prompt", "").strip()
     block_type = block.get("type")
     original_content = extract_block_content(block)
 
@@ -190,7 +188,7 @@ def has_personalized_blocks(builder_content: dict[str, dict[str, Any]]) -> bool:
 
     for block in builder_content.values():
         personalization = block.get("data", {}).get("personalization", {})
-        if personalization.get("enabled") and personalization.get("prompt", "").strip():
+        if personalization.get("enabled"):
             return True
 
     return False

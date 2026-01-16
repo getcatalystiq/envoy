@@ -6,16 +6,14 @@ import BaseSidebarPanel from './helpers/BaseSidebarPanel';
 import ColorInput from './helpers/inputs/ColorInput';
 import RadioGroupInput from './helpers/inputs/RadioGroupInput';
 import TextInput from './helpers/inputs/TextInput';
-import PersonalizationInput from './helpers/inputs/PersonalizationInput';
 import MultiStylePropertyPanel from './helpers/style-inputs/MultiStylePropertyPanel';
 
 type ButtonSidebarPanelProps = {
   data: ButtonProps;
   setData: (v: ButtonProps) => void;
-  showPersonalization?: boolean;
 };
 
-export default function ButtonSidebarPanel({ data, setData, showPersonalization }: ButtonSidebarPanelProps) {
+export default function ButtonSidebarPanel({ data, setData }: ButtonSidebarPanelProps) {
   const [, setErrors] = useState<Zod.ZodError | null>(null);
 
   const updateData = (d: unknown) => {
@@ -112,8 +110,6 @@ export default function ButtonSidebarPanel({ data, setData, showPersonalization 
           updateData({ ...data, props: { ...data.props, buttonBackgroundColor } })
         }
       />
-
-      {showPersonalization && <PersonalizationInput />}
 
       <MultiStylePropertyPanel
         names={['backgroundColor', 'fontFamily', 'fontSize', 'fontWeight', 'textAlign', 'padding']}
