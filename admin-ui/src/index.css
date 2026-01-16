@@ -142,6 +142,7 @@
   .ai-sparkle {
     position: absolute;
     font-size: 8px;
+    color: rgba(192, 132, 252, 0.9);
     pointer-events: none;
     z-index: 10;
     animation: sparkle-float 2s ease-in-out infinite;
