@@ -24,9 +24,9 @@ export default function EditorBlockWrapper({ children }: TEditorBlockWrapperProp
     <div
       className={cn(
         'relative max-w-full -outline-offset-1',
-        isSelected && 'outline outline-2 outline-[rgba(0,121,204,1)]',
-        !isSelected && mouseInside && 'outline outline-2 outline-[rgba(0,121,204,0.3)]',
-        hasPersonalization && 'ring-2 ring-amber-400/60'
+        isSelected && !hasPersonalization && 'outline outline-2 outline-[rgba(0,121,204,1)]',
+        !isSelected && mouseInside && !hasPersonalization && 'outline outline-2 outline-[rgba(0,121,204,0.3)]',
+        hasPersonalization && 'ai-shimmer-border'
       )}
       onMouseEnter={(ev) => {
         setMouseInside(true);

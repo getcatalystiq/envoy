@@ -132,6 +132,36 @@
       transform: scale(1.2) rotate(15deg);
     }
   }
+
+  .ai-shimmer-border {
+    position: relative;
+  }
+
+  .ai-shimmer-border::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    background: linear-gradient(90deg,
+      #a855f7,
+      #d946ef,
+      #f0abfc,
+      #d946ef,
+      #a855f7
+    );
+    background-size: 200% 100%;
+    border-radius: 2px;
+    z-index: -1;
+    animation: shimmer-border 2s linear infinite;
+  }
+
+  @keyframes shimmer-border {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
 }
 
 /* Email markdown content styles */

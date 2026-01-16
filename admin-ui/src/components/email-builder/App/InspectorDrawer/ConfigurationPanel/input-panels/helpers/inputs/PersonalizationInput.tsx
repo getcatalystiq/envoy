@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { Sparkles } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -104,22 +103,9 @@ export default function PersonalizationInput() {
   return (
     <div className="flex flex-col gap-1.5 w-full">
       <div className="flex items-center justify-between">
-        {enabled ? (
-          <div className="relative overflow-hidden rounded-md px-2 py-1 -ml-2">
-            <div className="absolute inset-0 bg-gradient-to-r from-violet-500/20 via-purple-500/30 to-fuchsia-500/20 bg-[length:200%_100%] animate-ai-shimmer" />
-            <Label
-              className="relative text-xs flex items-center gap-1.5 text-purple-700"
-              htmlFor="personalization-toggle"
-            >
-              <Sparkles className="h-3 w-3 text-purple-500 animate-sparkle" />
-              AI Personalization
-            </Label>
-          </div>
-        ) : (
-          <Label className="text-xs" htmlFor="personalization-toggle">
-            AI Personalization
-          </Label>
-        )}
+        <Label className="text-xs" htmlFor="personalization-toggle">
+          AI Personalization
+        </Label>
         <Switch
           id="personalization-toggle"
           checked={enabled}
