@@ -1,8 +1,6 @@
 import { useState } from 'react';
-
-import { TextFieldsOutlined } from '@mui/icons-material';
-import { InputLabel, Stack } from '@mui/material';
-
+import { Type } from 'lucide-react';
+import { Label } from '@/components/ui/label';
 import RawSliderInput from './raw/RawSliderInput';
 
 type Props = {
@@ -10,6 +8,7 @@ type Props = {
   defaultValue: number;
   onChange: (v: number) => void;
 };
+
 export default function FontSizeInput({ label, defaultValue, onChange }: Props) {
   const [value, setValue] = useState(defaultValue);
   const handleChange = (value: number) => {
@@ -17,10 +16,10 @@ export default function FontSizeInput({ label, defaultValue, onChange }: Props) 
     onChange(value);
   };
   return (
-    <Stack spacing={1} alignItems="flex-start">
-      <InputLabel shrink>{label}</InputLabel>
+    <div className="flex flex-col gap-1 items-start">
+      <Label className="text-xs">{label}</Label>
       <RawSliderInput
-        iconLabel={<TextFieldsOutlined sx={{ fontSize: 16 }} />}
+        iconLabel={<Type className="h-4 w-4 text-muted-foreground" />}
         value={value}
         setValue={handleChange}
         units="px"
@@ -28,6 +27,6 @@ export default function FontSizeInput({ label, defaultValue, onChange }: Props) 
         min={10}
         max={48}
       />
-    </Stack>
+    </div>
   );
 }

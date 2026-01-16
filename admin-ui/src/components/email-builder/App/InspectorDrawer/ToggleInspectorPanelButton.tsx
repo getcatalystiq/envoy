@@ -1,7 +1,5 @@
-
-
-import { AppRegistrationOutlined, LastPageOutlined } from '@mui/icons-material';
-import { IconButton } from '@mui/material';
+import { ChevronRight, Settings2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 import { toggleInspectorDrawerOpen, useInspectorDrawerOpen } from '../../documents/editor/EditorContext';
 
@@ -11,16 +9,14 @@ export default function ToggleInspectorPanelButton() {
   const handleClick = () => {
     toggleInspectorDrawerOpen();
   };
-  if (inspectorDrawerOpen) {
-    return (
-      <IconButton onClick={handleClick}>
-        <LastPageOutlined fontSize="small" />
-      </IconButton>
-    );
-  }
+
   return (
-    <IconButton onClick={handleClick}>
-      <AppRegistrationOutlined fontSize="small" />
-    </IconButton>
+    <Button variant="ghost" size="icon" onClick={handleClick}>
+      {inspectorDrawerOpen ? (
+        <ChevronRight className="h-4 w-4" />
+      ) : (
+        <Settings2 className="h-4 w-4" />
+      )}
+    </Button>
   );
 }

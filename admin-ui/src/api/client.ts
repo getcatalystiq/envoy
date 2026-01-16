@@ -258,17 +258,11 @@ export interface SequenceStep {
   sequence_id: string;
   position: number;
   default_delay_hours: number;
+  subject: string | null;
+  builder_content: BuilderContent | null;
+  has_unpublished_changes?: boolean;
   created_at: string;
-  contents?: StepContent[];
-}
-
-export interface StepContent {
-  id: string;
-  step_id: string;
-  content_id: string;
-  priority: number;
-  content_name?: string;
-  content_subject?: string;
+  updated_at?: string;
 }
 
 export interface Enrollment {
@@ -310,23 +304,20 @@ export interface UpdateSequenceInput {
 export interface CreateStepInput {
   position: number;
   default_delay_hours: number;
+  subject?: string;
+  builder_content?: BuilderContent;
 }
 
 export interface UpdateStepInput {
   position?: number;
   default_delay_hours?: number;
-}
-
-export interface AddStepContentInput {
-  content_id: string;
-  priority: number;
+  subject?: string;
+  builder_content?: BuilderContent;
+  has_unpublished_changes?: boolean;
 }
 
 // Design Template types
-export type EditorType = 'mjml' | 'email_builder';
-
-// Email builder JSON content type (TReaderDocument format from @usewaypoint/email-builder)
-// The full type is imported from the library when needed, this is a simplified version for API types
+// Email builder JSON content type (TReaderDocument format)
 export interface BuilderContent {
   [blockId: string]: {
     type: string;
@@ -339,8 +330,6 @@ export interface DesignTemplate {
   organization_id: string;
   name: string;
   description: string | null;
-  editor_type: EditorType;
-  mjml_source: string | null;
   builder_content: BuilderContent | null;
   html_compiled: string | null;
   archived: boolean;
@@ -351,24 +340,15 @@ export interface DesignTemplate {
 export interface DesignTemplateCreate {
   name: string;
   description?: string;
-  editor_type?: EditorType;
-  mjml_source?: string;
   builder_content?: BuilderContent;
 }
 
 export interface DesignTemplateUpdate {
   name?: string;
   description?: string;
-  mjml_source?: string;
   builder_content?: BuilderContent;
   html_compiled?: string;
   archived?: boolean;
-}
-
-export interface DesignTemplatePreview {
-  html: string;
-  text: string;
-  errors?: string[];
 }
 
 // Design Template API functions
@@ -391,16 +371,6 @@ export async function updateDesignTemplate(id: string, data: DesignTemplateUpdat
 
 export async function deleteDesignTemplate(id: string): Promise<void> {
   await api.delete(`/design-templates/${id}`);
-}
-
-export async function previewDesignTemplate(
-  mjmlSource: string,
-  sampleData?: Record<string, string>
-): Promise<DesignTemplatePreview> {
-  return api.post<DesignTemplatePreview>('/design-templates/preview', {
-    mjml_source: mjmlSource,
-    sample_data: sampleData,
-  });
 }
 
 // Organization settings types

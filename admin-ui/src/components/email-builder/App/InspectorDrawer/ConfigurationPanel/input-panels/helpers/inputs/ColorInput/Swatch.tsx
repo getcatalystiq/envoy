@@ -1,6 +1,4 @@
-
-
-import { Box, Button, SxProps } from '@mui/material';
+import { cn } from '@/lib/utils';
 
 type Props = {
   paletteColors: string[];
@@ -8,34 +6,24 @@ type Props = {
   onChange: (value: string) => void;
 };
 
-const TILE_BUTTON: SxProps = {
-  width: 24,
-  height: 24,
-};
 export default function Swatch({ paletteColors, value, onChange }: Props) {
   const renderButton = (colorValue: string) => {
     return (
-      <Button
+      <button
         key={colorValue}
+        type="button"
         onClick={() => onChange(colorValue)}
-        sx={{
-          ...TILE_BUTTON,
-          backgroundColor: colorValue,
-          border: '1px solid',
-          borderColor: value === colorValue ? 'black' : 'grey.200',
-          minWidth: 24,
-          display: 'inline-flex',
-          '&:hover': {
-            backgroundColor: colorValue,
-            borderColor: 'grey.500',
-          },
-        }}
+        className={cn(
+          'w-6 h-6 rounded border inline-flex hover:border-gray-500 transition-colors',
+          value === colorValue ? 'border-black' : 'border-gray-200'
+        )}
+        style={{ backgroundColor: colorValue }}
       />
     );
   };
   return (
-    <Box width="100%" sx={{ display: 'grid', gap: 1, gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr' }}>
+    <div className="w-full grid gap-1 grid-cols-6">
       {paletteColors.map((c) => renderButton(c))}
-    </Box>
+    </div>
   );
 }

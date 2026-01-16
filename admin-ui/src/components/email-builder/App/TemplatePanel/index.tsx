@@ -1,7 +1,6 @@
-
-
-import { MonitorOutlined, PhoneIphoneOutlined } from '@mui/icons-material';
-import { Box, Stack, SxProps, ToggleButton, ToggleButtonGroup, Tooltip } from '@mui/material';
+import { Monitor, Smartphone } from 'lucide-react';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Reader } from '../../Reader';
 
 import EditorBlock from '../../documents/editor/EditorBlock';
@@ -25,44 +24,23 @@ export default function TemplatePanel() {
   const selectedMainTab = useSelectedMainTab();
   const selectedScreenSize = useSelectedScreenSize();
 
-  let mainBoxSx: SxProps = {
-    height: '100%',
-  };
-  if (selectedScreenSize === 'mobile') {
-    mainBoxSx = {
-      ...mainBoxSx,
-      margin: '32px auto',
-      width: 370,
-      height: 800,
-      boxShadow:
-        'rgba(33, 36, 67, 0.04) 0px 10px 20px, rgba(33, 36, 67, 0.04) 0px 2px 6px, rgba(33, 36, 67, 0.04) 0px 0px 1px',
-    };
-  }
-
-  const handleScreenSizeChange = (_: unknown, value: unknown) => {
-    switch (value) {
-      case 'mobile':
-      case 'desktop':
-        setSelectedScreenSize(value);
-        return;
-      default:
-        setSelectedScreenSize('desktop');
-    }
-  };
+  const mobileStyles = selectedScreenSize === 'mobile'
+    ? 'mx-auto my-8 w-[370px] h-[800px] shadow-[rgba(33,36,67,0.04)_0px_10px_20px,rgba(33,36,67,0.04)_0px_2px_6px,rgba(33,36,67,0.04)_0px_0px_1px]'
+    : 'h-full';
 
   const renderMainPanel = () => {
     switch (selectedMainTab) {
       case 'editor':
         return (
-          <Box sx={mainBoxSx}>
+          <div className={mobileStyles}>
             <EditorBlock id="root" />
-          </Box>
+          </div>
         );
       case 'preview':
         return (
-          <Box sx={mainBoxSx}>
+          <div className={mobileStyles}>
             <Reader document={document} rootBlockId="root" />
-          </Box>
+          </div>
         );
       case 'html':
         return <HtmlPanel />;
@@ -72,47 +50,47 @@ export default function TemplatePanel() {
   };
 
   return (
-    <>
-      <Stack
-        sx={{
-          height: 49,
-          borderBottom: 1,
-          borderColor: 'divider',
-          backgroundColor: 'white',
-          position: 'sticky',
-          top: 0,
-          zIndex: 'appBar',
-          px: 1,
-        }}
-        direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-      >
-        <Stack px={2} direction="row" gap={2} width="100%" justifyContent="space-between" alignItems="center">
-          <Stack direction="row" spacing={2}>
+    <TooltipProvider>
+      <div className="h-[49px] border-b border-border bg-white sticky top-0 z-10 px-1 flex flex-row justify-between items-center">
+        <div className="px-2 flex flex-row gap-4 w-full justify-between items-center">
+          <div className="flex flex-row gap-4">
             <MainTabsGroup />
-          </Stack>
-          <Stack direction="row" spacing={2}>
+          </div>
+          <div className="flex flex-row gap-4 items-center">
             <DownloadJson />
             <ImportJson />
-            <ToggleButtonGroup value={selectedScreenSize} exclusive size="small" onChange={handleScreenSizeChange}>
-              <ToggleButton value="desktop">
-                <Tooltip title="Desktop view">
-                  <MonitorOutlined fontSize="small" />
-                </Tooltip>
-              </ToggleButton>
-              <ToggleButton value="mobile">
-                <Tooltip title="Mobile view">
-                  <PhoneIphoneOutlined fontSize="small" />
-                </Tooltip>
-              </ToggleButton>
-            </ToggleButtonGroup>
+            <ToggleGroup
+              type="single"
+              value={selectedScreenSize}
+              onValueChange={(value) => {
+                if (value === 'mobile' || value === 'desktop') {
+                  setSelectedScreenSize(value);
+                }
+              }}
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem value="desktop" size="sm">
+                    <Monitor className="h-4 w-4" />
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent>Desktop view</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem value="mobile" size="sm">
+                    <Smartphone className="h-4 w-4" />
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent>Mobile view</TooltipContent>
+              </Tooltip>
+            </ToggleGroup>
             <ShareButton />
             <ToggleInspectorPanelButton />
-          </Stack>
-        </Stack>
-      </Stack>
-      <Box sx={{ height: 'calc(100vh - 102px)', overflow: 'auto', minWidth: 370 }}>{renderMainPanel()}</Box>
-    </>
+          </div>
+        </div>
+      </div>
+      <div className="h-[calc(100vh-102px)] overflow-auto min-w-[370px]">{renderMainPanel()}</div>
+    </TooltipProvider>
   );
 }

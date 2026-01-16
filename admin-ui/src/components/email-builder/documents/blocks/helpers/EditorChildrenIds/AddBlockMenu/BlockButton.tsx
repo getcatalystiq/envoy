@@ -1,6 +1,4 @@
-
-
-import { Box, Button, SxProps, Typography } from '@mui/material';
+import { Button } from '@/components/ui/button';
 
 type BlockMenuButtonProps = {
   label: string;
@@ -8,29 +6,20 @@ type BlockMenuButtonProps = {
   onClick: () => void;
 };
 
-const BUTTON_SX: SxProps = { p: 1.5, display: 'flex', flexDirection: 'column' };
-const ICON_SX: SxProps = {
-  mb: 0.75,
-  width: '100%',
-  bgcolor: 'cadet.200',
-  display: 'flex',
-  justifyContent: 'center',
-  p: 1,
-  border: '1px solid',
-  borderColor: 'cadet.300',
-};
-
 export default function BlockTypeButton({ label, icon, onClick }: BlockMenuButtonProps) {
   return (
     <Button
-      sx={BUTTON_SX}
+      variant="ghost"
+      className="p-3 flex flex-col h-auto"
       onClick={(ev) => {
         ev.stopPropagation();
         onClick();
       }}
     >
-      <Box sx={ICON_SX}>{icon}</Box>
-      <Typography variant="body2">{label}</Typography>
+      <div className="mb-1.5 w-full bg-muted flex justify-center p-2 border border-border rounded">
+        {icon}
+      </div>
+      <span className="text-sm">{label}</span>
     </Button>
   );
 }

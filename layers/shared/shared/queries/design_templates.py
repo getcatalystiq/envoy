@@ -20,8 +20,8 @@ class DesignTemplateQueries:
     ) -> list[dict[str, Any]]:
         """List all design templates for an organization."""
         query = """
-            SELECT id, organization_id, name, description, editor_type,
-                   mjml_source, builder_content, html_compiled, archived,
+            SELECT id, organization_id, name, description,
+                   builder_content, html_compiled, archived,
                    created_at, updated_at
             FROM design_templates
             WHERE organization_id = $1
@@ -49,8 +49,8 @@ class DesignTemplateQueries:
         """Get a single design template."""
         row = await conn.fetchrow(
             """
-            SELECT id, organization_id, name, description, editor_type,
-                   mjml_source, builder_content, html_compiled, archived,
+            SELECT id, organization_id, name, description,
+                   builder_content, html_compiled, archived,
                    created_at, updated_at
             FROM design_templates
             WHERE id = $1 AND organization_id = $2
@@ -71,8 +71,6 @@ class DesignTemplateQueries:
         conn: asyncpg.Connection,
         org_id: UUID,
         name: str,
-        editor_type: str = "email_builder",
-        mjml_source: Optional[str] = None,
         builder_content: Optional[dict] = None,
         html_compiled: Optional[str] = None,
         description: Optional[str] = None,
@@ -84,19 +82,17 @@ class DesignTemplateQueries:
         row = await conn.fetchrow(
             """
             INSERT INTO design_templates (
-                organization_id, name, description, editor_type,
-                mjml_source, builder_content, html_compiled
+                organization_id, name, description,
+                builder_content, html_compiled
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING id, organization_id, name, description, editor_type,
-                      mjml_source, builder_content, html_compiled, archived,
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id, organization_id, name, description,
+                      builder_content, html_compiled, archived,
                       created_at, updated_at
             """,
             org_id,
             name,
             description,
-            editor_type,
-            mjml_source,
             builder_json,
             html_compiled,
         )
@@ -112,7 +108,6 @@ class DesignTemplateQueries:
         org_id: UUID,
         name: Optional[str] = None,
         description: Optional[str] = None,
-        mjml_source: Optional[str] = None,
         builder_content: Optional[dict] = None,
         html_compiled: Optional[str] = None,
         archived: Optional[bool] = None,
@@ -130,10 +125,6 @@ class DesignTemplateQueries:
         if description is not None:
             updates.append(f"description = ${param_idx}")
             params.append(description)
-            param_idx += 1
-        if mjml_source is not None:
-            updates.append(f"mjml_source = ${param_idx}")
-            params.append(mjml_source)
             param_idx += 1
         if builder_content is not None:
             updates.append(f"builder_content = ${param_idx}")
@@ -156,8 +147,8 @@ class DesignTemplateQueries:
             UPDATE design_templates
             SET {', '.join(updates)}
             WHERE id = ${param_idx} AND organization_id = ${param_idx + 1}
-            RETURNING id, organization_id, name, description, editor_type,
-                      mjml_source, builder_content, html_compiled, archived,
+            RETURNING id, organization_id, name, description,
+                      builder_content, html_compiled, archived,
                       created_at, updated_at
         """
         row = await conn.fetchrow(query, *params)
@@ -181,15 +172,3 @@ class DesignTemplateQueries:
             org_id,
         )
         return result == "DELETE 1"
-
-    @staticmethod
-    async def get_usage_count(
-        conn: asyncpg.Connection,
-        template_id: UUID,
-    ) -> int:
-        """Count how many content items use this template."""
-        row = await conn.fetchrow(
-            "SELECT COUNT(*) FROM content WHERE design_template_id = $1",
-            template_id,
-        )
-        return row["count"] if row else 0

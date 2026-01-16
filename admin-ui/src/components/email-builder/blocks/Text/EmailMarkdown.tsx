@@ -102,5 +102,11 @@ interface EmailMarkdownProps {
 
 export function EmailMarkdown({ markdown, style }: EmailMarkdownProps) {
   const data = useMemo(() => renderMarkdownString(markdown), [markdown]);
-  return <div style={style} dangerouslySetInnerHTML={{ __html: data }} />;
+  return (
+    <div
+      style={style}
+      className="email-markdown-content"
+      dangerouslySetInnerHTML={{ __html: data }}
+    />
+  );
 }

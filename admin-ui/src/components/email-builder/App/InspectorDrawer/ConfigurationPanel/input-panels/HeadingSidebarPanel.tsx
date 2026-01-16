@@ -1,6 +1,5 @@
 import { useState } from 'react';
-
-import { ToggleButton } from '@mui/material';
+import { ToggleGroupItem } from '@/components/ui/toggle-group';
 import { HeadingProps, HeadingPropsDefaults, HeadingPropsSchema } from '../../../../blocks';
 
 import BaseSidebarPanel from './helpers/BaseSidebarPanel';
@@ -12,6 +11,7 @@ type HeadingSidebarPanelProps = {
   data: HeadingProps;
   setData: (v: HeadingProps) => void;
 };
+
 export default function HeadingSidebarPanel({ data, setData }: HeadingSidebarPanelProps) {
   const [, setErrors] = useState<Zod.ZodError | null>(null);
 
@@ -42,9 +42,15 @@ export default function HeadingSidebarPanel({ data, setData }: HeadingSidebarPan
           updateData({ ...data, props: { ...data.props, level } });
         }}
       >
-        <ToggleButton value="h1">H1</ToggleButton>
-        <ToggleButton value="h2">H2</ToggleButton>
-        <ToggleButton value="h3">H3</ToggleButton>
+        <ToggleGroupItem value="h1" className="flex-1">
+          H1
+        </ToggleGroupItem>
+        <ToggleGroupItem value="h2" className="flex-1">
+          H2
+        </ToggleGroupItem>
+        <ToggleGroupItem value="h3" className="flex-1">
+          H3
+        </ToggleGroupItem>
       </RadioGroupInput>
       <MultiStylePropertyPanel
         names={['color', 'backgroundColor', 'fontFamily', 'fontWeight', 'textAlign', 'padding']}

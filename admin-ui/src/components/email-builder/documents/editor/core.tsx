@@ -2,13 +2,13 @@ import { z } from 'zod';
 
 import {
   Avatar, AvatarPropsSchema,
-  Button, ButtonPropsSchema,
+  ButtonPropsSchema,
   Divider, DividerPropsSchema,
-  Heading, HeadingPropsSchema,
+  HeadingPropsSchema,
   Html, HtmlPropsSchema,
   Image, ImagePropsSchema,
   Spacer, SpacerPropsSchema,
-  Text, TextPropsSchema,
+  TextPropsSchema,
 } from '../../blocks';
 import {
   buildBlockComponent,
@@ -16,12 +16,15 @@ import {
   buildBlockConfigurationSchema,
 } from '../../core';
 
+import ButtonEditor from '../blocks/Button/ButtonEditor';
 import ColumnsContainerEditor from '../blocks/ColumnsContainer/ColumnsContainerEditor';
 import ColumnsContainerPropsSchema from '../blocks/ColumnsContainer/ColumnsContainerPropsSchema';
 import ContainerEditor from '../blocks/Container/ContainerEditor';
 import ContainerPropsSchema from '../blocks/Container/ContainerPropsSchema';
 import EmailLayoutEditor from '../blocks/EmailLayout/EmailLayoutEditor';
 import EmailLayoutPropsSchema from '../blocks/EmailLayout/EmailLayoutPropsSchema';
+import HeadingEditor from '../blocks/Heading/HeadingEditor';
+import TextEditor from '../blocks/Text/TextEditor';
 import EditorBlockWrapper from '../blocks/helpers/block-wrappers/EditorBlockWrapper';
 
 const EDITOR_DICTIONARY = buildBlockConfigurationDictionary({
@@ -37,7 +40,7 @@ const EDITOR_DICTIONARY = buildBlockConfigurationDictionary({
     schema: ButtonPropsSchema,
     Component: (props) => (
       <EditorBlockWrapper>
-        <Button {...props} />
+        <ButtonEditor {...props} />
       </EditorBlockWrapper>
     ),
   },
@@ -61,7 +64,7 @@ const EDITOR_DICTIONARY = buildBlockConfigurationDictionary({
     schema: HeadingPropsSchema,
     Component: (props) => (
       <EditorBlockWrapper>
-        <Heading {...props} />
+        <HeadingEditor {...props} />
       </EditorBlockWrapper>
     ),
   },
@@ -94,7 +97,7 @@ const EDITOR_DICTIONARY = buildBlockConfigurationDictionary({
     schema: TextPropsSchema,
     Component: (props) => (
       <EditorBlockWrapper>
-        <Text {...props} />
+        <TextEditor {...props} />
       </EditorBlockWrapper>
     ),
   },

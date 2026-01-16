@@ -1,7 +1,6 @@
-
-
-import { ArrowDownwardOutlined, ArrowUpwardOutlined, ContentCopyOutlined, DeleteOutlined } from '@mui/icons-material';
-import { IconButton, Paper, Stack, SxProps, Tooltip } from '@mui/material';
+import { ArrowDown, ArrowUp, Copy, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 import { TEditorBlock, TEditorConfiguration } from '../../../editor/core';
 import { resetDocument, setSelectedBlockId, useDocument } from '../../../editor/EditorContext';
@@ -9,16 +8,6 @@ import { ColumnsContainerProps } from '../../ColumnsContainer/ColumnsContainerPr
 import cloneDocumentBlock from '../cloneDocumentBlock';
 
 type ColumnItem = { childrenIds: string[] };
-
-const sx: SxProps = {
-  position: 'absolute',
-  top: 0,
-  left: -56,
-  borderRadius: 64,
-  paddingX: 0.5,
-  paddingY: 1,
-  zIndex: 'fab',
-};
 
 function findParentBlockId(blockId: string, document: TEditorConfiguration) {
   for (const [id, b] of Object.entries(document)) {
@@ -229,29 +218,46 @@ export default function TuneMenu({ blockId }: Props) {
   };
 
   return (
-    <Paper sx={sx} onClick={(ev) => ev.stopPropagation()}>
-      <Stack>
-        <Tooltip title="Move up" placement="left-start">
-          <IconButton onClick={() => handleMoveClick('up')} sx={{ color: 'text.primary' }}>
-            <ArrowUpwardOutlined fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Move down" placement="left-start">
-          <IconButton onClick={() => handleMoveClick('down')} sx={{ color: 'text.primary' }}>
-            <ArrowDownwardOutlined fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Duplicate" placement="left-start">
-          <IconButton onClick={handleDuplicateClick} sx={{ color: 'text.primary' }}>
-            <ContentCopyOutlined fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Delete" placement="left-start">
-          <IconButton onClick={handleDeleteClick} sx={{ color: 'text.primary' }}>
-            <DeleteOutlined fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      </Stack>
-    </Paper>
+    <TooltipProvider>
+      <div
+        className="absolute top-0 -left-14 rounded-full px-1 py-2 z-50 bg-background shadow-md border border-border"
+        onClick={(ev) => ev.stopPropagation()}
+      >
+        <div className="flex flex-col">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleMoveClick('up')}>
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Move up</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleMoveClick('down')}>
+                <ArrowDown className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Move down</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleDuplicateClick}>
+                <Copy className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Duplicate</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleDeleteClick}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Delete</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+    </TooltipProvider>
   );
 }

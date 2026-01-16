@@ -1,17 +1,15 @@
-
-
 import {
-  AccountCircleOutlined,
-  Crop32Outlined,
-  HMobiledataOutlined,
-  HorizontalRuleOutlined,
-  HtmlOutlined,
-  ImageOutlined,
-  LibraryAddOutlined,
-  NotesOutlined,
-  SmartButtonOutlined,
-  ViewColumnOutlined,
-} from '@mui/icons-material';
+  CircleUser,
+  Code,
+  Columns3,
+  Heading,
+  Image,
+  LayoutGrid,
+  Minus,
+  MousePointer2,
+  Square,
+  Type,
+} from 'lucide-react';
 
 import { TEditorBlock } from '../../../../editor/core';
 
@@ -23,7 +21,7 @@ type TButtonProps = {
 export const BUTTONS: TButtonProps[] = [
   {
     label: 'Heading',
-    icon: <HMobiledataOutlined />,
+    icon: <Heading className="h-5 w-5" />,
     block: () => ({
       type: 'Heading',
       data: {
@@ -36,7 +34,7 @@ export const BUTTONS: TButtonProps[] = [
   },
   {
     label: 'Text',
-    icon: <NotesOutlined />,
+    icon: <Type className="h-5 w-5" />,
     block: () => ({
       type: 'Text',
       data: {
@@ -48,10 +46,9 @@ export const BUTTONS: TButtonProps[] = [
       },
     }),
   },
-
   {
     label: 'Button',
-    icon: <SmartButtonOutlined />,
+    icon: <MousePointer2 className="h-5 w-5" />,
     block: () => ({
       type: 'Button',
       data: {
@@ -65,7 +62,7 @@ export const BUTTONS: TButtonProps[] = [
   },
   {
     label: 'Image',
-    icon: <ImageOutlined />,
+    icon: <Image className="h-5 w-5" />,
     block: () => ({
       type: 'Image',
       data: {
@@ -81,7 +78,7 @@ export const BUTTONS: TButtonProps[] = [
   },
   {
     label: 'Avatar',
-    icon: <AccountCircleOutlined />,
+    icon: <CircleUser className="h-5 w-5" />,
     block: () => ({
       type: 'Avatar',
       data: {
@@ -95,7 +92,7 @@ export const BUTTONS: TButtonProps[] = [
   },
   {
     label: 'Divider',
-    icon: <HorizontalRuleOutlined />,
+    icon: <Minus className="h-5 w-5" />,
     block: () => ({
       type: 'Divider',
       data: {
@@ -108,7 +105,7 @@ export const BUTTONS: TButtonProps[] = [
   },
   {
     label: 'Spacer',
-    icon: <Crop32Outlined />,
+    icon: <Square className="h-5 w-5" />,
     block: () => ({
       type: 'Spacer',
       data: {},
@@ -116,7 +113,7 @@ export const BUTTONS: TButtonProps[] = [
   },
   {
     label: 'Html',
-    icon: <HtmlOutlined />,
+    icon: <Code className="h-5 w-5" />,
     block: () => ({
       type: 'Html',
       data: {
@@ -131,7 +128,7 @@ export const BUTTONS: TButtonProps[] = [
   },
   {
     label: 'Columns',
-    icon: <ViewColumnOutlined />,
+    icon: <Columns3 className="h-5 w-5" />,
     block: () => ({
       type: 'ColumnsContainer',
       data: {
@@ -146,7 +143,7 @@ export const BUTTONS: TButtonProps[] = [
   },
   {
     label: 'Container',
-    icon: <LibraryAddOutlined />,
+    icon: <LayoutGrid className="h-5 w-5" />,
     block: () => ({
       type: 'Container',
       data: {
@@ -154,7 +151,4 @@ export const BUTTONS: TButtonProps[] = [
       },
     }),
   },
-
-  // { label: 'ProgressBar', icon: <ProgressBarOutlined />, block: () => ({}) },
-  // { label: 'LoopContainer', icon: <ViewListOutlined />, block: () => ({}) },
 ];

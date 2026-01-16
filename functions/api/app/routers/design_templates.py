@@ -12,7 +12,6 @@ from app.schemas import (
     DesignTemplateResponse,
     DesignTemplateUpdate,
 )
-from shared import mjml
 from shared.queries.design_templates import DesignTemplateQueries
 
 router = APIRouter()
@@ -58,28 +57,15 @@ async def create_template(
     db: DBConnection,
 ) -> DesignTemplateResponse:
     """Create a new design template."""
-    html_compiled = None
-
-    if data.editor_type == "mjml" and data.mjml_source:
-        # Compile MJML (validates syntax)
-        html_compiled, errors = mjml.compile(data.mjml_source)
-        if errors:
-            raise HTTPException(400, f"Invalid MJML: {errors}")
-
-    # Use default builder content if creating an email_builder template without content
-    builder_content = data.builder_content
-    if data.editor_type == "email_builder" and not builder_content:
-        builder_content = DEFAULT_BUILDER_CONTENT
+    # Use default builder content if none provided
+    builder_content = data.builder_content or DEFAULT_BUILDER_CONTENT
 
     template = await DesignTemplateQueries.create(
         db,
         org_id=org_id,
         name=data.name,
         description=data.description,
-        editor_type=data.editor_type,
-        mjml_source=data.mjml_source,
         builder_content=builder_content,
-        html_compiled=html_compiled,
     )
     return DesignTemplateResponse(**template)
 
@@ -105,22 +91,14 @@ async def update_template(
     db: DBConnection,
 ) -> DesignTemplateResponse:
     """Update a design template."""
-    # Recompile if MJML changed
-    html_compiled = data.html_compiled  # Use client-provided HTML for email_builder
-    if data.mjml_source:
-        html_compiled, errors = mjml.compile(data.mjml_source)
-        if errors:
-            raise HTTPException(400, f"Invalid MJML: {errors}")
-
     template = await DesignTemplateQueries.update(
         db,
         template_id=template_id,
         org_id=org_id,
         name=data.name,
         description=data.description,
-        mjml_source=data.mjml_source,
         builder_content=data.builder_content,
-        html_compiled=html_compiled,
+        html_compiled=data.html_compiled,
         archived=data.archived,
     )
     if not template:
@@ -135,14 +113,6 @@ async def delete_template(
     db: DBConnection,
 ) -> None:
     """Delete a design template."""
-    # Check if in use
-    usage_count = await DesignTemplateQueries.get_usage_count(db, template_id)
-    if usage_count > 0:
-        raise HTTPException(
-            400,
-            f"Template is used by {usage_count} content items. Archive it instead.",
-        )
-
     deleted = await DesignTemplateQueries.delete(db, template_id, org_id)
     if not deleted:
         raise HTTPException(404, "Template not found")
@@ -152,19 +122,12 @@ async def delete_template(
 async def preview_template(
     request: DesignTemplatePreviewRequest,
 ) -> DesignTemplatePreviewResponse:
-    """Generate preview HTML from MJML source.
+    """Generate preview HTML for a design template.
 
-    Note: email-builder-js content preview is handled client-side using @usewaypoint/email-builder.
-    This endpoint is primarily for MJML templates.
+    Note: email-builder-js content preview is handled client-side using the renderToStaticMarkup function.
+    This endpoint returns an informational message.
     """
-    if request.mjml_source:
-        try:
-            html, text = mjml.preview(request.mjml_source, request.sample_data)
-            return DesignTemplatePreviewResponse(html=html, text=text)
-        except ValueError as e:
-            return DesignTemplatePreviewResponse(html="", text="", errors=[str(e)])
-
-    # For email-builder content, return empty - client handles rendering
+    # Email-builder content preview is handled client-side
     return DesignTemplatePreviewResponse(
         html="",
         text="",

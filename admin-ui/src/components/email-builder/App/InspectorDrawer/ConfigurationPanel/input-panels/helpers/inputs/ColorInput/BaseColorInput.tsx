@@ -1,18 +1,8 @@
 import { useState } from 'react';
-
-import { AddOutlined, CloseOutlined } from '@mui/icons-material';
-import { ButtonBase, InputLabel, Menu, Stack } from '@mui/material';
-
+import { Plus, X } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import Picker from './Picker';
-
-const BUTTON_SX = {
-  border: '1px solid',
-  borderColor: 'cadet.400',
-  width: 32,
-  height: 32,
-  borderRadius: '4px',
-  bgcolor: '#FFFFFF',
-};
 
 type Props =
   | {
@@ -27,12 +17,10 @@ type Props =
       onChange: (value: string) => void;
       defaultValue: string;
     };
+
 export default function ColorInput({ label, defaultValue, onChange, nullable }: Props) {
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [open, setOpen] = useState(false);
   const [value, setValue] = useState(defaultValue);
-  const handleClickOpen = (event: React.MouseEvent<HTMLButtonElement>) => {
-    setAnchorEl(event.currentTarget);
-  };
 
   const renderResetButton = () => {
     if (!nullable) {
@@ -42,51 +30,59 @@ export default function ColorInput({ label, defaultValue, onChange, nullable }: 
       return null;
     }
     return (
-      <ButtonBase
+      <button
+        type="button"
         onClick={() => {
           setValue(null);
           onChange(null);
         }}
+        className="p-1 hover:bg-gray-100 rounded"
       >
-        <CloseOutlined fontSize="small" sx={{ color: 'grey.600' }} />
-      </ButtonBase>
+        <X className="h-4 w-4 text-gray-600" />
+      </button>
     );
   };
 
   const renderOpenButton = () => {
     if (value) {
-      return <ButtonBase onClick={handleClickOpen} sx={{ ...BUTTON_SX, bgcolor: value }} />;
+      return (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="w-8 h-8 rounded border border-gray-300"
+          style={{ backgroundColor: value }}
+        />
+      );
     }
     return (
-      <ButtonBase onClick={handleClickOpen} sx={{ ...BUTTON_SX }}>
-        <AddOutlined fontSize="small" />
-      </ButtonBase>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="w-8 h-8 rounded border border-gray-300 bg-white flex items-center justify-center"
+      >
+        <Plus className="h-4 w-4" />
+      </button>
     );
   };
 
   return (
-    <Stack alignItems="flex-start">
-      <InputLabel sx={{ mb: 0.5 }}>{label}</InputLabel>
-      <Stack direction="row" spacing={1}>
-        {renderOpenButton()}
+    <div className="flex flex-col items-start">
+      <Label className="text-xs mb-0.5">{label}</Label>
+      <div className="flex flex-row gap-1">
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>{renderOpenButton()}</PopoverTrigger>
+          <PopoverContent className="w-auto p-0">
+            <Picker
+              value={value || ''}
+              onChange={(v) => {
+                setValue(v);
+                onChange(v);
+              }}
+            />
+          </PopoverContent>
+        </Popover>
         {renderResetButton()}
-      </Stack>
-      <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={() => setAnchorEl(null)}
-        MenuListProps={{
-          sx: { height: 'auto', padding: 0 },
-        }}
-      >
-        <Picker
-          value={value || ''}
-          onChange={(v) => {
-            setValue(v);
-            onChange(v);
-          }}
-        />
-      </Menu>
-    </Stack>
+      </div>
+    </div>
   );
 }

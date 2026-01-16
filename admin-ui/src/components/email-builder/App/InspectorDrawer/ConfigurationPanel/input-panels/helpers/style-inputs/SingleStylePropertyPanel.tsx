@@ -1,6 +1,4 @@
-
-
-import { RoundedCornerOutlined } from '@mui/icons-material';
+import { Square } from 'lucide-react';
 
 import { TStyle } from '../../../../../../documents/blocks/helpers/TStyle';
 import { NullableColorInput } from '../inputs/ColorInput';
@@ -16,7 +14,12 @@ type StylePropertyPanelProps = {
   value: TStyle;
   onChange: (style: TStyle) => void;
 };
-export default function SingleStylePropertyPanel({ name, value, onChange }: StylePropertyPanelProps) {
+
+export default function SingleStylePropertyPanel({
+  name,
+  value,
+  onChange,
+}: StylePropertyPanelProps) {
   const defaultValue = value[name] ?? null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleChange = (v: any) => {
@@ -25,13 +28,25 @@ export default function SingleStylePropertyPanel({ name, value, onChange }: Styl
 
   switch (name) {
     case 'backgroundColor':
-      return <NullableColorInput label="Background color" defaultValue={defaultValue} onChange={handleChange} />;
+      return (
+        <NullableColorInput
+          label="Background color"
+          defaultValue={defaultValue}
+          onChange={handleChange}
+        />
+      );
     case 'borderColor':
-      return <NullableColorInput label="Border color" defaultValue={defaultValue} onChange={handleChange} />;
+      return (
+        <NullableColorInput
+          label="Border color"
+          defaultValue={defaultValue}
+          onChange={handleChange}
+        />
+      );
     case 'borderRadius':
       return (
         <SliderInput
-          iconLabel={<RoundedCornerOutlined />}
+          iconLabel={<Square className="h-4 w-4 text-muted-foreground" />}
           units="px"
           step={4}
           marks
@@ -43,15 +58,33 @@ export default function SingleStylePropertyPanel({ name, value, onChange }: Styl
         />
       );
     case 'color':
-      return <NullableColorInput label="Text color" defaultValue={defaultValue} onChange={handleChange} />;
+      return (
+        <NullableColorInput
+          label="Text color"
+          defaultValue={defaultValue}
+          onChange={handleChange}
+        />
+      );
     case 'fontFamily':
-      return <NullableFontFamily label="Font family" defaultValue={defaultValue} onChange={handleChange} />;
+      return (
+        <NullableFontFamily
+          label="Font family"
+          defaultValue={defaultValue}
+          onChange={handleChange}
+        />
+      );
     case 'fontSize':
-      return <FontSizeInput label="Font size" defaultValue={defaultValue} onChange={handleChange} />;
+      return (
+        <FontSizeInput label="Font size" defaultValue={defaultValue} onChange={handleChange} />
+      );
     case 'fontWeight':
-      return <FontWeightInput label="Font weight" defaultValue={defaultValue} onChange={handleChange} />;
+      return (
+        <FontWeightInput label="Font weight" defaultValue={defaultValue} onChange={handleChange} />
+      );
     case 'textAlign':
-      return <TextAlignInput label="Alignment" defaultValue={defaultValue} onChange={handleChange} />;
+      return (
+        <TextAlignInput label="Alignment" defaultValue={defaultValue} onChange={handleChange} />
+      );
     case 'padding':
       return <PaddingInput label="Padding" defaultValue={defaultValue} onChange={handleChange} />;
   }

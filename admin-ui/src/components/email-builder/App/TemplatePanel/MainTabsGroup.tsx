@@ -1,59 +1,63 @@
-
-
-import { CodeOutlined, DataObjectOutlined, EditOutlined, PreviewOutlined } from '@mui/icons-material';
-import { Tab, Tabs, Tooltip } from '@mui/material';
+import { Code, Eye, FileJson, Pencil } from 'lucide-react';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 import { setSelectedMainTab, useSelectedMainTab } from '../../documents/editor/EditorContext';
 
-export default function MainTabsGroup() {
+interface MainTabsGroupProps {
+  /** Whether to show HTML and JSON tabs. Default: true */
+  showCodeTabs?: boolean;
+}
+
+export default function MainTabsGroup({ showCodeTabs = true }: MainTabsGroupProps) {
   const selectedMainTab = useSelectedMainTab();
-  const handleChange = (_: unknown, v: unknown) => {
-    switch (v) {
-      case 'json':
-      case 'preview':
-      case 'editor':
-      case 'html':
-        setSelectedMainTab(v);
-        return;
-      default:
-        setSelectedMainTab('editor');
-    }
-  };
 
   return (
-    <Tabs value={selectedMainTab} onChange={handleChange}>
-      <Tab
-        value="editor"
-        label={
-          <Tooltip title="Edit">
-            <EditOutlined fontSize="small" />
-          </Tooltip>
+    <ToggleGroup
+      type="single"
+      value={selectedMainTab}
+      onValueChange={(value) => {
+        if (value === 'json' || value === 'preview' || value === 'editor' || value === 'html') {
+          setSelectedMainTab(value);
         }
-      />
-      <Tab
-        value="preview"
-        label={
-          <Tooltip title="Preview">
-            <PreviewOutlined fontSize="small" />
+      }}
+    >
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <ToggleGroupItem value="editor" size="sm">
+            <Pencil className="h-4 w-4" />
+          </ToggleGroupItem>
+        </TooltipTrigger>
+        <TooltipContent>Edit</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <ToggleGroupItem value="preview" size="sm">
+            <Eye className="h-4 w-4" />
+          </ToggleGroupItem>
+        </TooltipTrigger>
+        <TooltipContent>Preview</TooltipContent>
+      </Tooltip>
+      {showCodeTabs && (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <ToggleGroupItem value="html" size="sm">
+                <Code className="h-4 w-4" />
+              </ToggleGroupItem>
+            </TooltipTrigger>
+            <TooltipContent>HTML output</TooltipContent>
           </Tooltip>
-        }
-      />
-      <Tab
-        value="html"
-        label={
-          <Tooltip title="HTML output">
-            <CodeOutlined fontSize="small" />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <ToggleGroupItem value="json" size="sm">
+                <FileJson className="h-4 w-4" />
+              </ToggleGroupItem>
+            </TooltipTrigger>
+            <TooltipContent>JSON output</TooltipContent>
           </Tooltip>
-        }
-      />
-      <Tab
-        value="json"
-        label={
-          <Tooltip title="JSON output">
-            <DataObjectOutlined fontSize="small" />
-          </Tooltip>
-        }
-      />
-    </Tabs>
+        </>
+      )}
+    </ToggleGroup>
   );
 }

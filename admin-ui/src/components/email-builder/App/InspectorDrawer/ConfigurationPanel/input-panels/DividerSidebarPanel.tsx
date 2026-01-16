@@ -1,6 +1,5 @@
 import { useState } from 'react';
-
-import { HeightOutlined } from '@mui/icons-material';
+import { ArrowUpDown } from 'lucide-react';
 import { DividerProps, DividerPropsDefaults, DividerPropsSchema } from '../../../../blocks';
 
 import BaseSidebarPanel from './helpers/BaseSidebarPanel';
@@ -12,6 +11,7 @@ type DividerSidebarPanelProps = {
   data: DividerProps;
   setData: (v: DividerProps) => void;
 };
+
 export default function DividerSidebarPanel({ data, setData }: DividerSidebarPanelProps) {
   const [, setErrors] = useState<Zod.ZodError | null>(null);
   const updateData = (d: unknown) => {
@@ -36,7 +36,7 @@ export default function DividerSidebarPanel({ data, setData }: DividerSidebarPan
       />
       <SliderInput
         label="Height"
-        iconLabel={<HeightOutlined sx={{ color: 'text.secondary' }} />}
+        iconLabel={<ArrowUpDown className="h-4 w-4 text-muted-foreground" />}
         units="px"
         step={1}
         min={1}

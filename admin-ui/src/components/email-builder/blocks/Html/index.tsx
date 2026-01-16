@@ -33,5 +33,11 @@ export function Html({ style, props }: HtmlProps) {
     return <div style={cssStyle} />;
   }
 
-  return <div style={cssStyle} dangerouslySetInnerHTML={{ __html: children }} />;
+  return (
+    <div
+      style={cssStyle}
+      className="email-markdown-content"
+      dangerouslySetInnerHTML={{ __html: children }}
+    />
+  );
 }

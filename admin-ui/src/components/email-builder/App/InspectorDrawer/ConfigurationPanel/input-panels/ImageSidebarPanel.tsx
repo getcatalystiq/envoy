@@ -1,11 +1,6 @@
 import { useState } from 'react';
-
-import {
-  VerticalAlignBottomOutlined,
-  VerticalAlignCenterOutlined,
-  VerticalAlignTopOutlined,
-} from '@mui/icons-material';
-import { Stack, ToggleButton } from '@mui/material';
+import { AlignStartVertical, AlignCenterVertical, AlignEndVertical } from 'lucide-react';
+import { ToggleGroupItem } from '@/components/ui/toggle-group';
 import { ImageProps, ImagePropsSchema } from '../../../../blocks';
 
 import BaseSidebarPanel from './helpers/BaseSidebarPanel';
@@ -18,6 +13,7 @@ type ImageSidebarPanelProps = {
   data: ImageProps;
   setData: (v: ImageProps) => void;
 };
+
 export default function ImageSidebarPanel({ data, setData }: ImageSidebarPanelProps) {
   const [, setErrors] = useState<Zod.ZodError | null>(null);
 
@@ -55,7 +51,7 @@ export default function ImageSidebarPanel({ data, setData }: ImageSidebarPanelPr
           updateData({ ...data, props: { ...data.props, linkHref } });
         }}
       />
-      <Stack direction="row" spacing={2}>
+      <div className="flex flex-row gap-2">
         <TextDimensionInput
           label="Width"
           defaultValue={data.props?.width}
@@ -66,22 +62,24 @@ export default function ImageSidebarPanel({ data, setData }: ImageSidebarPanelPr
           defaultValue={data.props?.height}
           onChange={(height) => updateData({ ...data, props: { ...data.props, height } })}
         />
-      </Stack>
+      </div>
 
       <RadioGroupInput
         label="Alignment"
         defaultValue={data.props?.contentAlignment ?? 'middle'}
-        onChange={(contentAlignment) => updateData({ ...data, props: { ...data.props, contentAlignment } })}
+        onChange={(contentAlignment) =>
+          updateData({ ...data, props: { ...data.props, contentAlignment } })
+        }
       >
-        <ToggleButton value="top">
-          <VerticalAlignTopOutlined fontSize="small" />
-        </ToggleButton>
-        <ToggleButton value="middle">
-          <VerticalAlignCenterOutlined fontSize="small" />
-        </ToggleButton>
-        <ToggleButton value="bottom">
-          <VerticalAlignBottomOutlined fontSize="small" />
-        </ToggleButton>
+        <ToggleGroupItem value="top" className="flex-1">
+          <AlignStartVertical className="h-4 w-4" />
+        </ToggleGroupItem>
+        <ToggleGroupItem value="middle" className="flex-1">
+          <AlignCenterVertical className="h-4 w-4" />
+        </ToggleGroupItem>
+        <ToggleGroupItem value="bottom" className="flex-1">
+          <AlignEndVertical className="h-4 w-4" />
+        </ToggleGroupItem>
       </RadioGroupInput>
 
       <MultiStylePropertyPanel

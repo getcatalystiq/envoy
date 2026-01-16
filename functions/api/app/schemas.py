@@ -345,25 +345,15 @@ class SequenceUpdate(BaseModel):
     status: Optional[str] = Field(None, pattern="^(draft|active|archived)$")
 
 
-class SequenceStepContentResponse(BaseModel):
-    """Schema for step content in response."""
-
-    id: UUID
-    content_id: UUID
-    priority: int
-    content_name: Optional[str] = None
-    content_subject: Optional[str] = None
-
-    model_config = {"from_attributes": True}
-
-
 class SequenceStepResponse(BaseModel):
     """Schema for step in response."""
 
     id: UUID
     position: int
     default_delay_hours: int
-    contents: list[SequenceStepContentResponse] = Field(default_factory=list)
+    subject: Optional[str] = None
+    builder_content: Optional[dict] = None
+    has_unpublished_changes: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -395,6 +385,7 @@ class SequenceStepCreate(BaseModel):
 
     position: int = Field(..., ge=1)
     default_delay_hours: int = Field(default=24, ge=0)
+    subject: Optional[str] = Field(None, max_length=998)
 
 
 class SequenceStepUpdate(BaseModel):
@@ -402,13 +393,9 @@ class SequenceStepUpdate(BaseModel):
 
     position: Optional[int] = Field(None, ge=1)
     default_delay_hours: Optional[int] = Field(None, ge=0)
-
-
-class SequenceStepContentCreate(BaseModel):
-    """Schema for adding content to a step."""
-
-    content_id: UUID
-    priority: int = Field(default=1, ge=1)
+    subject: Optional[str] = Field(None, max_length=998)
+    builder_content: Optional[dict] = None
+    has_unpublished_changes: Optional[bool] = None
 
 
 class EnrollmentCreate(BaseModel):
@@ -472,8 +459,6 @@ class DesignTemplateCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
-    editor_type: str = Field(default="email_builder")  # "mjml" or "email_builder"
-    mjml_source: Optional[str] = Field(None, min_length=1)
     builder_content: Optional[dict] = None  # email-builder-js TReaderDocument JSON
 
 
@@ -482,7 +467,6 @@ class DesignTemplateUpdate(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = None
-    mjml_source: Optional[str] = Field(None, min_length=1)
     builder_content: Optional[dict] = None
     html_compiled: Optional[str] = None
     archived: Optional[bool] = None
@@ -495,8 +479,6 @@ class DesignTemplateResponse(BaseModel):
     organization_id: UUID
     name: str
     description: Optional[str] = None
-    editor_type: str = "email_builder"
-    mjml_source: Optional[str] = None
     builder_content: Optional[dict] = None
     html_compiled: Optional[str] = None
     archived: bool
@@ -509,7 +491,6 @@ class DesignTemplateResponse(BaseModel):
 class DesignTemplatePreviewRequest(BaseModel):
     """Schema for design template preview request."""
 
-    mjml_source: Optional[str] = Field(None, min_length=1)
     builder_content: Optional[dict] = None
     sample_data: Optional[dict[str, str]] = None
 

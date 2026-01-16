@@ -1,6 +1,5 @@
 import { useState } from 'react';
-
-import { RoundedCornerOutlined } from '@mui/icons-material';
+import { Square } from 'lucide-react';
 
 import EmailLayoutPropsSchema, {
   EmailLayoutProps,
@@ -15,7 +14,11 @@ type EmailLayoutSidebarFieldsProps = {
   data: EmailLayoutProps;
   setData: (v: EmailLayoutProps) => void;
 };
-export default function EmailLayoutSidebarFields({ data, setData }: EmailLayoutSidebarFieldsProps) {
+
+export default function EmailLayoutSidebarFields({
+  data,
+  setData,
+}: EmailLayoutSidebarFieldsProps) {
   const [, setErrors] = useState<Zod.ZodError | null>(null);
 
   const updateData = (d: unknown) => {
@@ -46,7 +49,7 @@ export default function EmailLayoutSidebarFields({ data, setData }: EmailLayoutS
         onChange={(borderColor) => updateData({ ...data, borderColor })}
       />
       <SliderInput
-        iconLabel={<RoundedCornerOutlined />}
+        iconLabel={<Square className="h-4 w-4 text-muted-foreground" />}
         units="px"
         step={4}
         marks

@@ -12,7 +12,6 @@ from app.schemas import (
     ListResponse,
     SequenceCreate,
     SequenceResponse,
-    SequenceStepContentCreate,
     SequenceStepCreate,
     SequenceStepUpdate,
     SequenceUpdate,
@@ -255,76 +254,6 @@ async def delete_step(
         raise HTTPException(status_code=404, detail="Step not found")
 
     await SequenceQueries.delete_step(db, step_id)
-
-
-# =============================================================================
-# STEP CONTENTS
-# =============================================================================
-
-
-@router.post("/{sequence_id}/steps/{step_id}/content", status_code=201)
-async def add_step_content(
-    sequence_id: UUID,
-    step_id: UUID,
-    data: SequenceStepContentCreate,
-    org_id: CurrentOrg,
-    db: DBConnection,
-) -> dict:
-    """Add content to a step."""
-    sequence = await SequenceQueries.get_by_id(db, sequence_id)
-    if not sequence:
-        raise HTTPException(status_code=404, detail="Sequence not found")
-
-    step = await SequenceQueries.get_step(db, step_id)
-    if not step or step["sequence_id"] != sequence_id:
-        raise HTTPException(status_code=404, detail="Step not found")
-
-    return await SequenceQueries.add_step_content(
-        db,
-        step_id=step_id,
-        org_id=org_id,
-        content_id=data.content_id,
-        priority=data.priority,
-    )
-
-
-@router.get("/{sequence_id}/steps/{step_id}/content")
-async def list_step_contents(
-    sequence_id: UUID,
-    step_id: UUID,
-    db: DBConnection,
-) -> list[dict]:
-    """List content options for a step."""
-    sequence = await SequenceQueries.get_by_id(db, sequence_id)
-    if not sequence:
-        raise HTTPException(status_code=404, detail="Sequence not found")
-
-    step = await SequenceQueries.get_step(db, step_id)
-    if not step or step["sequence_id"] != sequence_id:
-        raise HTTPException(status_code=404, detail="Step not found")
-
-    return await SequenceQueries.list_step_contents(db, step_id)
-
-
-@router.delete("/{sequence_id}/steps/{step_id}/content/{content_id}", status_code=204)
-async def remove_step_content(
-    sequence_id: UUID,
-    step_id: UUID,
-    content_id: UUID,
-    db: DBConnection,
-) -> None:
-    """Remove content from a step."""
-    sequence = await SequenceQueries.get_by_id(db, sequence_id)
-    if not sequence:
-        raise HTTPException(status_code=404, detail="Sequence not found")
-
-    step = await SequenceQueries.get_step(db, step_id)
-    if not step or step["sequence_id"] != sequence_id:
-        raise HTTPException(status_code=404, detail="Step not found")
-
-    removed = await SequenceQueries.remove_step_content(db, step_id, content_id)
-    if not removed:
-        raise HTTPException(status_code=404, detail="Content not found in step")
 
 
 # =============================================================================

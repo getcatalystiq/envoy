@@ -120,7 +120,7 @@ class OutboxQueries:
             """
             SELECT o.*, t.email, t.first_name, t.last_name, t.company
             FROM outbox o
-            JOIN targets t ON o.target_id = t.id
+            LEFT JOIN targets t ON o.target_id = t.id
             WHERE o.organization_id = $1 AND o.status = 'pending'
             ORDER BY o.priority DESC, o.created_at ASC
             LIMIT $2 OFFSET $3

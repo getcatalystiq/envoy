@@ -1,6 +1,4 @@
-
-
-import { Box, Menu } from '@mui/material';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 import { TEditorBlock } from '../../../../editor/core';
 
@@ -12,6 +10,7 @@ type BlocksMenuProps = {
   setAnchorEl: (v: HTMLElement | null) => void;
   onSelect: (block: TEditorBlock) => void;
 };
+
 export default function BlocksMenu({ anchorEl, setAnchorEl, onSelect }: BlocksMenuProps) {
   const onClose = () => {
     setAnchorEl(null);
@@ -27,18 +26,23 @@ export default function BlocksMenu({ anchorEl, setAnchorEl, onSelect }: BlocksMe
   }
 
   return (
-    <Menu
-      open
-      anchorEl={anchorEl}
-      onClose={onClose}
-      anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      transformOrigin={{ vertical: 'top', horizontal: 'center' }}
-    >
-      <Box sx={{ p: 1, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr' }}>
-        {BUTTONS.map((k, i) => (
-          <BlockButton key={i} label={k.label} icon={k.icon} onClick={() => onClick(k.block())} />
-        ))}
-      </Box>
-    </Menu>
+    <Popover open onOpenChange={(open) => !open && onClose()}>
+      <PopoverTrigger asChild>
+        <span
+          style={{
+            position: 'fixed',
+            left: anchorEl.getBoundingClientRect().left + anchorEl.getBoundingClientRect().width / 2,
+            top: anchorEl.getBoundingClientRect().bottom,
+          }}
+        />
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-2" align="center">
+        <div className="grid grid-cols-4 gap-1">
+          {BUTTONS.map((k, i) => (
+            <BlockButton key={i} label={k.label} icon={k.icon} onClick={() => onClick(k.block())} />
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

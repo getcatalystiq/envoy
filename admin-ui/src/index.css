@@ -105,3 +105,43 @@
   .animation-delay-400 { animation-delay: 400ms; }
   .animation-delay-500 { animation-delay: 500ms; }
 }
+
+/* Email markdown content styles */
+.email-markdown-content ul,
+.email-markdown-content ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.email-markdown-content ul {
+  list-style-type: disc;
+}
+
+.email-markdown-content ol {
+  list-style-type: decimal;
+}
+
+.email-markdown-content li {
+  margin: 0.25em 0;
+}
+
+.email-markdown-content a {
+  color: #0066cc;
+  text-decoration: underline;
+}
+
+.email-markdown-content a:hover {
+  color: #004499;
+}
+
+.email-markdown-content p {
+  margin: 0.5em 0;
+}
+
+.email-markdown-content p:first-child {
+  margin-top: 0;
+}
+
+.email-markdown-content p:last-child {
+  margin-bottom: 0;
+}

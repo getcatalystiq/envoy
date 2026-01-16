@@ -37,9 +37,6 @@ export function Text({ style, props }: TextProps) {
 
   const text = props?.text ?? TextPropsDefaults.text;
 
-  if (props?.markdown) {
-    return <EmailMarkdown style={wStyle} markdown={text} />;
-  }
-
-  return <div style={wStyle}>{text}</div>;
+  // Always render as markdown to support HTML (ul/li, links, etc.)
+  return <EmailMarkdown style={wStyle} markdown={text} />;
 }

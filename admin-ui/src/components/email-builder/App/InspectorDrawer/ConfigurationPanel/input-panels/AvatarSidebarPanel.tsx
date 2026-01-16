@@ -1,7 +1,6 @@
 import { useState } from 'react';
-
-import { AspectRatioOutlined } from '@mui/icons-material';
-import { ToggleButton } from '@mui/material';
+import { Maximize2 } from 'lucide-react';
+import { ToggleGroupItem } from '@/components/ui/toggle-group';
 import { AvatarProps, AvatarPropsDefaults, AvatarPropsSchema } from '../../../../blocks';
 
 import BaseSidebarPanel from './helpers/BaseSidebarPanel';
@@ -14,6 +13,7 @@ type AvatarSidebarPanelProps = {
   data: AvatarProps;
   setData: (v: AvatarProps) => void;
 };
+
 export default function AvatarSidebarPanel({ data, setData }: AvatarSidebarPanelProps) {
   const [, setErrors] = useState<Zod.ZodError | null>(null);
   const updateData = (d: unknown) => {
@@ -35,7 +35,7 @@ export default function AvatarSidebarPanel({ data, setData }: AvatarSidebarPanel
     <BaseSidebarPanel title="Avatar block">
       <SliderInput
         label="Size"
-        iconLabel={<AspectRatioOutlined sx={{ color: 'text.secondary' }} />}
+        iconLabel={<Maximize2 className="h-4 w-4 text-muted-foreground" />}
         units="px"
         step={3}
         min={32}
@@ -52,9 +52,15 @@ export default function AvatarSidebarPanel({ data, setData }: AvatarSidebarPanel
           updateData({ ...data, props: { ...data.props, shape } });
         }}
       >
-        <ToggleButton value="circle">Circle</ToggleButton>
-        <ToggleButton value="square">Square</ToggleButton>
-        <ToggleButton value="rounded">Rounded</ToggleButton>
+        <ToggleGroupItem value="circle" className="flex-1">
+          Circle
+        </ToggleGroupItem>
+        <ToggleGroupItem value="square" className="flex-1">
+          Square
+        </ToggleGroupItem>
+        <ToggleGroupItem value="rounded" className="flex-1">
+          Rounded
+        </ToggleGroupItem>
       </RadioGroupInput>
       <TextInput
         label="Image URL"

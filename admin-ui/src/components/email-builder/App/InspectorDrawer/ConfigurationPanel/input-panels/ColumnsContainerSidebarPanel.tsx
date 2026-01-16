@@ -1,12 +1,6 @@
 import { useState } from 'react';
-
-import {
-  SpaceBarOutlined,
-  VerticalAlignBottomOutlined,
-  VerticalAlignCenterOutlined,
-  VerticalAlignTopOutlined,
-} from '@mui/icons-material';
-import { ToggleButton } from '@mui/material';
+import { Space, AlignStartVertical, AlignCenterVertical, AlignEndVertical } from 'lucide-react';
+import { ToggleGroupItem } from '@/components/ui/toggle-group';
 
 import ColumnsContainerPropsSchema, {
   ColumnsContainerProps,
@@ -22,6 +16,7 @@ type ColumnsContainerPanelProps = {
   data: ColumnsContainerProps;
   setData: (v: ColumnsContainerProps) => void;
 };
+
 export default function ColumnsContainerPanel({ data, setData }: ColumnsContainerPanelProps) {
   const [, setErrors] = useState<Zod.ZodError | null>(null);
   const updateData = (d: unknown) => {
@@ -43,18 +38,27 @@ export default function ColumnsContainerPanel({ data, setData }: ColumnsContaine
           updateData({ ...data, props: { ...data.props, columnsCount: v === '2' ? 2 : 3 } });
         }}
       >
-        <ToggleButton value="2">2</ToggleButton>
-        <ToggleButton value="3">3</ToggleButton>
+        <ToggleGroupItem value="2" className="flex-1">
+          2
+        </ToggleGroupItem>
+        <ToggleGroupItem value="3" className="flex-1">
+          3
+        </ToggleGroupItem>
       </RadioGroupInput>
       <ColumnWidthsInput
-        defaultValue={data.props?.fixedWidths as [number | null | undefined, number | null | undefined, number | null | undefined] | null | undefined}
+        defaultValue={
+          data.props?.fixedWidths as
+            | [number | null | undefined, number | null | undefined, number | null | undefined]
+            | null
+            | undefined
+        }
         onChange={(fixedWidths) => {
           updateData({ ...data, props: { ...data.props, fixedWidths } });
         }}
       />
       <SliderInput
         label="Columns gap"
-        iconLabel={<SpaceBarOutlined sx={{ color: 'text.secondary' }} />}
+        iconLabel={<Space className="h-4 w-4 text-muted-foreground" />}
         units="px"
         step={4}
         marks
@@ -70,15 +74,15 @@ export default function ColumnsContainerPanel({ data, setData }: ColumnsContaine
           updateData({ ...data, props: { ...data.props, contentAlignment } });
         }}
       >
-        <ToggleButton value="top">
-          <VerticalAlignTopOutlined fontSize="small" />
-        </ToggleButton>
-        <ToggleButton value="middle">
-          <VerticalAlignCenterOutlined fontSize="small" />
-        </ToggleButton>
-        <ToggleButton value="bottom">
-          <VerticalAlignBottomOutlined fontSize="small" />
-        </ToggleButton>
+        <ToggleGroupItem value="top" className="flex-1">
+          <AlignStartVertical className="h-4 w-4" />
+        </ToggleGroupItem>
+        <ToggleGroupItem value="middle" className="flex-1">
+          <AlignCenterVertical className="h-4 w-4" />
+        </ToggleGroupItem>
+        <ToggleGroupItem value="bottom" className="flex-1">
+          <AlignEndVertical className="h-4 w-4" />
+        </ToggleGroupItem>
       </RadioGroupInput>
 
       <MultiStylePropertyPanel

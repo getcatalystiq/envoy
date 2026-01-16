@@ -1,8 +1,5 @@
 import { useState } from 'react';
 import { HexColorInput, HexColorPicker } from 'react-colorful';
-
-import { Box, Stack, SxProps } from '@mui/material';
-
 import Swatch from './Swatch';
 
 const DEFAULT_PRESET_COLORS = [
@@ -38,41 +35,11 @@ const DEFAULT_PRESET_COLORS = [
   '#000000',
 ];
 
-const SX: SxProps = {
-  p: 1,
-  '.react-colorful__pointer ': {
-    width: 16,
-    height: 16,
-  },
-  '.react-colorful__saturation': {
-    mb: 1,
-    borderRadius: '4px',
-  },
-  '.react-colorful__last-control': {
-    borderRadius: '4px',
-  },
-  '.react-colorful__hue-pointer': {
-    width: '4px',
-    borderRadius: '4px',
-    height: 24,
-    cursor: 'col-resize',
-  },
-  '.react-colorful__saturation-pointer': {
-    cursor: 'all-scroll',
-  },
-  input: {
-    padding: 1,
-    border: '1px solid',
-    borderColor: 'grey.300',
-    borderRadius: '4px',
-    width: '100%',
-  },
-};
-
 type Props = {
   value: string;
   onChange: (v: string) => void;
 };
+
 export default function Picker({ value, onChange }: Props) {
   const [internalValue, setInternalValue] = useState(value);
   const handleChange = (v: string) => {
@@ -83,12 +50,17 @@ export default function Picker({ value, onChange }: Props) {
   };
 
   return (
-    <Stack spacing={1} sx={SX}>
+    <div className="flex flex-col gap-1 p-2 [&_.react-colorful\_\_pointer]:w-4 [&_.react-colorful\_\_pointer]:h-4 [&_.react-colorful\_\_saturation]:mb-1 [&_.react-colorful\_\_saturation]:rounded [&_.react-colorful\_\_last-control]:rounded [&_.react-colorful\_\_hue-pointer]:w-1 [&_.react-colorful\_\_hue-pointer]:rounded [&_.react-colorful\_\_hue-pointer]:h-6 [&_.react-colorful\_\_hue-pointer]:cursor-col-resize [&_.react-colorful\_\_saturation-pointer]:cursor-move">
       <HexColorPicker color={value} onChange={handleChange} />
       <Swatch paletteColors={DEFAULT_PRESET_COLORS} value={value} onChange={handleChange} />
-      <Box pt={1}>
-        <HexColorInput prefixed color={internalValue} onChange={handleChange} />
-      </Box>
-    </Stack>
+      <div className="pt-1">
+        <HexColorInput
+          prefixed
+          color={internalValue}
+          onChange={handleChange}
+          className="p-1 border border-gray-300 rounded w-full"
+        />
+      </div>
+    </div>
   );
 }

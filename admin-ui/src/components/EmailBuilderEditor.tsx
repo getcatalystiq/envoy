@@ -1,10 +1,9 @@
-import { useEffect, useRef } from 'react';
-import { ThemeProvider, CssBaseline } from '@mui/material';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Toaster } from 'sonner';
 import { renderToStaticMarkup } from './email-builder/renderers';
 import { type TReaderDocument } from './email-builder/Reader';
 import { type TEditorConfiguration } from './email-builder/documents/editor/core';
 
-import theme from './email-builder/theme';
 import App from './email-builder/App';
 import {
   useDocument,
@@ -41,32 +40,40 @@ interface EmailBuilderEditorProps {
 // Inner component that has access to the Zustand store
 function EmailBuilderInner({ content, onChange, onPreviewHtml }: EmailBuilderEditorProps) {
   const document = useDocument();
-  const isInitialized = useRef(false);
+  const [isReady, setIsReady] = useState(false);
   const lastContent = useRef<TEditorConfiguration | null>(null);
+  const lastSyncedContent = useRef<string | undefined>(undefined);
 
-  // Initialize the editor with the provided content
-  useEffect(() => {
-    if (!isInitialized.current && content) {
-      resetDocument(content);
-      isInitialized.current = true;
-      lastContent.current = content;
-    } else if (!isInitialized.current && !content) {
-      resetDocument(DEFAULT_EMAIL_BUILDER_CONTENT);
-      isInitialized.current = true;
-      lastContent.current = DEFAULT_EMAIL_BUILDER_CONTENT;
+  // Initialize the editor with the provided content BEFORE paint
+  useLayoutEffect(() => {
+    const initialContent = content || DEFAULT_EMAIL_BUILDER_CONTENT;
+    const contentKey = content ? JSON.stringify(content) : 'default';
+
+    // Only reset if:
+    // 1. This is first initialization (!isReady), OR
+    // 2. The content prop changed from an EXTERNAL source (not from our own onChange call)
+    const isExternalChange = contentKey !== lastSyncedContent.current;
+
+    if (!isReady || isExternalChange) {
+      resetDocument(initialContent);
+      lastContent.current = initialContent;
+      lastSyncedContent.current = contentKey;
+      setIsReady(true);
     }
-  }, [content]);
+  }, [content, isReady]);
 
   // Sync document changes back to parent and generate preview
   useEffect(() => {
-    if (!isInitialized.current) return;
+    if (!isReady) return;
 
-    // Only call onChange if document actually changed
+    // Only call onChange if document actually changed from user edits
     const docString = JSON.stringify(document);
     const lastString = JSON.stringify(lastContent.current);
 
     if (docString !== lastString) {
       lastContent.current = document;
+      // Track what we're syncing so we don't reset when it comes back as a prop
+      lastSyncedContent.current = docString;
       onChange(document);
 
       // Generate preview HTML
@@ -79,18 +86,21 @@ function EmailBuilderInner({ content, onChange, onPreviewHtml }: EmailBuilderEdi
         }
       }
     }
-  }, [document, onChange, onPreviewHtml]);
+  }, [document, onChange, onPreviewHtml, isReady]);
+
+  // Don't render until the document is initialized
+  if (!isReady) {
+    return null;
+  }
 
   return <App />;
 }
 
 export function EmailBuilderEditor(props: EmailBuilderEditorProps) {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <div className="email-builder-wrapper h-full overflow-auto">
-        <EmailBuilderInner {...props} />
-      </div>
-    </ThemeProvider>
+    <div className="email-builder-wrapper h-full overflow-auto">
+      <Toaster position="top-center" />
+      <EmailBuilderInner {...props} />
+    </div>
   );
 }

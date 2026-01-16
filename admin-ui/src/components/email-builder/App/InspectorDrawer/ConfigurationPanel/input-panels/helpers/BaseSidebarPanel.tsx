@@ -1,20 +1,15 @@
-
-
-import { Box, Stack, Typography } from '@mui/material';
-
 type SidebarPanelProps = {
   title: string;
   children: React.ReactNode;
 };
+
 export default function BaseSidebarPanel({ title, children }: SidebarPanelProps) {
   return (
-    <Box p={2}>
-      <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+    <div className="p-4">
+      <span className="text-xs uppercase tracking-wider text-muted-foreground font-medium block mb-4">
         {title}
-      </Typography>
-      <Stack spacing={5} mb={3}>
-        {children}
-      </Stack>
-    </Box>
+      </span>
+      <div className="flex flex-col gap-5 mb-3">{children}</div>
+    </div>
   );
 }

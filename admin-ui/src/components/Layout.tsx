@@ -25,8 +25,8 @@ const navigation = [
   { name: 'Targets', href: '/targets', icon: Users },
   { name: 'Campaigns', href: '/campaigns', icon: Mail, comingSoon: true },
   { name: 'Sequences', href: '/sequences', icon: GitBranch },
-  { name: 'Content', href: '/content', icon: FileText },
   { name: 'Design', href: '/design-templates', icon: Palette },
+  { name: 'Content Library', href: '/content', icon: FileText },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 

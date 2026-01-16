@@ -43,7 +43,7 @@ class SequenceQueries:
         conn: asyncpg.Connection,
         sequence_id: UUID,
     ) -> Optional[dict[str, Any]]:
-        """Get sequence by ID with steps and step contents."""
+        """Get sequence by ID with steps."""
         row = await conn.fetchrow(
             """
             SELECT s.*,
@@ -53,24 +53,9 @@ class SequenceQueries:
                             'id', ss.id,
                             'position', ss.position,
                             'default_delay_hours', ss.default_delay_hours,
-                            'contents', (
-                                SELECT COALESCE(
-                                    json_agg(
-                                        json_build_object(
-                                            'id', ssc.id,
-                                            'content_id', ssc.content_id,
-                                            'priority', ssc.priority,
-                                            'content_name', c.name,
-                                            'content_subject', c.subject
-                                        )
-                                        ORDER BY ssc.priority
-                                    ),
-                                    '[]'
-                                )
-                                FROM sequence_step_contents ssc
-                                JOIN content c ON c.id = ssc.content_id
-                                WHERE ssc.sequence_step_id = ss.id
-                            )
+                            'subject', ss.subject,
+                            'builder_content', ss.builder_content,
+                            'has_unpublished_changes', ss.has_unpublished_changes
                         )
                         ORDER BY ss.position
                     ) FILTER (WHERE ss.id IS NOT NULL),
@@ -331,91 +316,6 @@ class SequenceQueries:
         result = await conn.execute(
             "DELETE FROM sequence_steps WHERE id = $1",
             step_id,
-        )
-        return result == "DELETE 1"
-
-    # =========================================================================
-    # SEQUENCE STEP CONTENTS
-    # =========================================================================
-
-    @staticmethod
-    async def add_step_content(
-        conn: asyncpg.Connection,
-        step_id: UUID,
-        org_id: str,
-        content_id: UUID,
-        priority: int = 1,
-    ) -> dict[str, Any]:
-        """Add content to a step."""
-        row = await conn.fetchrow(
-            """
-            INSERT INTO sequence_step_contents (
-                sequence_step_id, organization_id, content_id, priority
-            )
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (sequence_step_id, content_id)
-            DO UPDATE SET priority = $4
-            RETURNING *
-            """,
-            step_id,
-            org_id,
-            content_id,
-            priority,
-        )
-        return dict(row)
-
-    @staticmethod
-    async def get_step_content(
-        conn: asyncpg.Connection,
-        step_id: UUID,
-    ) -> Optional[dict[str, Any]]:
-        """Get highest priority content for a step."""
-        row = await conn.fetchrow(
-            """
-            SELECT ssc.*, c.name as content_name, c.body as content_body,
-                   c.subject as content_subject
-            FROM sequence_step_contents ssc
-            JOIN content c ON c.id = ssc.content_id
-            WHERE ssc.sequence_step_id = $1
-            ORDER BY ssc.priority
-            LIMIT 1
-            """,
-            step_id,
-        )
-        return dict(row) if row else None
-
-    @staticmethod
-    async def list_step_contents(
-        conn: asyncpg.Connection,
-        step_id: UUID,
-    ) -> list[dict[str, Any]]:
-        """List all content options for a step ordered by priority."""
-        rows = await conn.fetch(
-            """
-            SELECT ssc.*, c.name as content_name
-            FROM sequence_step_contents ssc
-            JOIN content c ON c.id = ssc.content_id
-            WHERE ssc.sequence_step_id = $1
-            ORDER BY ssc.priority
-            """,
-            step_id,
-        )
-        return [dict(row) for row in rows]
-
-    @staticmethod
-    async def remove_step_content(
-        conn: asyncpg.Connection,
-        step_id: UUID,
-        content_id: UUID,
-    ) -> bool:
-        """Remove content from a step."""
-        result = await conn.execute(
-            """
-            DELETE FROM sequence_step_contents
-            WHERE sequence_step_id = $1 AND content_id = $2
-            """,
-            step_id,
-            content_id,
         )
         return result == "DELETE 1"
 

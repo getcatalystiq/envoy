@@ -1,33 +1,36 @@
-
-
-import { TextField, Typography } from '@mui/material';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 type TextDimensionInputProps = {
   label: string;
   defaultValue: number | null | undefined;
   onChange: (v: number | null) => void;
 };
-export default function TextDimensionInput({ label, defaultValue, onChange }: TextDimensionInputProps) {
+
+export default function TextDimensionInput({
+  label,
+  defaultValue,
+  onChange,
+}: TextDimensionInputProps) {
   const handleChange: React.ChangeEventHandler<HTMLInputElement> = (ev) => {
     const value = parseInt(ev.target.value);
     onChange(isNaN(value) ? null : value);
   };
+
   return (
-    <TextField
-      fullWidth
-      onChange={handleChange}
-      defaultValue={defaultValue}
-      label={label}
-      variant="standard"
-      placeholder="auto"
-      size="small"
-      InputProps={{
-        endAdornment: (
-          <Typography variant="body2" color="text.secondary">
-            px
-          </Typography>
-        ),
-      }}
-    />
+    <div className="flex flex-col gap-1.5 w-full">
+      <Label className="text-xs">{label}</Label>
+      <div className="relative">
+        <Input
+          onChange={handleChange}
+          defaultValue={defaultValue ?? ''}
+          placeholder="auto"
+          className="pr-8"
+        />
+        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+          px
+        </span>
+      </div>
+    </div>
   );
 }

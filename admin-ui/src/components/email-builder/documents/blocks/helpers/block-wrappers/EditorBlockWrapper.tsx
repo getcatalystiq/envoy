@@ -1,6 +1,5 @@
-import { CSSProperties, useState } from 'react';
-
-import { Box } from '@mui/material';
+import { useState } from 'react';
+import { cn } from '@/lib/utils';
 
 import { useCurrentBlockId } from '../../../editor/EditorBlock';
 import { setSelectedBlockId, useSelectedBlockId } from '../../../editor/EditorContext';
@@ -16,28 +15,15 @@ export default function EditorBlockWrapper({ children }: TEditorBlockWrapperProp
   const [mouseInside, setMouseInside] = useState(false);
   const blockId = useCurrentBlockId();
 
-  let outline: CSSProperties['outline'];
-  if (selectedBlockId === blockId) {
-    outline = '2px solid rgba(0,121,204, 1)';
-  } else if (mouseInside) {
-    outline = '2px solid rgba(0,121,204, 0.3)';
-  }
-
-  const renderMenu = () => {
-    if (selectedBlockId !== blockId) {
-      return null;
-    }
-    return <TuneMenu blockId={blockId} />;
-  };
+  const isSelected = selectedBlockId === blockId;
 
   return (
-    <Box
-      sx={{
-        position: 'relative',
-        maxWidth: '100%',
-        outlineOffset: '-1px',
-        outline,
-      }}
+    <div
+      className={cn(
+        'relative max-w-full -outline-offset-1',
+        isSelected && 'outline outline-2 outline-[rgba(0,121,204,1)]',
+        !isSelected && mouseInside && 'outline outline-2 outline-[rgba(0,121,204,0.3)]'
+      )}
       onMouseEnter={(ev) => {
         setMouseInside(true);
         ev.stopPropagation();
@@ -51,8 +37,8 @@ export default function EditorBlockWrapper({ children }: TEditorBlockWrapperProp
         ev.preventDefault();
       }}
     >
-      {renderMenu()}
+      {isSelected && <TuneMenu blockId={blockId} />}
       {children}
-    </Box>
+    </div>
   );
 }

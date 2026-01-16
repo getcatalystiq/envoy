@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Edit, Trash2, Archive, MoreVertical, Palette, Code, FileText } from 'lucide-react';
+import { Plus, Edit, Trash2, Archive, MoreVertical, Palette } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
@@ -27,7 +27,38 @@ import {
   updateDesignTemplate,
   deleteDesignTemplate,
   type DesignTemplate,
+  type BuilderContent,
 } from '@/api/client';
+import { Reader, type TReaderDocument } from '@/components/email-builder/Reader';
+
+// Preview component for minified email template
+function TemplatePreview({ content }: { content: BuilderContent | null }) {
+  const document = content as TReaderDocument | null;
+  const hasContent = document && Object.keys(document).length > 0 && document.root;
+
+  if (!hasContent) {
+    return (
+      <div className="w-full h-[160px] bg-gray-50 rounded-md flex items-center justify-center border border-gray-100">
+        <span className="text-xs text-gray-400">No preview</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-[160px] overflow-hidden rounded-md border border-gray-100 bg-white relative">
+      <div
+        className="absolute inset-0 origin-top-left pointer-events-none"
+        style={{
+          transform: 'scale(0.3)',
+          width: '333.3%',
+          height: '333.3%',
+        }}
+      >
+        <Reader document={document} rootBlockId="root" />
+      </div>
+    </div>
+  );
+}
 
 export function DesignTemplates() {
   const navigate = useNavigate();
@@ -65,7 +96,6 @@ export function DesignTemplates() {
       const template = await createDesignTemplate({
         name: newName,
         description: newDescription || undefined,
-        editor_type: 'email_builder', // Use email-builder-js visual editor by default
       });
       setCreateOpen(false);
       setNewName('');
@@ -162,15 +192,28 @@ export function DesignTemplates() {
           {templates.map((template) => (
             <Card
               key={template.id}
-              className={`hover:shadow-md transition-shadow cursor-pointer ${template.archived ? 'opacity-60' : ''}`}
+              className={`hover:shadow-md transition-shadow cursor-pointer overflow-hidden ${template.archived ? 'opacity-60' : ''}`}
               onClick={() => navigate(`/design-templates/${template.id}`)}
             >
-              <CardHeader className="pb-2">
+              {/* Template Preview */}
+              <div className="p-3 pb-0">
+                <TemplatePreview content={template.builder_content} />
+              </div>
+
+              <div className="px-3 py-2">
                 <div className="flex items-start justify-between">
-                  <CardTitle className="text-lg">{template.name}</CardTitle>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-base truncate">{template.name}</h3>
+                    {template.archived && (
+                      <Badge variant="outline" className="text-xs mt-1">Archived</Badge>
+                    )}
+                    {template.description && (
+                      <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{template.description}</p>
+                    )}
+                  </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                      <Button variant="ghost" size="icon">
+                      <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2">
                         <MoreVertical className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
@@ -212,29 +255,7 @@ export function DesignTemplates() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-2 mb-2">
-                  {template.editor_type === 'email_builder' ? (
-                    <Badge variant="secondary" className="flex items-center gap-1">
-                      <FileText className="h-3 w-3" />
-                      Visual
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="flex items-center gap-1">
-                      <Code className="h-3 w-3" />
-                      MJML
-                    </Badge>
-                  )}
-                  {template.archived && <Badge variant="outline">Archived</Badge>}
-                </div>
-                {template.description && (
-                  <p className="text-sm text-muted-foreground line-clamp-2">{template.description}</p>
-                )}
-                <p className="text-xs text-muted-foreground mt-2">
-                  Updated {new Date(template.updated_at).toLocaleDateString()}
-                </p>
-              </CardContent>
+              </div>
             </Card>
           ))}
         </div>

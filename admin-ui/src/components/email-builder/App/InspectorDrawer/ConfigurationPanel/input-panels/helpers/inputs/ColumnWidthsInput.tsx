@@ -1,7 +1,4 @@
 import { useState } from 'react';
-
-import { Stack } from '@mui/material';
-
 import TextDimensionInput from './TextDimensionInput';
 
 export const DEFAULT_2_COLUMNS = [6] as [number];
@@ -9,15 +6,16 @@ export const DEFAULT_3_COLUMNS = [4, 8] as [number, number];
 
 type TWidthValue = number | null | undefined;
 type FixedWidths = [
-  //
   number | null | undefined,
   number | null | undefined,
   number | null | undefined,
 ];
+
 type ColumnsLayoutInputProps = {
   defaultValue: FixedWidths | null | undefined;
   onChange: (v: FixedWidths | null | undefined) => void;
 };
+
 export default function ColumnWidthsInput({ defaultValue, onChange }: ColumnsLayoutInputProps) {
   const [currentValue, setCurrentValue] = useState<[TWidthValue, TWidthValue, TWidthValue]>(() => {
     if (defaultValue) {
@@ -47,7 +45,7 @@ export default function ColumnWidthsInput({ defaultValue, onChange }: ColumnsLay
     );
   }
   return (
-    <Stack direction="row" spacing={1}>
+    <div className="flex flex-row gap-1">
       <TextDimensionInput
         label="Column 1"
         defaultValue={currentValue?.[0]}
@@ -63,6 +61,6 @@ export default function ColumnWidthsInput({ defaultValue, onChange }: ColumnsLay
         }}
       />
       {column3}
-    </Stack>
+    </div>
   );
 }

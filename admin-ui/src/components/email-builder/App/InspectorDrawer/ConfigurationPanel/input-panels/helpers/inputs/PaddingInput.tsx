@@ -1,13 +1,6 @@
 import { useState } from 'react';
-
-import {
-  AlignHorizontalLeftOutlined,
-  AlignHorizontalRightOutlined,
-  AlignVerticalBottomOutlined,
-  AlignVerticalTopOutlined,
-} from '@mui/icons-material';
-import { InputLabel, Stack } from '@mui/material';
-
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Label } from '@/components/ui/label';
 import RawSliderInput from './raw/RawSliderInput';
 
 type TPaddingValue = {
@@ -16,11 +9,13 @@ type TPaddingValue = {
   right: number;
   left: number;
 };
+
 type Props = {
   label: string;
   defaultValue: TPaddingValue | null;
   onChange: (value: TPaddingValue) => void;
 };
+
 export default function PaddingInput({ label, defaultValue, onChange }: Props) {
   const [value, setValue] = useState(() => {
     if (defaultValue) {
@@ -44,52 +39,48 @@ export default function PaddingInput({ label, defaultValue, onChange }: Props) {
   }
 
   return (
-    <Stack spacing={2} alignItems="flex-start" pb={1}>
-      <InputLabel shrink>{label}</InputLabel>
+    <div className="flex flex-col gap-2 items-start pb-1">
+      <Label className="text-xs">{label}</Label>
 
       <RawSliderInput
-        iconLabel={<AlignVerticalTopOutlined sx={{ fontSize: 16 }} />}
+        iconLabel={<ArrowUp className="h-4 w-4 text-muted-foreground" />}
         value={value.top}
         setValue={(num) => handleChange('top', num)}
         units="px"
         step={4}
         min={0}
         max={80}
-        marks
       />
 
       <RawSliderInput
-        iconLabel={<AlignVerticalBottomOutlined sx={{ fontSize: 16 }} />}
+        iconLabel={<ArrowDown className="h-4 w-4 text-muted-foreground" />}
         value={value.bottom}
         setValue={(num) => handleChange('bottom', num)}
         units="px"
         step={4}
         min={0}
         max={80}
-        marks
       />
 
       <RawSliderInput
-        iconLabel={<AlignHorizontalLeftOutlined sx={{ fontSize: 16 }} />}
+        iconLabel={<ArrowLeft className="h-4 w-4 text-muted-foreground" />}
         value={value.left}
         setValue={(num) => handleChange('left', num)}
         units="px"
         step={4}
         min={0}
         max={80}
-        marks
       />
 
       <RawSliderInput
-        iconLabel={<AlignHorizontalRightOutlined sx={{ fontSize: 16 }} />}
+        iconLabel={<ArrowRight className="h-4 w-4 text-muted-foreground" />}
         value={value.right}
         setValue={(num) => handleChange('right', num)}
         units="px"
         step={4}
         min={0}
         max={80}
-        marks
       />
-    </Stack>
+    </div>
   );
 }
