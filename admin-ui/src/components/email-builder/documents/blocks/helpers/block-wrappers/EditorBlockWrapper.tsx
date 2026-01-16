@@ -44,9 +44,8 @@ export default function EditorBlockWrapper({ children }: TEditorBlockWrapperProp
 
   const generateSparkles = useCallback(() =>
     Array.from({ length: SPARKLE_COUNT }, (_, i) => ({
-      id: i,
+      id: Math.random(),
       position: generateRandomPosition(),
-      delay: `${i * 0.3}s`,
     })), []);
 
   const [sparkles, setSparkles] = useState(generateSparkles);
@@ -84,12 +83,9 @@ export default function EditorBlockWrapper({ children }: TEditorBlockWrapperProp
     >
       {hasPersonalization && sparkles.map((sparkle) => (
         <span
-          key={`${sparkle.id}-${sparkle.position.top}-${sparkle.position.left}`}
+          key={sparkle.id}
           className="ai-sparkle"
-          style={{
-            ...sparkle.position,
-            animationDelay: sparkle.delay,
-          }}
+          style={sparkle.position}
         >
           ✦
         </span>
