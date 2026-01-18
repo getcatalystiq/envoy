@@ -1,4 +1,5 @@
 import { Slider } from '@/components/ui/slider';
+import { useReadOnly } from '../../../../../../../documents/editor/EditorContext';
 
 type SliderInputProps = {
   iconLabel: JSX.Element;
@@ -20,12 +21,15 @@ export default function RawSliderInput({
   min = 0,
   max = 100,
 }: SliderInputProps) {
+  const readOnly = useReadOnly();
+
   return (
-    <div className="flex flex-row items-center gap-2 justify-between w-full">
+    <div className={`flex flex-row items-center gap-2 justify-between w-full ${readOnly ? 'pointer-events-none opacity-60' : ''}`}>
       <div className="min-w-6 leading-none flex-shrink-0">{iconLabel}</div>
       <Slider
         value={[value]}
         onValueChange={(values) => {
+          if (readOnly) return;
           setValue(values[0]);
         }}
         step={step}

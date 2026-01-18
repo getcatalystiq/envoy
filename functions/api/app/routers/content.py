@@ -15,6 +15,7 @@ from app.schemas import (
     ListResponse,
     OutboxResponse,
 )
+from shared.email_wrapper import wrap_email_body
 from shared.queries import ContentQueries, OutboxQueries, TargetQueries
 
 router = APIRouter()
@@ -34,7 +35,7 @@ async def create_content(
         content_type=data.content_type,
         channel=data.channel,
         subject=data.subject,
-        body=data.body,
+        body=wrap_email_body(data.body) if data.body else data.body,
         target_type_id=data.target_type_id,
         segment_id=data.segment_id,
         lifecycle_stage=data.lifecycle_stage,
@@ -139,7 +140,7 @@ async def generate_content(
         content_type=data.content_type,
     )
 
-    # Save generated content
+    # Save generated content (raw - will be added to email layout later)
     content = await ContentQueries.create(
         db,
         org_id=org_id,
@@ -180,7 +181,7 @@ async def generate_content_to_outbox(
     # Extract confidence score from Maven result if available
     confidence_score = result.get("confidence_score")
 
-    # Create outbox item for human review
+    # Create outbox item for human review (raw - will be added to email layout later)
     outbox_item = await OutboxQueries.create(
         db,
         org_id=org_id,

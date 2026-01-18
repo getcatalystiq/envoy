@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { TEditorBlock } from '../../../../editor/core';
+import { useReadOnly } from '../../../../editor/EditorContext';
 
 import BlocksMenu from './BlocksMenu';
 import DividerButton from './DividerButton';
@@ -13,6 +14,12 @@ type Props = {
 export default function AddBlockButton({ onSelect, placeholder }: Props) {
   const [menuAnchorEl, setMenuAnchorEl] = useState<HTMLElement | null>(null);
   const [buttonElement, setButtonElement] = useState<HTMLElement | null>(null);
+  const readOnly = useReadOnly();
+
+  // Hide add block buttons in read-only mode
+  if (readOnly) {
+    return null;
+  }
 
   const handleButtonClick = () => {
     setMenuAnchorEl(buttonElement);

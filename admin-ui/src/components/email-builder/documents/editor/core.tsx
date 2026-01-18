@@ -5,7 +5,7 @@ import {
   ButtonPropsSchema,
   Divider, DividerPropsSchema,
   HeadingPropsSchema,
-  Html, HtmlPropsSchema,
+  HtmlPropsSchema,
   Image, ImagePropsSchema,
   Spacer, SpacerPropsSchema,
   TextPropsSchema,
@@ -24,6 +24,7 @@ import ContainerPropsSchema from '../blocks/Container/ContainerPropsSchema';
 import EmailLayoutEditor from '../blocks/EmailLayout/EmailLayoutEditor';
 import EmailLayoutPropsSchema from '../blocks/EmailLayout/EmailLayoutPropsSchema';
 import HeadingEditor from '../blocks/Heading/HeadingEditor';
+import HtmlEditor from '../blocks/Html/HtmlEditor';
 import TextEditor from '../blocks/Text/TextEditor';
 import EditorBlockWrapper from '../blocks/helpers/block-wrappers/EditorBlockWrapper';
 
@@ -72,7 +73,7 @@ const EDITOR_DICTIONARY = buildBlockConfigurationDictionary({
     schema: HtmlPropsSchema,
     Component: (props) => (
       <EditorBlockWrapper>
-        <Html {...props} />
+        <HtmlEditor {...props} />
       </EditorBlockWrapper>
     ),
   },

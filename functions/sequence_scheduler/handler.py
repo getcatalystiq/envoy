@@ -1,17 +1,41 @@
 """Sequence scheduler Lambda handler for processing sequence enrollments."""
 
 import asyncio
+import logging
 from typing import Any, Optional
 
+# Configure logging for local dev visibility
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:%(name)s:%(message)s",
+)
+logger = logging.getLogger(__name__)
+
 from shared.database import get_pool
+from shared.email_wrapper import wrap_email_body
 from shared.maven_client import MavenClient
 from shared.queries import OutboxQueries, SequenceQueries
 from shared.ses_client import SESClient
 
 from .block_compiler import compile_builder_content
 from .personalization import has_personalized_blocks, process_personalization
+from .template_engine import replace_templates_in_blocks
 
 BATCH_SIZE = 100
+
+
+def _count_personalized(content: dict | None) -> int:
+    """Helper to count blocks with personalization enabled."""
+    if not content:
+        return 0
+    count = 0
+    for block_id, block in content.items():
+        p = block.get("data", {}).get("personalization", {})
+        if p.get("enabled"):
+            count += 1
+    return count
+
+
 MAX_CONCURRENT_PROCESSING = 10
 
 
@@ -103,7 +127,33 @@ async def process_enrollment(
 
             # Check for builder_content (new block-based email builder)
             builder_content = step.get("builder_content")
+            print(f"  [DEBUG] Step {step['id']} - builder_content type: {type(builder_content).__name__}, blocks: {len(builder_content) if builder_content else 0}")
             if builder_content:
+                # Log personalization BEFORE template replacement
+                before_count = _count_personalized(builder_content)
+                print(f"  [DEBUG] BEFORE template replacement: {before_count} personalized blocks")
+
+                # Replace template variables ({{first_name}}, etc.) in all blocks first
+                target_data_for_templates = {
+                    "email": enrollment.get("target_email"),
+                    "first_name": enrollment.get("target_first_name"),
+                    "last_name": enrollment.get("target_last_name"),
+                    "company": enrollment.get("target_company"),
+                    "title": enrollment.get("target_title"),
+                }
+                builder_content = replace_templates_in_blocks(
+                    builder_content=builder_content,
+                    target_data=target_data_for_templates,
+                    target_id=str(enrollment["target_id"]),
+                )
+
+                # Log personalization AFTER template replacement
+                after_count = _count_personalized(builder_content)
+                print(f"  [DEBUG] AFTER template replacement: {after_count} personalized blocks")
+
+                if before_count > 0 and after_count == 0:
+                    print("  [DEBUG] BUG: Template replacement lost personalization data!")
+
                 # Process block-level personalization if any blocks have it enabled
                 if has_personalized_blocks(builder_content):
                     target_data = {
@@ -118,8 +168,9 @@ async def process_enrollment(
                         maven_client=maven,
                     )
 
-                # Compile builder_content to HTML
+                # Compile builder_content to HTML and wrap in document structure
                 body = compile_builder_content(builder_content)
+                body = wrap_email_body(body)
             else:
                 # Fallback to legacy content_body
                 body = content.get("content_body", "")

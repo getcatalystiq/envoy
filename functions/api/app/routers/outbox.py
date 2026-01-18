@@ -16,6 +16,7 @@ from app.schemas import (
     OutboxUpdate,
     OutboxWithTarget,
 )
+from shared.email_wrapper import wrap_email_body
 from shared.queries import OutboxQueries
 
 router = APIRouter()
@@ -35,7 +36,7 @@ async def create_outbox_item(
         target_id=data.target_id,
         channel=data.channel,
         subject=data.subject,
-        body=data.body,
+        body=wrap_email_body(data.body) if data.body else data.body,
         confidence_score=data.confidence_score,
         priority=data.priority,
         scheduled_for=data.scheduled_for.isoformat() if data.scheduled_for else None,
@@ -175,6 +176,7 @@ async def approve_outbox_item(
 
     # Create email_sends record for the email scheduler to pick up
     if item["channel"] == "email":
+        body = wrap_email_body(item.get("body", "")) if item.get("body") else ""
         await db.execute(
             """
             INSERT INTO email_sends
@@ -186,7 +188,7 @@ async def approve_outbox_item(
             org_id,
             item["target_id"],
             item.get("subject", ""),
-            item.get("body", ""),
+            body,
             outbox_id,
         )
 
@@ -263,6 +265,7 @@ async def retry_outbox_item(
 
     # Re-create email_sends record for the email scheduler
     if item["channel"] == "email":
+        body = wrap_email_body(item.get("body", "")) if item.get("body") else ""
         await db.execute(
             """
             INSERT INTO email_sends
@@ -274,7 +277,7 @@ async def retry_outbox_item(
             org_id,
             item["target_id"],
             item.get("subject", ""),
-            item.get("body", ""),
+            body,
             outbox_id,
         )
 
@@ -318,6 +321,7 @@ async def bulk_approve_outbox(
                 approved += 1
                 # Create email_sends record for the email scheduler to pick up
                 if item["channel"] == "email":
+                    body = wrap_email_body(item.get("body", "")) if item.get("body") else ""
                     await db.execute(
                         """
                         INSERT INTO email_sends
@@ -329,7 +333,7 @@ async def bulk_approve_outbox(
                         org_id,
                         item["target_id"],
                         item.get("subject", ""),
-                        item.get("body", ""),
+                        body,
                         outbox_id,
                     )
             else:

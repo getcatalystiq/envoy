@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.dependencies import CurrentOrg, DBConnection
 from app.schemas import SendRequest, SendResponse
+from shared.email_wrapper import wrap_email_body
 from shared.queries import ContentQueries, TargetQueries
 from shared.ses_client import SESClient
 
@@ -46,6 +47,9 @@ async def send_email(
             status_code=400,
             detail="Subject and body are required",
         )
+
+    # Wrap email body in standard layout
+    body = wrap_email_body(body)
 
     # Create email send record
     send_id = await db.fetchval(

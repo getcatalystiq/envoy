@@ -6,6 +6,7 @@ import {
   setDocument,
   useDocument,
   useSelectedBlockId,
+  useReadOnly,
 } from '../../../../../../documents/editor/EditorContext';
 import { TEditorConfiguration } from '../../../../../../documents/editor/core';
 
@@ -25,6 +26,7 @@ const DEBOUNCE_MS = 150;
 export default function PersonalizationInput() {
   const selectedBlockId = useSelectedBlockId();
   const document = useDocument();
+  const readOnly = useReadOnly();
 
   const committedBlockIdRef = useRef<string | null>(null);
   const [localPrompt, setLocalPrompt] = useState('');
@@ -99,6 +101,27 @@ export default function PersonalizationInput() {
   }, []);
 
   const { enabled } = personalization;
+
+  // In read-only mode, show full content in styled divs
+  if (readOnly) {
+    return (
+      <div className="flex flex-col gap-1.5 w-full">
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">AI Personalization</Label>
+          <span className="text-xs text-muted-foreground">{enabled ? 'Enabled' : 'Disabled'}</span>
+        </div>
+
+        {enabled && (
+          <div className="flex flex-col gap-1.5 w-full mt-2">
+            <Label className="text-xs">Prompt</Label>
+            <div className="text-sm whitespace-pre-wrap break-words min-h-[2.5rem] p-2 bg-muted rounded-md border border-input">
+              {localPrompt || <span className="text-muted-foreground">No prompt specified</span>}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-1.5 w-full">

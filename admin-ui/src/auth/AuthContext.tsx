@@ -34,9 +34,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setIsLoading(false);
 
+    // Handle tab visibility changes - refresh token when user returns to tab
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && isAuthenticated()) {
+        console.log(`[Auth ${new Date().toISOString()}] Tab became visible, checking token`);
+        try {
+          // getAccessToken will trigger refresh if needed
+          const token = await getAccessToken();
+          if (!token) {
+            console.log(`[Auth ${new Date().toISOString()}] No valid token after visibility check, logging out`);
+            oauthLogout();
+            setUser(null);
+            window.location.href = '/login';
+          } else {
+            // Restart the timer in case it was throttled
+            startTokenRefreshTimer();
+          }
+        } catch (err) {
+          console.error(`[Auth ${new Date().toISOString()}] Token check failed on visibility change`, err);
+          oauthLogout();
+          setUser(null);
+          window.location.href = '/login';
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     // Cleanup on unmount
     return () => {
       stopTokenRefreshTimer();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 

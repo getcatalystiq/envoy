@@ -361,9 +361,6 @@ export function Outbox() {
                         {item.subject}
                       </p>
                     )}
-                    <p className="text-sm text-gray-600 line-clamp-2">
-                      {item.body}
-                    </p>
                     <div className="flex items-center gap-3 mt-3">
                       {getStatusBadge(item.status)}
                       {getConfidenceBadge(item.confidence_score)}
@@ -508,9 +505,12 @@ export function Outbox() {
                       className="mt-1 min-h-[200px]"
                     />
                   ) : (
-                    <div className="mt-1 p-3 bg-white border rounded-lg whitespace-pre-wrap">
-                      {selectedItem.body}
-                    </div>
+                    <iframe
+                      srcDoc={selectedItem.body}
+                      className="mt-1 w-full min-h-[400px] bg-gray-100 border rounded-lg"
+                      sandbox="allow-same-origin"
+                      title="Email preview"
+                    />
                   )}
                 </div>
 

@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/select';
 
 import { FONT_FAMILIES } from '../../../../../../documents/blocks/helpers/fontFamily';
+import { useReadOnly } from '../../../../../../documents/editor/EditorContext';
 
 type NullableProps = {
   label: string;
@@ -18,12 +19,15 @@ type NullableProps = {
 
 export function NullableFontFamily({ label, onChange, defaultValue }: NullableProps) {
   const [value, setValue] = useState(defaultValue ?? 'inherit');
+  const readOnly = useReadOnly();
+
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className={`flex flex-col gap-1.5 ${readOnly ? 'pointer-events-none opacity-60' : ''}`}>
       <Label className="text-xs">{label}</Label>
       <Select
         value={value}
         onValueChange={(v) => {
+          if (readOnly) return;
           setValue(v);
           onChange(v === 'inherit' ? null : v);
         }}

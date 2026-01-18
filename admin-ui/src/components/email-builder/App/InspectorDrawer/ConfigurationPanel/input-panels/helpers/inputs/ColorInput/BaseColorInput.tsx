@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useReadOnly } from '../../../../../../../documents/editor/EditorContext';
 import Picker from './Picker';
 
 type Props =
@@ -21,8 +22,10 @@ type Props =
 export default function ColorInput({ label, defaultValue, onChange, nullable }: Props) {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState(defaultValue);
+  const readOnly = useReadOnly();
 
   const renderResetButton = () => {
+    if (readOnly) return null;
     if (!nullable) {
       return null;
     }
@@ -40,6 +43,22 @@ export default function ColorInput({ label, defaultValue, onChange, nullable }: 
       >
         <X className="h-4 w-4 text-gray-600" />
       </button>
+    );
+  };
+
+  const renderColorSwatch = () => {
+    if (value) {
+      return (
+        <div
+          className={`w-8 h-8 rounded border border-gray-300 ${readOnly ? 'opacity-60' : ''}`}
+          style={{ backgroundColor: value }}
+        />
+      );
+    }
+    return (
+      <div className={`w-8 h-8 rounded border border-gray-300 bg-white flex items-center justify-center ${readOnly ? 'opacity-60' : ''}`}>
+        <Plus className="h-4 w-4" />
+      </div>
     );
   };
 
@@ -64,6 +83,18 @@ export default function ColorInput({ label, defaultValue, onChange, nullable }: 
       </button>
     );
   };
+
+  // In read-only mode, just show the color swatch without interaction
+  if (readOnly) {
+    return (
+      <div className="flex flex-col items-start">
+        <Label className="text-xs mb-0.5">{label}</Label>
+        <div className="flex flex-row gap-1">
+          {renderColorSwatch()}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-start">

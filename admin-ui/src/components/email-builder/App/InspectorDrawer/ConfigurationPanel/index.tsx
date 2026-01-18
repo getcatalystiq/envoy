@@ -83,7 +83,7 @@ export default function ConfigurationPanel({ showPersonalization = false }: Conf
   };
 
   return (
-    <div className={readOnly ? 'pointer-events-none opacity-60' : ''}>
+    <div>
       {readOnlyBanner}
       {renderPanel()}
     </div>

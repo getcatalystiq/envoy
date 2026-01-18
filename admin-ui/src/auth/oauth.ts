@@ -252,6 +252,13 @@ export async function fetchUserInfo(): Promise<UserInfo> {
 }
 
 export async function refreshToken(): Promise<string> {
+  // If a refresh is already in progress, wait for it instead of starting a new one
+  // This prevents race conditions where concurrent refreshes revoke each other's tokens
+  if (refreshPromise) {
+    authLog('Refresh already in progress, waiting for existing refresh');
+    return refreshPromise;
+  }
+
   const storedRefreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
   const storedClientId = localStorage.getItem(STORAGE_KEYS.CLIENT_ID);
 
@@ -267,6 +274,17 @@ export async function refreshToken(): Promise<string> {
     throw new Error('No refresh token');
   }
 
+  // Set up the refresh promise so concurrent callers can wait on it
+  refreshPromise = doRefresh(storedRefreshToken);
+
+  try {
+    return await refreshPromise;
+  } finally {
+    refreshPromise = null;
+  }
+}
+
+async function doRefresh(storedRefreshToken: string): Promise<string> {
   let metadata: OAuthMetadata;
   let client_id: string;
   let client_secret: string;
@@ -440,6 +458,9 @@ export function logout(): void {
 
 // Token refresh timer management
 let tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+// Refresh mutex - prevents concurrent refresh attempts from racing
+let refreshPromise: Promise<string> | null = null;
 
 /**
  * Start a proactive token refresh timer.

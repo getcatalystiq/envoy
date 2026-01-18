@@ -70,6 +70,10 @@ def style_to_string(styles: dict[str, Any]) -> str:
         # Handle numeric values (assume px for most properties)
         if isinstance(value, (int, float)) and css_key not in ("font-weight", "line-height", "opacity"):
             value = f"{value}px"
+        # Replace double quotes with single quotes in string values to avoid
+        # breaking HTML style attributes (e.g., font-family values)
+        if isinstance(value, str):
+            value = value.replace('"', "'")
         parts.append(f"{css_key}: {value}")
     return "; ".join(parts)
 

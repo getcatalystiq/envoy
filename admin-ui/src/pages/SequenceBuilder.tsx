@@ -46,7 +46,7 @@ export function SequenceBuilder() {
   const [targetTypes, setTargetTypes] = useState<{ id: string; name: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'builder' | 'enrollments'>('builder');
+  const [activeTab, setActiveTab] = useState<'builder' | 'enrollments' | 'analytics'>('builder');
 
   // Selected step state
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
@@ -328,7 +328,7 @@ export function SequenceBuilder() {
     return new Date(dateString).toLocaleString();
   };
 
-  const canEdit = sequence?.status === 'draft' || sequence?.status === 'paused';
+  const canEdit = sequence?.status === 'draft';
 
   if (isLoading) {
     return (
@@ -376,17 +376,17 @@ export function SequenceBuilder() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {sequence.status === 'draft' && (
+          {sequence.status === 'draft' && enrollmentCounts.paused === 0 && (
             <Button onClick={handleActivate}>
               <Play className="w-4 h-4 mr-2" />
               Activate
             </Button>
           )}
-          {sequence.status === 'active' && (
+          {sequence.status === 'draft' && enrollmentCounts.paused > 0 && (
             <>
-              <Button variant="outline" onClick={handlePause}>
-                <Pause className="w-4 h-4 mr-2" />
-                Pause
+              <Button onClick={handleResume}>
+                <Play className="w-4 h-4 mr-2" />
+                Resume
               </Button>
               <Button variant="outline" onClick={() => setShowArchiveDialog(true)}>
                 <Archive className="w-4 h-4 mr-2" />
@@ -394,11 +394,11 @@ export function SequenceBuilder() {
               </Button>
             </>
           )}
-          {sequence.status === 'paused' && (
+          {sequence.status === 'active' && (
             <>
-              <Button onClick={handleResume}>
-                <Play className="w-4 h-4 mr-2" />
-                Resume
+              <Button variant="outline" onClick={handlePause}>
+                <Pause className="w-4 h-4 mr-2" />
+                Pause
               </Button>
               <Button variant="outline" onClick={() => setShowArchiveDialog(true)}>
                 <Archive className="w-4 h-4 mr-2" />
@@ -434,6 +434,7 @@ export function SequenceBuilder() {
                 </Badge>
               )}
             </TabsTrigger>
+            <TabsTrigger value="analytics">Analytics</TabsTrigger>
           </TabsList>
         </div>
 
@@ -637,6 +638,13 @@ export function SequenceBuilder() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Analytics Tab */}
+        <TabsContent value="analytics" className="flex-1 p-6 mt-0">
+          <div className="text-center py-12">
+            <p className="text-gray-500">Analytics coming soon</p>
+          </div>
         </TabsContent>
       </Tabs>
 

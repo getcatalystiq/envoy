@@ -582,25 +582,42 @@ class SequenceQueries:
         conn: asyncpg.Connection,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        """Get enrollments due for evaluation with row locking."""
+        """Get enrollments due for evaluation, marking them as in-progress.
+
+        Uses a CTE to atomically select and update next_evaluation_at to prevent
+        duplicate processing if the scheduler runs again while processing is ongoing.
+        The next_evaluation_at is set 10 minutes in the future as a processing window.
+        """
         rows = await conn.fetch(
             """
-            SELECT e.*, s.name as sequence_name, t.email as target_email,
+            WITH selected AS (
+                SELECT e.id
+                FROM sequence_enrollments e
+                JOIN sequences s ON s.id = e.sequence_id
+                JOIN organizations o ON o.id = e.organization_id
+                WHERE e.status = 'active'
+                  AND e.next_evaluation_at <= NOW()
+                  AND s.status = 'active'
+                  AND o.maven_service_runtime_arn IS NOT NULL
+                ORDER BY e.next_evaluation_at
+                FOR UPDATE OF e SKIP LOCKED
+                LIMIT $1
+            ),
+            updated AS (
+                UPDATE sequence_enrollments
+                SET next_evaluation_at = NOW() + INTERVAL '10 minutes'
+                WHERE id IN (SELECT id FROM selected)
+                RETURNING *
+            )
+            SELECT u.*, s.name as sequence_name, t.email as target_email,
                    t.first_name as target_first_name, t.last_name as target_last_name,
                    t.company as target_company, t.custom_fields as target_custom_fields,
                    t.status as target_status,
                    o.maven_tenant_id, o.maven_service_runtime_arn
-            FROM sequence_enrollments e
-            JOIN sequences s ON s.id = e.sequence_id
-            JOIN targets t ON t.id = e.target_id
-            JOIN organizations o ON o.id = e.organization_id
-            WHERE e.status = 'active'
-              AND e.next_evaluation_at <= NOW()
-              AND s.status = 'active'
-              AND o.maven_service_runtime_arn IS NOT NULL
-            ORDER BY e.next_evaluation_at
-            FOR UPDATE OF e SKIP LOCKED
-            LIMIT $1
+            FROM updated u
+            JOIN sequences s ON s.id = u.sequence_id
+            JOIN targets t ON t.id = u.target_id
+            JOIN organizations o ON o.id = u.organization_id
             """,
             limit,
         )

@@ -83,7 +83,7 @@ async def _personalize_block(
     target_data: dict[str, Any],
     maven_client: MavenClient,
     semaphore: asyncio.Semaphore,
-    timeout_seconds: float = 10.0,
+    timeout_seconds: float = 300.0,
 ) -> tuple[str, dict[str, Any] | None, PersonalizationError | None]:
     """Personalize a single block with bounded concurrency and timeout."""
     personalization = block.get("data", {}).get("personalization", {})
@@ -133,7 +133,7 @@ async def process_personalization(
     target_data: dict[str, Any],
     maven_client: MavenClient,
     max_concurrent: int = 5,
-    timeout_seconds: float = 10.0,
+    timeout_seconds: float = 300.0,
 ) -> tuple[dict[str, dict[str, Any]], list[PersonalizationError]]:
     """
     Process blocks with personalization enabled through Maven.
@@ -144,7 +144,7 @@ async def process_personalization(
         target_data: Target/recipient data for personalization
         maven_client: Maven client instance
         max_concurrent: Maximum concurrent Maven calls (default: 5)
-        timeout_seconds: Timeout per Maven call (default: 10.0)
+        timeout_seconds: Timeout per Maven call (default: 300.0)
 
     Returns:
         Tuple of (modified_content, errors) where errors contains

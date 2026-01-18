@@ -6,7 +6,6 @@ import {
   Mail,
   Users,
   FileText,
-  BarChart3,
   LogOut,
   Menu,
   X,
@@ -14,6 +13,7 @@ import {
   Inbox,
   GitBranch,
   Palette,
+  Search,
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -21,12 +21,12 @@ import { cn } from '@/lib/utils';
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Outbox', href: '/outbox', icon: Inbox },
-  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Targets', href: '/targets', icon: Users },
-  { name: 'Campaigns', href: '/campaigns', icon: Mail, comingSoon: true },
   { name: 'Sequences', href: '/sequences', icon: GitBranch },
+  { name: 'Campaigns', href: '/campaigns', icon: Mail, comingSoon: true },
+  { name: 'Prospecting', href: '/prospecting', icon: Search, comingSoon: true },
   { name: 'Design', href: '/design-templates', icon: Palette },
-  { name: 'Content Library', href: '/content', icon: FileText },
+  { name: 'Content', href: '/content', icon: FileText, comingSoon: true },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 

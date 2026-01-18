@@ -65,7 +65,7 @@ export default function EditorBlockWrapper({ children }: TEditorBlockWrapperProp
     <div
       className={cn(
         'relative max-w-full -outline-offset-1',
-        !readOnly && isSelected && !hasPersonalization && 'outline outline-2 outline-[rgba(0,121,204,1)]',
+        isSelected && !hasPersonalization && 'outline outline-2 outline-[rgba(0,121,204,1)]',
         !readOnly && !isSelected && mouseInside && !hasPersonalization && 'outline outline-2 outline-[rgba(0,121,204,0.3)]',
         hasPersonalization && 'ai-shimmer-border'
       )}
@@ -79,11 +79,9 @@ export default function EditorBlockWrapper({ children }: TEditorBlockWrapperProp
         setMouseInside(false);
       }}
       onClick={(ev) => {
-        if (!readOnly) {
-          setSelectedBlockId(blockId);
-          ev.stopPropagation();
-          ev.preventDefault();
-        }
+        setSelectedBlockId(blockId);
+        ev.stopPropagation();
+        ev.preventDefault();
       }}
     >
       {hasPersonalization && sparkles.map((sparkle) => (

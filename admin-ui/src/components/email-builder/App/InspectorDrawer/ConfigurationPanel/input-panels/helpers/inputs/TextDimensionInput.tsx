@@ -1,5 +1,6 @@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useReadOnly } from '../../../../../../documents/editor/EditorContext';
 
 type TextDimensionInputProps = {
   label: string;
@@ -12,13 +13,16 @@ export default function TextDimensionInput({
   defaultValue,
   onChange,
 }: TextDimensionInputProps) {
+  const readOnly = useReadOnly();
+
   const handleChange: React.ChangeEventHandler<HTMLInputElement> = (ev) => {
+    if (readOnly) return;
     const value = parseInt(ev.target.value);
     onChange(isNaN(value) ? null : value);
   };
 
   return (
-    <div className="flex flex-col gap-1.5 w-full">
+    <div className={`flex flex-col gap-1.5 w-full ${readOnly ? 'pointer-events-none opacity-60' : ''}`}>
       <Label className="text-xs">{label}</Label>
       <div className="relative">
         <Input

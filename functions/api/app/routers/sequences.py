@@ -184,7 +184,7 @@ async def pause_sequence(
     sequence_id: UUID,
     db: DBConnection,
 ) -> SequenceResponse:
-    """Pause an active sequence to allow editing."""
+    """Pause an active sequence to allow editing (sets status to draft)."""
     existing = await SequenceQueries.get_by_id(db, sequence_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Sequence not found")
@@ -195,8 +195,8 @@ async def pause_sequence(
             detail="Only active sequences can be paused",
         )
 
-    # Update sequence status to paused
-    sequence = await SequenceQueries.update(db, sequence_id, status="paused")
+    # Update sequence status to draft (allows editing)
+    sequence = await SequenceQueries.update(db, sequence_id, status="draft")
 
     # Pause all active enrollments in this sequence
     await SequenceQueries.pause_all_enrollments(db, sequence_id)
@@ -209,15 +209,23 @@ async def resume_sequence(
     sequence_id: UUID,
     db: DBConnection,
 ) -> SequenceResponse:
-    """Resume a paused sequence."""
+    """Resume a paused sequence (reactivate from draft)."""
     existing = await SequenceQueries.get_by_id(db, sequence_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Sequence not found")
 
-    if existing["status"] != "paused":
+    if existing["status"] != "draft":
         raise HTTPException(
             status_code=400,
-            detail="Only paused sequences can be resumed",
+            detail="Only draft sequences can be resumed",
+        )
+
+    # Verify sequence has at least one step
+    steps = await SequenceQueries.list_steps(db, sequence_id)
+    if not steps:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot activate sequence without steps",
         )
 
     # Update sequence status to active

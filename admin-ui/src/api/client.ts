@@ -1,10 +1,11 @@
-import { getAccessToken, logout } from '@/auth/oauth';
+import { getAccessToken, logout, refreshToken } from '@/auth/oauth';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 async function request<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  isRetry = false
 ): Promise<T> {
   const token = await getAccessToken();
   const headers: HeadersInit = {
@@ -25,12 +26,26 @@ async function request<T>(
 
   if (!response.ok) {
     if (response.status === 401) {
-      console.error(`[API ${new Date().toISOString()}] Got 401 from ${endpoint}, logging out`, {
-        hadToken: !!token,
-        tokenLength: token?.length,
-      });
-      logout();
-      window.location.href = '/login';
+      // If this is already a retry, give up and logout
+      if (isRetry) {
+        console.error(`[API ${new Date().toISOString()}] Got 401 from ${endpoint} after retry, logging out`);
+        logout();
+        window.location.href = '/login';
+        throw new Error('Session expired');
+      }
+
+      // Try to refresh and retry the request once
+      console.log(`[API ${new Date().toISOString()}] Got 401 from ${endpoint}, attempting refresh`);
+      try {
+        await refreshToken();
+        console.log(`[API ${new Date().toISOString()}] Refresh successful, retrying request`);
+        return request<T>(endpoint, options, true);
+      } catch (refreshErr) {
+        console.error(`[API ${new Date().toISOString()}] Refresh failed, logging out`, refreshErr);
+        logout();
+        window.location.href = '/login';
+        throw new Error('Session expired');
+      }
     }
     const error = await response.json().catch(() => ({ detail: 'Request failed' }));
     throw new Error(error.detail || 'Request failed');
@@ -237,7 +252,7 @@ export interface OutboxStats {
 }
 
 // Sequence types
-export type SequenceStatus = 'draft' | 'active' | 'paused' | 'archived';
+export type SequenceStatus = 'draft' | 'active' | 'archived';
 export type EnrollmentStatus = 'active' | 'paused' | 'completed' | 'converted' | 'exited';
 
 export interface Sequence {
