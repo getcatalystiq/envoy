@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect } from 'react';
 import { Monitor, Smartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
@@ -21,6 +21,7 @@ import {
   setSelectedScreenSize,
   setSidebarTab,
   toggleInspectorDrawerOpen,
+  setReadOnly,
 } from './documents/editor/EditorContext';
 
 const INSPECTOR_WIDTH = 320;
@@ -42,6 +43,8 @@ interface EmailEditorCoreProps {
   showCodeTabs?: boolean;
   /** Class name for the outer container */
   className?: string;
+  /** Whether the editor is in read-only mode */
+  readOnly?: boolean;
 }
 
 export function EmailEditorCore({
@@ -50,12 +53,18 @@ export function EmailEditorCore({
   editorHeight = '100%',
   showCodeTabs = false,
   className,
+  readOnly: readOnlyProp = false,
 }: EmailEditorCoreProps) {
   const inspectorDrawerOpen = useInspectorDrawerOpen();
   const document = useDocument();
   const selectedMainTab = useSelectedMainTab();
   const selectedScreenSize = useSelectedScreenSize();
   const selectedSidebarTab = useSelectedSidebarTab();
+
+  // Sync readOnly prop with context
+  useEffect(() => {
+    setReadOnly(readOnlyProp);
+  }, [readOnlyProp]);
 
   const mobileStyles = selectedScreenSize === 'mobile'
     ? 'mx-auto my-8 w-[370px] h-[800px] shadow-[rgba(33,36,67,0.04)_0px_10px_20px,rgba(33,36,67,0.04)_0px_2px_6px,rgba(33,36,67,0.04)_0px_0px_1px]'

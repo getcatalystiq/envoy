@@ -33,8 +33,6 @@ fi
 
 export JWT_PUBLIC_KEY=""
 export JWT_ISSUER="http://localhost"
-export MAVEN_AGENT_URL="http://localhost:8001/api/agent"
-export MAVEN_SERVICE_JWT_SECRET_ARN=""
 
 # Add shared layer to Python path (NOT layers/shared/python which has Lambda-compiled packages)
 export PYTHONPATH="$PROJECT_DIR/layers/shared:$PROJECT_DIR/functions/api:${PYTHONPATH:-}"

@@ -24,10 +24,6 @@ class Settings(BaseSettings):
     jwt_issuer: str = ""
     jwt_audience: str = "envoy-api"
 
-    # Maven Integration
-    maven_agent_url: str = ""
-    maven_service_jwt_secret_arn: str = ""
-
     # AWS
     aws_region: str = "us-east-1"
 

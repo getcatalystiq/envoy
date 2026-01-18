@@ -47,6 +47,21 @@ const STORAGE_KEYS = {
   USER_INFO: 'envoy_user_info',
 };
 
+// Auth debugging - logs to console with timestamp
+function authLog(message: string, data?: unknown) {
+  const timestamp = new Date().toISOString();
+  if (data !== undefined) {
+    console.log(`[Auth ${timestamp}] ${message}`, data);
+  } else {
+    console.log(`[Auth ${timestamp}] ${message}`);
+  }
+}
+
+function authError(message: string, error?: unknown) {
+  const timestamp = new Date().toISOString();
+  console.error(`[Auth ${timestamp}] ${message}`, error);
+}
+
 function generateRandomString(length: number): string {
   const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
   const array = new Uint8Array(length);
@@ -184,9 +199,19 @@ export async function handleCallback(): Promise<UserInfo> {
 
   const tokens: TokenResponse = await response.json();
 
+  authLog('handleCallback: Received tokens', {
+    hasAccessToken: !!tokens.access_token,
+    hasRefreshToken: !!tokens.refresh_token,
+    expiresIn: tokens.expires_in,
+    scope: tokens.scope,
+  });
+
   localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, tokens.access_token);
   if (tokens.refresh_token) {
     localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, tokens.refresh_token);
+    authLog('handleCallback: Stored refresh token', { length: tokens.refresh_token.length });
+  } else {
+    authError('handleCallback: No refresh token received from server!');
   }
   localStorage.setItem(STORAGE_KEYS.TOKEN_EXPIRY, String(Date.now() + tokens.expires_in * 1000));
 
@@ -195,6 +220,10 @@ export async function handleCallback(): Promise<UserInfo> {
 
   const userInfo = await fetchUserInfo();
 
+  // Start proactive token refresh timer after successful login
+  startTokenRefreshTimer();
+
+  authLog('handleCallback: Auth complete', { email: userInfo.email });
   return userInfo;
 }
 
@@ -224,54 +253,155 @@ export async function fetchUserInfo(): Promise<UserInfo> {
 
 export async function refreshToken(): Promise<string> {
   const storedRefreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+  const storedClientId = localStorage.getItem(STORAGE_KEYS.CLIENT_ID);
+
+  authLog('Attempting token refresh', {
+    hasRefreshToken: !!storedRefreshToken,
+    refreshTokenLength: storedRefreshToken?.length,
+    hasClientId: !!storedClientId,
+    clientId: storedClientId,
+  });
+
   if (!storedRefreshToken) {
+    authError('No refresh token found in localStorage');
     throw new Error('No refresh token');
   }
 
-  const metadata = await fetchOAuthMetadata();
-  const { client_id, client_secret } = await getClientCredentials();
+  let metadata: OAuthMetadata;
+  let client_id: string;
+  let client_secret: string;
 
-  const response = await fetch(metadata.token_endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': 'Basic ' + btoa(`${client_id}:${client_secret}`),
-    },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: storedRefreshToken,
-    }),
+  try {
+    metadata = await fetchOAuthMetadata();
+    const creds = await getClientCredentials();
+    client_id = creds.client_id;
+    client_secret = creds.client_secret;
+    authLog('Got metadata and credentials', { tokenEndpoint: metadata.token_endpoint, client_id });
+  } catch (err) {
+    authError('Failed to get metadata or credentials', err);
+    throw err;
+  }
+
+  const maxRetries = 3;
+  let lastError: Error | null = null;
+  let lastResponseStatus: number | null = null;
+  let lastResponseBody: unknown = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    authLog(`Refresh attempt ${attempt}/${maxRetries}`);
+
+    try {
+      const response = await fetch(metadata.token_endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': 'Basic ' + btoa(`${client_id}:${client_secret}`),
+        },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: storedRefreshToken,
+        }),
+      });
+
+      lastResponseStatus = response.status;
+
+      if (response.ok) {
+        const tokens: TokenResponse = await response.json();
+        authLog('Token refresh successful', {
+          hasNewAccessToken: !!tokens.access_token,
+          hasNewRefreshToken: !!tokens.refresh_token,
+          expiresIn: tokens.expires_in,
+        });
+
+        localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, tokens.access_token);
+        if (tokens.refresh_token) {
+          localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, tokens.refresh_token);
+        }
+        localStorage.setItem(STORAGE_KEYS.TOKEN_EXPIRY, String(Date.now() + tokens.expires_in * 1000));
+
+        return tokens.access_token;
+      }
+
+      // Response not OK - parse error details
+      try {
+        lastResponseBody = await response.json();
+      } catch {
+        lastResponseBody = await response.text().catch(() => 'Could not read response body');
+      }
+
+      authError(`Refresh attempt ${attempt} failed`, {
+        status: response.status,
+        statusText: response.statusText,
+        body: lastResponseBody,
+      });
+
+      // Don't retry on 400/401 - these are definitive failures
+      if (response.status === 400 || response.status === 401) {
+        authLog('Got 400/401, not retrying - token is invalid or expired');
+        break;
+      }
+
+      // For other errors (500, network issues), wait and retry
+      if (attempt < maxRetries) {
+        const delay = attempt * 1000; // 1s, 2s, 3s
+        authLog(`Waiting ${delay}ms before retry`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      authError(`Refresh attempt ${attempt} threw exception`, err);
+
+      if (attempt < maxRetries) {
+        const delay = attempt * 1000;
+        authLog(`Waiting ${delay}ms before retry`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  // All retries failed
+  authError('All refresh attempts failed', {
+    lastStatus: lastResponseStatus,
+    lastBody: lastResponseBody,
+    lastError: lastError?.message,
   });
 
-  if (!response.ok) {
-    logout();
-    throw new Error('Session expired');
-  }
-
-  const tokens: TokenResponse = await response.json();
-
-  localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, tokens.access_token);
-  if (tokens.refresh_token) {
-    localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, tokens.refresh_token);
-  }
-  localStorage.setItem(STORAGE_KEYS.TOKEN_EXPIRY, String(Date.now() + tokens.expires_in * 1000));
-
-  return tokens.access_token;
+  logout();
+  throw new Error(`Session expired (status: ${lastResponseStatus})`);
 }
 
 export async function getAccessToken(): Promise<string | null> {
   const accessToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
   const expiry = localStorage.getItem(STORAGE_KEYS.TOKEN_EXPIRY);
+  const refreshTokenExists = !!localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
 
   if (!accessToken) {
+    authLog('getAccessToken: No access token in storage');
     return null;
   }
 
-  if (expiry && Date.now() > parseInt(expiry) - 5 * 60 * 1000) {
-    try {
-      return await refreshToken();
-    } catch {
-      return null;
+  if (expiry) {
+    const expiryTime = parseInt(expiry);
+    const now = Date.now();
+    const timeUntilExpiry = expiryTime - now;
+    const refreshThreshold = 5 * 60 * 1000; // 5 minutes
+    const needsRefresh = now > expiryTime - refreshThreshold;
+
+    if (needsRefresh) {
+      const isExpired = now > expiryTime;
+      authLog('getAccessToken: Token needs refresh', {
+        isExpired,
+        expiredAgo: isExpired ? `${Math.round((now - expiryTime) / 1000)}s ago` : null,
+        expiresIn: !isExpired ? `${Math.round(timeUntilExpiry / 1000)}s` : null,
+        hasRefreshToken: refreshTokenExists,
+      });
+
+      try {
+        return await refreshToken();
+      } catch (err) {
+        authError('getAccessToken: Refresh failed', err);
+        return null;
+      }
     }
   }
 
@@ -293,12 +423,77 @@ export function getStoredUserInfo(): UserInfo | null {
 }
 
 export function logout(): void {
+  // Log the call stack to see what triggered logout
+  const stack = new Error().stack;
+  authLog('logout() called', { stack: stack?.split('\n').slice(1, 4).join('\n') });
+
+  // Stop any running token refresh timer
+  stopTokenRefreshTimer();
+
   localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
   localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
   localStorage.removeItem(STORAGE_KEYS.TOKEN_EXPIRY);
   localStorage.removeItem(STORAGE_KEYS.USER_INFO);
   sessionStorage.removeItem(STORAGE_KEYS.CODE_VERIFIER);
   sessionStorage.removeItem('oauth_state');
+}
+
+// Token refresh timer management
+let tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Start a proactive token refresh timer.
+ * This ensures tokens are refreshed before they expire, even if the user is idle.
+ */
+export function startTokenRefreshTimer(): void {
+  // Clear any existing timer
+  stopTokenRefreshTimer();
+
+  const expiry = localStorage.getItem(STORAGE_KEYS.TOKEN_EXPIRY);
+  if (!expiry) {
+    authLog('startTokenRefreshTimer: No token expiry found');
+    return;
+  }
+
+  const expiryTime = parseInt(expiry);
+  const now = Date.now();
+  const refreshThreshold = 5 * 60 * 1000; // 5 minutes before expiry
+  const timeUntilRefresh = expiryTime - now - refreshThreshold;
+
+  if (timeUntilRefresh <= 0) {
+    // Token already needs refresh
+    authLog('startTokenRefreshTimer: Token needs immediate refresh');
+    refreshToken()
+      .then(() => startTokenRefreshTimer())
+      .catch((err) => authError('Proactive token refresh failed', err));
+    return;
+  }
+
+  authLog('startTokenRefreshTimer: Scheduling refresh', {
+    refreshIn: `${Math.round(timeUntilRefresh / 1000 / 60)} minutes`,
+  });
+
+  tokenRefreshTimeoutId = setTimeout(async () => {
+    authLog('Proactive token refresh triggered');
+    try {
+      await refreshToken();
+      // Schedule the next refresh
+      startTokenRefreshTimer();
+    } catch (err) {
+      authError('Proactive token refresh failed', err);
+    }
+  }, timeUntilRefresh);
+}
+
+/**
+ * Stop the token refresh timer.
+ */
+export function stopTokenRefreshTimer(): void {
+  if (tokenRefreshTimeoutId) {
+    clearTimeout(tokenRefreshTimeoutId);
+    tokenRefreshTimeoutId = null;
+    authLog('Token refresh timer stopped');
+  }
 }
 
 /**

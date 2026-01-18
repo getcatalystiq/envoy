@@ -360,7 +360,6 @@ export AURORA_SECRET_ARN=envoy-dev-aurora-credentials
 export AURORA_HOST=localhost
 export AURORA_PORT=5433
 export AURORA_DATABASE=envoy
-export MAVEN_AGENT_URL="\${MAVEN_AGENT_URL:-http://localhost:8001/api/agent}"
 
 while true; do
     echo ""
@@ -403,7 +402,6 @@ export AURORA_SECRET_ARN=envoy-dev-aurora-credentials
 export AURORA_HOST=localhost
 export AURORA_PORT=5433
 export AURORA_DATABASE=envoy
-export MAVEN_AGENT_URL="\${MAVEN_AGENT_URL:-http://localhost:8001/api/agent}"
 
 while true; do
     echo ""

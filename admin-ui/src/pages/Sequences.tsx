@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +37,7 @@ import {
   Archive,
   Trash2,
   AlertCircle,
+  Pencil,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -54,6 +56,14 @@ export function Sequences() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [sequenceToDelete, setSequenceToDelete] = useState<Sequence | null>(null);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [sequenceToEdit, setSequenceToEdit] = useState<Sequence | null>(null);
+  const [editSequence, setEditSequence] = useState<{ name: string; target_type_id: string | undefined; is_default: boolean }>({
+    name: '',
+    target_type_id: undefined,
+    is_default: false,
+  });
+  const [isEditing, setIsEditing] = useState(false);
   const [newSequence, setNewSequence] = useState<CreateSequenceInput>({
     name: '',
     target_type_id: undefined,
@@ -150,6 +160,41 @@ export function Sequences() {
       const message = err instanceof Error ? err.message : 'Failed to delete sequence';
       setError(message);
       setShowDeleteDialog(false);
+    }
+  };
+
+  const openEditDialog = (sequence: Sequence) => {
+    setSequenceToEdit(sequence);
+    setEditSequence({
+      name: sequence.name,
+      target_type_id: sequence.target_type_id ?? undefined,
+      is_default: sequence.is_default ?? false,
+    });
+    setShowEditDialog(true);
+  };
+
+  const handleEditSequence = async () => {
+    if (!sequenceToEdit || !editSequence.name.trim()) return;
+
+    try {
+      setIsEditing(true);
+      const payload: Record<string, unknown> = {
+        name: editSequence.name,
+        target_type_id: editSequence.target_type_id || null,
+      };
+      // Only include is_default if it changed
+      if (editSequence.is_default !== (sequenceToEdit.is_default ?? false)) {
+        payload.is_default = editSequence.is_default;
+      }
+      await api.patch(`/sequences/${sequenceToEdit.id}`, payload);
+      setShowEditDialog(false);
+      setSequenceToEdit(null);
+      await loadSequences();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update sequence';
+      setError(message);
+    } finally {
+      setIsEditing(false);
     }
   };
 
@@ -309,6 +354,15 @@ export function Sequences() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          openEditDialog(sequence);
+                        }}
+                      >
+                        <Pencil className="w-4 h-4 mr-2" />
+                        Edit
+                      </DropdownMenuItem>
                       {sequence.status === 'draft' && (
                         <DropdownMenuItem
                           onClick={(e: React.MouseEvent) => {
@@ -357,6 +411,18 @@ export function Sequences() {
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                </div>
+
+                {/* Target Type */}
+                <div className="mb-2 flex items-center gap-2">
+                  <Badge variant="outline">
+                    {sequence.target_type_id
+                      ? targetTypes.find((t) => t.id === sequence.target_type_id)?.name ?? 'Unknown type'
+                      : 'All targets'}
+                  </Badge>
+                  {sequence.is_default && (
+                    <Badge variant="secondary">Default</Badge>
+                  )}
                 </div>
 
                 {/* Subtitle */}
@@ -475,6 +541,87 @@ export function Sequences() {
             </Button>
             <Button variant="destructive" onClick={handleDelete}>
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Sequence Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Sequence</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-name">Sequence Name</Label>
+              <Input
+                id="edit-name"
+                placeholder="e.g., Welcome Series, Follow-up Campaign"
+                value={editSequence.name}
+                onChange={(e) => setEditSequence({ ...editSequence, name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-target-type">Target Type</Label>
+              <Select
+                value={editSequence.target_type_id || 'all'}
+                onValueChange={(value: string) =>
+                  setEditSequence({
+                    ...editSequence,
+                    target_type_id: value === 'all' ? undefined : value,
+                    // Clear is_default if switching to "all targets"
+                    is_default: value === 'all' ? false : editSequence.is_default,
+                  })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All targets" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All targets</SelectItem>
+                  {targetTypes.map((type) => (
+                    <SelectItem key={type.id} value={type.id}>
+                      {type.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {/* Default Toggle - only show if sequence has a target type */}
+            {editSequence.target_type_id && (
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="is-default">Default Sequence</Label>
+                  <p className="text-sm text-muted-foreground">
+                    New targets of this type will be auto-enrolled
+                  </p>
+                </div>
+                <Switch
+                  id="is-default"
+                  checked={editSequence.is_default}
+                  onCheckedChange={(checked) =>
+                    setEditSequence({ ...editSequence, is_default: checked })
+                  }
+                  disabled={sequenceToEdit?.status !== 'active'}
+                />
+              </div>
+            )}
+            {editSequence.target_type_id && sequenceToEdit?.status !== 'active' && (
+              <p className="text-xs text-muted-foreground">
+                Only active sequences can be set as default
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleEditSequence}
+              disabled={!editSequence.name.trim() || isEditing}
+            >
+              {isEditing ? 'Saving...' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>

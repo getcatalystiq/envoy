@@ -447,3 +447,58 @@ class TargetQueries:
                 errors.append({"index": i, "error": str(e)})
 
         return created, updated, errors
+
+
+async def auto_enroll_in_default_sequence(
+    conn: asyncpg.Connection,
+    org_id: str,
+    target_id: UUID,
+    target_type_id: UUID,
+) -> Optional[dict[str, Any]]:
+    """
+    Auto-enroll target in default sequence for their target type.
+
+    Returns enrollment if created, None otherwise.
+    Silent skip for: no default, not active, already enrolled.
+
+    Args:
+        conn: Database connection
+        org_id: Organization ID
+        target_id: Target ID to enroll
+        target_type_id: Target type ID to find default sequence for
+
+    Returns:
+        Enrollment dict if created, None otherwise
+    """
+    import logging
+
+    from .sequences import SequenceQueries
+
+    # Get default sequence (only returns active ones)
+    default_sequence = await SequenceQueries.get_default_for_target_type(
+        conn, org_id, target_type_id
+    )
+
+    if not default_sequence:
+        return None
+
+    # Check if already enrolled (shouldn't happen for new targets, but safety check)
+    existing = await SequenceQueries.get_active_enrollment(
+        conn, target_id, default_sequence["id"]
+    )
+    if existing:
+        return None
+
+    # Enroll with immediate start
+    try:
+        enrollment = await SequenceQueries.enroll(
+            conn,
+            org_id=org_id,
+            target_id=target_id,
+            sequence_id=default_sequence["id"],
+            first_step_delay_hours=0,
+        )
+        return enrollment
+    except Exception as e:
+        logging.warning(f"Auto-enrollment failed for target {target_id}: {e}")
+        return None

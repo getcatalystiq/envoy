@@ -331,14 +331,17 @@ class SequenceCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=255)
     target_type_id: Optional[UUID] = None
-    status: str = Field(default="draft", pattern="^(draft|active|archived)$")
+    status: str = Field(default="draft", pattern="^(draft|active|paused|archived)$")
+    is_default: bool = False
 
 
 class SequenceUpdate(BaseModel):
     """Schema for updating a sequence."""
 
     name: Optional[str] = Field(None, min_length=1, max_length=255)
-    status: Optional[str] = Field(None, pattern="^(draft|active|archived)$")
+    target_type_id: Optional[UUID] = None
+    status: Optional[str] = Field(None, pattern="^(draft|active|paused|archived)$")
+    is_default: Optional[bool] = None
 
 
 class SequenceStepResponse(BaseModel):
@@ -362,6 +365,7 @@ class SequenceResponse(BaseModel):
     name: str
     target_type_id: Optional[UUID] = None
     status: str
+    is_default: bool = False
     steps: list[SequenceStepResponse] = Field(default_factory=list)
     step_count: int = 0
     total_duration_days: int = 0

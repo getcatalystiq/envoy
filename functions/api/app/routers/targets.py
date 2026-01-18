@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.dependencies import CurrentOrg, DBConnection
 from app.schemas import ListResponse, TargetCreate, TargetResponse, TargetUpdate
 from shared.queries import TargetQueries
+from shared.queries.targets import auto_enroll_in_default_sequence
 
 router = APIRouter()
 
@@ -96,6 +97,13 @@ async def create_target(
         lifecycle_stage=data.lifecycle_stage,
         custom_fields=data.custom_fields,
     )
+
+    # Auto-enroll in default sequence if target type is set
+    if data.target_type_id:
+        await auto_enroll_in_default_sequence(
+            db, org_id, target["id"], data.target_type_id
+        )
+
     return TargetResponse(**target)
 
 

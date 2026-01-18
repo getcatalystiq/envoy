@@ -1,15 +1,14 @@
 """Sequence scheduler Lambda handler for processing sequence enrollments."""
 
 import asyncio
-import json
 from typing import Any, Optional
-from uuid import UUID
 
 from shared.database import get_pool
 from shared.maven_client import MavenClient
 from shared.queries import OutboxQueries, SequenceQueries
 from shared.ses_client import SESClient
 
+from .block_compiler import compile_builder_content
 from .personalization import has_personalized_blocks, process_personalization
 
 BATCH_SIZE = 100
@@ -29,46 +28,6 @@ async def check_exit_conditions(target: dict) -> Optional[tuple[str, str]]:
     if target_status == "bounced":
         return ("exited", "bounced")
     return None
-
-
-async def personalize_content(
-    maven: MavenClient,
-    content: dict,
-    target: dict,
-    enrollment: dict,
-) -> dict[str, Any]:
-    """Personalize content using Maven AI."""
-    try:
-        result = await maven.invoke_skill(
-            "envoy-sequence-personalize",
-            {
-                "template": {
-                    "subject": content.get("content_subject", ""),
-                    "body": content.get("content_body", ""),
-                },
-                "target": {
-                    "email": target.get("target_email"),
-                    "first_name": target.get("target_first_name"),
-                    "last_name": target.get("target_last_name"),
-                    "company": target.get("target_company"),
-                    "data": target.get("target_custom_fields") or {},
-                },
-                "context": {
-                    "sequence_name": enrollment.get("sequence_name"),
-                    "step_position": enrollment.get("current_step_position"),
-                },
-            },
-        )
-        return {
-            "subject": result.get("subject", content.get("content_subject", "")),
-            "body": result.get("body", content.get("content_body", "")),
-        }
-    except Exception:
-        # Fallback to original content on personalization failure
-        return {
-            "subject": content.get("content_subject", ""),
-            "body": content.get("content_body", ""),
-        }
 
 
 async def process_enrollment(
@@ -139,30 +98,31 @@ async def process_enrollment(
                     )
                     return {"enrollment_id": str(enrollment_id), "action": "completed"}
 
-            # TODO: Re-enable personalization once Maven is configured
-            # personalized = await personalize_content(maven, content, enrollment, enrollment)
-            # For now, use content as-is
+            # Get subject from content
             subject = content.get("content_subject", "")
-            body = content.get("content_body", "")
 
-            # Block-level personalization for builder_content (when available)
-            # This processes individual blocks with personalization enabled through Maven
+            # Check for builder_content (new block-based email builder)
             builder_content = step.get("builder_content")
-            if builder_content and has_personalized_blocks(builder_content):
-                target_data = {
-                    "email": enrollment.get("target_email"),
-                    "first_name": enrollment.get("target_first_name"),
-                    "last_name": enrollment.get("target_last_name"),
-                    "company": enrollment.get("target_company"),
-                }
-                personalized_content, errors = await process_personalization(
-                    builder_content=builder_content,
-                    target_data=target_data,
-                    maven_client=maven,
-                )
-                # TODO: Compile personalized_content to HTML once server-side compiler is available
-                # For now, store in outbox for future processing
-                _ = personalized_content  # noqa: F841
+            if builder_content:
+                # Process block-level personalization if any blocks have it enabled
+                if has_personalized_blocks(builder_content):
+                    target_data = {
+                        "email": enrollment.get("target_email"),
+                        "first_name": enrollment.get("target_first_name"),
+                        "last_name": enrollment.get("target_last_name"),
+                        "company": enrollment.get("target_company"),
+                    }
+                    builder_content, errors = await process_personalization(
+                        builder_content=builder_content,
+                        target_data=target_data,
+                        maven_client=maven,
+                    )
+
+                # Compile builder_content to HTML
+                body = compile_builder_content(builder_content)
+            else:
+                # Fallback to legacy content_body
+                body = content.get("content_body", "")
 
             # Create outbox item for approval
             outbox_item = await OutboxQueries.create(
@@ -176,12 +136,12 @@ async def process_enrollment(
             )
 
             # Record execution (outbox item created, awaiting approval)
+            # Note: content_id is omitted since content is stored directly on the step
             await SequenceQueries.record_execution(
                 conn,
                 org_id=org_id,
                 enrollment_id=enrollment_id,
                 step_position=enrollment["current_step_position"],
-                content_id=content["content_id"],
                 email_send_id=None,  # Will be set when outbox item is approved and sent
                 status="executed",
             )
@@ -248,7 +208,15 @@ async def process_due_enrollments() -> dict[str, Any]:
 
     # Process each organization's enrollments
     for org_id, org_enrollments_list in org_enrollments.items():
-        maven = MavenClient(tenant_id=org_id)
+        # Get Maven config from first enrollment (same for all in org)
+        first_enrollment = org_enrollments_list[0]
+        maven_tenant_id = first_enrollment.get("maven_tenant_id") or org_id
+        maven_service_runtime_arn = first_enrollment.get("maven_service_runtime_arn")
+
+        maven = MavenClient(
+            tenant_id=maven_tenant_id,
+            service_runtime_arn=maven_service_runtime_arn,
+        )
 
         org_results = await asyncio.gather(
             *[process_with_semaphore(e, maven) for e in org_enrollments_list]

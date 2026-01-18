@@ -48,7 +48,7 @@ async def create_sequence(
 async def list_sequences(
     org_id: CurrentOrg,
     db: DBConnection,
-    status: Optional[str] = Query(None, pattern="^(draft|active|archived)$"),
+    status: Optional[str] = Query(None, pattern="^(draft|active|paused|archived)$"),
     target_type_id: Optional[UUID] = None,
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -87,6 +87,7 @@ async def get_sequence(
 async def update_sequence(
     sequence_id: UUID,
     data: SequenceUpdate,
+    org_id: CurrentOrg,
     db: DBConnection,
 ) -> SequenceResponse:
     """Update a sequence."""
@@ -95,7 +96,25 @@ async def update_sequence(
         raise HTTPException(status_code=404, detail="Sequence not found")
 
     update_data = data.model_dump(exclude_unset=True)
+
+    # Handle is_default: ensure only one default per target_type
+    if update_data.get("is_default") is True:
+        target_type_id = update_data.get("target_type_id", existing.get("target_type_id"))
+        if not target_type_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot set as default - sequence has no target type",
+            )
+        if existing["status"] != "active":
+            raise HTTPException(
+                status_code=400,
+                detail="Only active sequences can be set as default",
+            )
+        # Unset any existing default for this target type
+        await SequenceQueries.unset_default_for_target_type(db, org_id, target_type_id)
+
     sequence = await SequenceQueries.update(db, sequence_id, **update_data)
+
     return SequenceResponse(**sequence, steps=existing.get("steps", []))
 
 
@@ -123,12 +142,12 @@ async def activate_sequence(
     sequence_id: UUID,
     db: DBConnection,
 ) -> SequenceResponse:
-    """Activate a draft sequence."""
+    """Activate a draft or paused sequence."""
     existing = await SequenceQueries.get_by_id(db, sequence_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Sequence not found")
 
-    if existing["status"] != "draft":
+    if existing["status"] not in ("draft", "paused"):
         raise HTTPException(
             status_code=400,
             detail=f"Cannot activate sequence in {existing['status']} status",
@@ -157,6 +176,105 @@ async def archive_sequence(
         raise HTTPException(status_code=404, detail="Sequence not found")
 
     sequence = await SequenceQueries.update(db, sequence_id, status="archived")
+    return SequenceResponse(**sequence, steps=existing.get("steps", []))
+
+
+@router.post("/{sequence_id}/pause", response_model=SequenceResponse)
+async def pause_sequence(
+    sequence_id: UUID,
+    db: DBConnection,
+) -> SequenceResponse:
+    """Pause an active sequence to allow editing."""
+    existing = await SequenceQueries.get_by_id(db, sequence_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Sequence not found")
+
+    if existing["status"] != "active":
+        raise HTTPException(
+            status_code=400,
+            detail="Only active sequences can be paused",
+        )
+
+    # Update sequence status to paused
+    sequence = await SequenceQueries.update(db, sequence_id, status="paused")
+
+    # Pause all active enrollments in this sequence
+    await SequenceQueries.pause_all_enrollments(db, sequence_id)
+
+    return SequenceResponse(**sequence, steps=existing.get("steps", []))
+
+
+@router.post("/{sequence_id}/resume", response_model=SequenceResponse)
+async def resume_sequence(
+    sequence_id: UUID,
+    db: DBConnection,
+) -> SequenceResponse:
+    """Resume a paused sequence."""
+    existing = await SequenceQueries.get_by_id(db, sequence_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Sequence not found")
+
+    if existing["status"] != "paused":
+        raise HTTPException(
+            status_code=400,
+            detail="Only paused sequences can be resumed",
+        )
+
+    # Update sequence status to active
+    sequence = await SequenceQueries.update(db, sequence_id, status="active")
+
+    # Resume all paused enrollments in this sequence
+    await SequenceQueries.resume_all_enrollments(db, sequence_id)
+
+    return SequenceResponse(**sequence, steps=existing.get("steps", []))
+
+
+@router.post("/{sequence_id}/set-default", response_model=SequenceResponse)
+async def set_sequence_as_default(
+    sequence_id: UUID,
+    org_id: CurrentOrg,
+    db: DBConnection,
+) -> SequenceResponse:
+    """Set a sequence as the default for its target type."""
+    existing = await SequenceQueries.get_by_id(db, sequence_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Sequence not found")
+
+    if not existing.get("target_type_id"):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot set as default - sequence has no target type",
+        )
+
+    if existing["status"] != "active":
+        raise HTTPException(
+            status_code=400,
+            detail="Only active sequences can be set as default",
+        )
+
+    # Unset any existing default, then set this one
+    await SequenceQueries.unset_default_for_target_type(
+        db, org_id, existing["target_type_id"]
+    )
+
+    sequence = await SequenceQueries.update(db, sequence_id, is_default=True)
+    return SequenceResponse(**sequence, steps=existing.get("steps", []))
+
+
+@router.delete("/{sequence_id}/set-default", response_model=SequenceResponse)
+async def clear_sequence_default(
+    sequence_id: UUID,
+    db: DBConnection,
+) -> SequenceResponse:
+    """Remove default status from a sequence."""
+    existing = await SequenceQueries.get_by_id(db, sequence_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Sequence not found")
+
+    if not existing.get("is_default"):
+        raise HTTPException(status_code=400, detail="Sequence is not a default")
+
+    sequence = await SequenceQueries.update(db, sequence_id, is_default=False)
     return SequenceResponse(**sequence, steps=existing.get("steps", []))
 
 

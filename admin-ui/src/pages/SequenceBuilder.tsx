@@ -43,6 +43,7 @@ export function SequenceBuilder() {
   // Core state
   const [sequence, setSequence] = useState<Sequence | null>(null);
   const [steps, setSteps] = useState<SequenceStep[]>([]);
+  const [targetTypes, setTargetTypes] = useState<{ id: string; name: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'builder' | 'enrollments'>('builder');
@@ -69,6 +70,7 @@ export function SequenceBuilder() {
   useEffect(() => {
     if (id) {
       loadSequence();
+      loadTargetTypes();
     }
   }, [id]);
 
@@ -97,6 +99,15 @@ export function SequenceBuilder() {
       setError('Failed to load sequence');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadTargetTypes = async () => {
+    try {
+      const data = await api.get<{ id: string; name: string }[]>('/target-types');
+      setTargetTypes(data || []);
+    } catch (err) {
+      console.error('Failed to load target types:', err);
     }
   };
 
@@ -141,6 +152,26 @@ export function SequenceBuilder() {
     } catch (err) {
       console.error('Failed to archive sequence:', err);
       setError('Failed to archive sequence');
+    }
+  };
+
+  const handlePause = async () => {
+    try {
+      await api.post(`/sequences/${id}/pause`);
+      await loadSequence();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to pause sequence';
+      setError(message);
+    }
+  };
+
+  const handleResume = async () => {
+    try {
+      await api.post(`/sequences/${id}/resume`);
+      await loadSequence();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to resume sequence';
+      setError(message);
     }
   };
 
@@ -297,7 +328,7 @@ export function SequenceBuilder() {
     return new Date(dateString).toLocaleString();
   };
 
-  const canEdit = sequence?.status === 'draft';
+  const canEdit = sequence?.status === 'draft' || sequence?.status === 'paused';
 
   if (isLoading) {
     return (
@@ -332,7 +363,16 @@ export function SequenceBuilder() {
               <h1 className="text-2xl font-bold text-gray-900">{sequence.name}</h1>
               {getStatusBadge(sequence.status)}
             </div>
-            <p className="text-gray-600">{steps.length} emails</p>
+            <div className="flex items-center gap-2 mt-1">
+              <Badge variant="outline">
+                {sequence.target_type_id
+                  ? targetTypes.find((t) => t.id === sequence.target_type_id)?.name ?? 'Unknown type'
+                  : 'All targets'}
+              </Badge>
+              {sequence.is_default && (
+                <Badge variant="secondary">Default</Badge>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -343,10 +383,28 @@ export function SequenceBuilder() {
             </Button>
           )}
           {sequence.status === 'active' && (
-            <Button variant="outline" onClick={() => setShowArchiveDialog(true)}>
-              <Archive className="w-4 h-4 mr-2" />
-              Archive
-            </Button>
+            <>
+              <Button variant="outline" onClick={handlePause}>
+                <Pause className="w-4 h-4 mr-2" />
+                Pause
+              </Button>
+              <Button variant="outline" onClick={() => setShowArchiveDialog(true)}>
+                <Archive className="w-4 h-4 mr-2" />
+                Archive
+              </Button>
+            </>
+          )}
+          {sequence.status === 'paused' && (
+            <>
+              <Button onClick={handleResume}>
+                <Play className="w-4 h-4 mr-2" />
+                Resume
+              </Button>
+              <Button variant="outline" onClick={() => setShowArchiveDialog(true)}>
+                <Archive className="w-4 h-4 mr-2" />
+                Archive
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -385,7 +443,9 @@ export function SequenceBuilder() {
             <Alert className="mx-6 mt-4">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                This sequence is {sequence.status}. You cannot edit emails.
+                {sequence.status === 'active'
+                  ? 'This sequence is active. Pause it to make changes.'
+                  : `This sequence is ${sequence.status}. You cannot edit emails.`}
               </AlertDescription>
             </Alert>
           )}

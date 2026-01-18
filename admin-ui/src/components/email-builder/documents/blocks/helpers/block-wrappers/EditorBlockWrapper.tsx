@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 
 import { useCurrentBlockId } from '../../../editor/EditorBlock';
-import { setSelectedBlockId, useDocument, useSelectedBlockId } from '../../../editor/EditorContext';
+import { setSelectedBlockId, useDocument, useSelectedBlockId, useReadOnly } from '../../../editor/EditorContext';
 
 import TuneMenu from './TuneMenu';
 
@@ -37,6 +37,7 @@ export default function EditorBlockWrapper({ children }: TEditorBlockWrapperProp
   const document = useDocument();
   const [mouseInside, setMouseInside] = useState(false);
   const blockId = useCurrentBlockId();
+  const readOnly = useReadOnly();
 
   const isSelected = selectedBlockId === blockId;
   const block = document[blockId];
@@ -64,21 +65,25 @@ export default function EditorBlockWrapper({ children }: TEditorBlockWrapperProp
     <div
       className={cn(
         'relative max-w-full -outline-offset-1',
-        isSelected && !hasPersonalization && 'outline outline-2 outline-[rgba(0,121,204,1)]',
-        !isSelected && mouseInside && !hasPersonalization && 'outline outline-2 outline-[rgba(0,121,204,0.3)]',
+        !readOnly && isSelected && !hasPersonalization && 'outline outline-2 outline-[rgba(0,121,204,1)]',
+        !readOnly && !isSelected && mouseInside && !hasPersonalization && 'outline outline-2 outline-[rgba(0,121,204,0.3)]',
         hasPersonalization && 'ai-shimmer-border'
       )}
       onMouseEnter={(ev) => {
-        setMouseInside(true);
-        ev.stopPropagation();
+        if (!readOnly) {
+          setMouseInside(true);
+          ev.stopPropagation();
+        }
       }}
       onMouseLeave={() => {
         setMouseInside(false);
       }}
       onClick={(ev) => {
-        setSelectedBlockId(blockId);
-        ev.stopPropagation();
-        ev.preventDefault();
+        if (!readOnly) {
+          setSelectedBlockId(blockId);
+          ev.stopPropagation();
+          ev.preventDefault();
+        }
       }}
     >
       {hasPersonalization && sparkles.map((sparkle) => (
@@ -90,7 +95,7 @@ export default function EditorBlockWrapper({ children }: TEditorBlockWrapperProp
           ✦
         </span>
       ))}
-      {isSelected && <TuneMenu blockId={blockId} />}
+      {isSelected && !readOnly && <TuneMenu blockId={blockId} />}
       {children}
     </div>
   );

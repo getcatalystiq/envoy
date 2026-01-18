@@ -24,10 +24,18 @@ async def get_db(org_id: CurrentOrg) -> AsyncGenerator[asyncpg.Connection, None]
 DBConnection = Annotated[asyncpg.Connection, Depends(get_db)]
 
 
-async def get_maven_client(org_id: CurrentOrg) -> MavenClient:
+async def get_maven_client(org_id: CurrentOrg, db: DBConnection) -> MavenClient:
     """Get Maven client for the current organization."""
-    # In production, fetch maven_tenant_id from organization record
-    return MavenClient(tenant_id=org_id)
+    org = await db.fetchrow(
+        "SELECT maven_tenant_id, maven_service_runtime_arn FROM organizations WHERE id = $1",
+        org_id,
+    )
+    if not org or not org["maven_service_runtime_arn"]:
+        raise ValueError("Organization not configured for Maven")
+    return MavenClient(
+        tenant_id=org["maven_tenant_id"] or org_id,
+        service_runtime_arn=org["maven_service_runtime_arn"],
+    )
 
 
 MavenDep = Annotated[MavenClient, Depends(get_maven_client)]

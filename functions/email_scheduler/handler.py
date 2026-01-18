@@ -14,9 +14,11 @@ BATCH_SIZE = 50
 MAX_CONCURRENT_MAVEN_CALLS = 10
 
 
-async def execute_campaign(campaign_id: str, org_id: str, maven_tenant_id: str) -> dict[str, Any]:
+async def execute_campaign(
+    campaign_id: str, org_id: str, maven_tenant_id: str, maven_service_runtime_arn: str
+) -> dict[str, Any]:
     """Execute a campaign with batch processing and parallelization."""
-    maven = MavenClient(tenant_id=maven_tenant_id)
+    maven = MavenClient(tenant_id=maven_tenant_id, service_runtime_arn=maven_service_runtime_arn)
     ses = SESClient()
 
     pool = await get_pool()
@@ -158,11 +160,12 @@ async def process_scheduled_campaigns() -> dict[str, Any]:
         # Get scheduled campaigns (no RLS for this admin query)
         campaigns = await conn.fetch(
             """
-            SELECT c.*, o.maven_tenant_id
+            SELECT c.*, o.maven_tenant_id, o.maven_service_runtime_arn
             FROM campaigns c
             JOIN organizations o ON o.id = c.organization_id
             WHERE c.status = 'scheduled'
               AND c.scheduled_at <= NOW()
+              AND o.maven_service_runtime_arn IS NOT NULL
             ORDER BY c.scheduled_at ASC
             LIMIT 10
             """
@@ -186,6 +189,7 @@ async def process_scheduled_campaigns() -> dict[str, Any]:
             str(campaign["id"]),
             str(campaign["organization_id"]),
             str(campaign["maven_tenant_id"]) if campaign["maven_tenant_id"] else str(campaign["organization_id"]),
+            str(campaign["maven_service_runtime_arn"]),
         )
         results.append({
             "campaign_id": str(campaign["id"]),

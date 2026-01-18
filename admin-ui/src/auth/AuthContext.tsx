@@ -5,6 +5,8 @@ import {
   getAccessToken,
   startAuthFlow,
   logout as oauthLogout,
+  startTokenRefreshTimer,
+  stopTokenRefreshTimer,
   UserInfo,
 } from './oauth';
 
@@ -27,8 +29,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isAuthenticated()) {
       const storedUser = getStoredUserInfo();
       setUser(storedUser);
+      // Start proactive token refresh timer
+      startTokenRefreshTimer();
     }
     setIsLoading(false);
+
+    // Cleanup on unmount
+    return () => {
+      stopTokenRefreshTimer();
+    };
   }, []);
 
   const login = async () => {

@@ -12,11 +12,14 @@ Implements:
 import base64
 import hashlib
 import hmac
+import logging
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from urllib.parse import urlencode
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Form, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -536,10 +539,13 @@ async def token(
     authorization: Optional[str] = Header(None),
 ) -> JSONResponse:
     """Handle token endpoint requests."""
+    logger.info(f"[TOKEN] Request received - grant_type={grant_type}, has_auth_header={bool(authorization)}, form_client_id={client_id}")
+
     # Extract client credentials
     extracted_client_id, extracted_client_secret = _extract_client_credentials(
         authorization, client_id, client_secret
     )
+    logger.info(f"[TOKEN] Extracted credentials - client_id={extracted_client_id}, has_secret={bool(extracted_client_secret)}")
 
     if grant_type == "authorization_code":
         return await _handle_authorization_code_grant(
@@ -673,23 +679,55 @@ async def _handle_refresh_token_grant(
     client_secret: Optional[str],
 ) -> JSONResponse:
     """Exchange refresh token for new tokens."""
+    logger.info(f"[REFRESH] Attempt started - client_id={client_id}, has_refresh_token={bool(refresh_token)}, has_client_secret={bool(client_secret)}")
+
     if not refresh_token:
+        logger.warning("[REFRESH] Failed: No refresh token provided")
         return JSONResponse(
             content={"error": "invalid_request", "error_description": "refresh_token is required"},
             status_code=400,
         )
 
+    # Log token hash for debugging (safe - not the actual token)
+    token_hash_preview = hashlib.sha256(refresh_token.encode()).hexdigest()[:12]
+    logger.info(f"[REFRESH] Token hash preview: {token_hash_preview}")
+
     async with get_raw_connection() as conn:
         # Verify refresh token
         token_data = await OAuthRefreshTokenQueries.verify(conn, refresh_token)
         if not token_data:
+            # Check why it failed - token might exist but be expired or revoked
+            full_token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
+            debug_row = await conn.fetchrow(
+                """
+                SELECT token_hash, client_id, user_id, expires_at, revoked_at, created_at
+                FROM oauth_refresh_tokens
+                WHERE token_hash = $1
+                """,
+                full_token_hash,
+            )
+            if debug_row:
+                logger.warning(
+                    f"[REFRESH] Token found but invalid - "
+                    f"expires_at={debug_row['expires_at']}, "
+                    f"revoked_at={debug_row['revoked_at']}, "
+                    f"created_at={debug_row['created_at']}, "
+                    f"token_client_id={debug_row['client_id']}, "
+                    f"request_client_id={client_id}"
+                )
+            else:
+                logger.warning(f"[REFRESH] Token not found in database - hash={full_token_hash[:12]}...")
+
             return JSONResponse(
                 content={"error": "invalid_grant", "error_description": "Invalid or expired refresh token"},
                 status_code=400,
             )
 
+        logger.info(f"[REFRESH] Token verified - user_id={token_data['user_id']}, token_client_id={token_data['client_id']}")
+
         # Validate client
         if token_data["client_id"] != client_id:
+            logger.warning(f"[REFRESH] Client ID mismatch - token_client_id={token_data['client_id']}, request_client_id={client_id}")
             return JSONResponse(
                 content={"error": "invalid_grant", "error_description": "Client ID mismatch"},
                 status_code=400,
@@ -699,6 +737,7 @@ async def _handle_refresh_token_grant(
         client = await OAuthClientQueries.get_by_client_id(conn, client_id)
         if client and client.get("client_secret_hash"):
             if not client_secret or not await OAuthClientQueries.verify_secret(conn, client_id, client_secret):
+                logger.warning(f"[REFRESH] Invalid client credentials for client_id={client_id}")
                 return JSONResponse(
                     content={"error": "invalid_client", "error_description": "Invalid client credentials"},
                     status_code=401,
@@ -706,6 +745,7 @@ async def _handle_refresh_token_grant(
 
         # Revoke old token
         await OAuthRefreshTokenQueries.revoke(conn, refresh_token)
+        logger.info(f"[REFRESH] Old token revoked")
 
         # Create new tokens
         access_token = _create_access_token(
@@ -723,6 +763,8 @@ async def _handle_refresh_token_grant(
             scope=" ".join(token_data["scopes"]),
             expires_days=REFRESH_TOKEN_EXPIRE_DAYS,
         )
+
+        logger.info(f"[REFRESH] Success - new tokens created for user_id={token_data['user_id']}")
 
     return JSONResponse(
         content={

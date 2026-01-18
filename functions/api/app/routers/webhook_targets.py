@@ -8,6 +8,7 @@ from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from shared.database import get_raw_connection
 from shared.queries import TargetQueries
+from shared.queries.targets import auto_enroll_in_default_sequence
 from shared.webhook_auth import verify_webhook_secret
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
@@ -149,6 +150,12 @@ async def ingest_target(
             metadata=payload.metadata,
         )
 
+        # Auto-enroll in default sequence only for newly created targets
+        if action == "created" and target_type_id:
+            await auto_enroll_in_default_sequence(
+                conn, org_id, target["id"], target_type_id
+            )
+
     status_code = 201 if action == "created" else 200
     return TargetWebhookResponse(
         id=target["id"],
@@ -189,7 +196,7 @@ async def ingest_targets_bulk(
                 )
 
                 # Upsert target
-                _, action, _ = await TargetQueries.upsert(
+                target, action, _ = await TargetQueries.upsert(
                     conn,
                     org_id=org_id,
                     email=target_data.email,
@@ -203,6 +210,12 @@ async def ingest_targets_bulk(
                     custom_fields=target_data.custom_fields,
                     metadata=target_data.metadata,
                 )
+
+                # Auto-enroll in default sequence only for newly created targets
+                if action == "created" and target_type_id:
+                    await auto_enroll_in_default_sequence(
+                        conn, org_id, target["id"], target_type_id
+                    )
 
                 if action == "created":
                     created += 1

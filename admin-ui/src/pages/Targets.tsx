@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { api, type Target, type TargetType, type Segment } from '@/api/client';
-import { Plus, Upload, Search, Users, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Upload, Search, Users, ChevronLeft, ChevronRight, Pencil, Trash2 } from 'lucide-react';
 
 const LIFECYCLE_STAGES = [
   'New',
@@ -36,8 +36,11 @@ export function Targets() {
   const [pageSize, setPageSize] = useState(25);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [editingTarget, setEditingTarget] = useState<Target | null>(null);
+  const [deletingTarget, setDeletingTarget] = useState<Target | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     first_name: '',
@@ -166,6 +169,26 @@ export function Targets() {
       console.error('Failed to update target:', error);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const openDeleteDialog = (target: Target) => {
+    setDeletingTarget(target);
+    setShowDeleteDialog(true);
+  };
+
+  const handleDeleteTarget = async () => {
+    if (!deletingTarget) return;
+    setIsDeleting(true);
+    try {
+      await api.delete(`/targets/${deletingTarget.id}`);
+      setShowDeleteDialog(false);
+      setDeletingTarget(null);
+      loadTargets();
+    } catch (error) {
+      console.error('Failed to delete target:', error);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -338,14 +361,14 @@ export function Targets() {
                   <th className="text-left text-sm font-medium text-gray-600 px-4 py-3">Stage</th>
                   <th className="text-left text-sm font-medium text-gray-600 px-4 py-3">Created</th>
                   <th className="text-left text-sm font-medium text-gray-600 px-4 py-3">Status</th>
+                  <th className="text-left text-sm font-medium text-gray-600 px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredTargets.map((target) => (
                   <tr
                     key={target.id}
-                    className="border-b hover:bg-gray-50 cursor-pointer"
-                    onClick={() => openEditDialog(target)}
+                    className="border-b hover:bg-gray-50"
                   >
                     <td className="px-4 py-3 text-sm text-gray-600">
                       {getFullName(target) || '-'}
@@ -366,6 +389,26 @@ export function Targets() {
                       {formatDate(target.created_at)}
                     </td>
                     <td className="px-4 py-3">{getStatusBadge(target.status)}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openEditDialog(target)}
+                          className="h-8 w-8 p-0"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openDeleteDialog(target)}
+                          className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -674,6 +717,40 @@ export function Targets() {
               </Button>
               <Button onClick={handleEditTarget} disabled={!formData.email || isSaving}>
                 {isSaving ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={(open) => {
+        setShowDeleteDialog(open);
+        if (!open) {
+          setDeletingTarget(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Target</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Are you sure you want to delete <strong>{deletingTarget?.email}</strong>? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3 pt-4">
+              <Button variant="outline" onClick={() => {
+                setShowDeleteDialog(false);
+                setDeletingTarget(null);
+              }}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteTarget}
+                disabled={isDeleting}
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
               </Button>
             </div>
           </div>

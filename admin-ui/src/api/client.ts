@@ -14,6 +14,8 @@ async function request<T>(
 
   if (token) {
     (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+  } else {
+    console.warn(`[API ${new Date().toISOString()}] No token available for request to ${endpoint}`);
   }
 
   const response = await fetch(`${API_URL}${endpoint}`, {
@@ -23,6 +25,10 @@ async function request<T>(
 
   if (!response.ok) {
     if (response.status === 401) {
+      console.error(`[API ${new Date().toISOString()}] Got 401 from ${endpoint}, logging out`, {
+        hadToken: !!token,
+        tokenLength: token?.length,
+      });
       logout();
       window.location.href = '/login';
     }
@@ -231,7 +237,7 @@ export interface OutboxStats {
 }
 
 // Sequence types
-export type SequenceStatus = 'draft' | 'active' | 'archived';
+export type SequenceStatus = 'draft' | 'active' | 'paused' | 'archived';
 export type EnrollmentStatus = 'active' | 'paused' | 'completed' | 'converted' | 'exited';
 
 export interface Sequence {
@@ -239,6 +245,7 @@ export interface Sequence {
   name: string;
   target_type_id: string | null;
   status: SequenceStatus;
+  is_default: boolean;
   created_at: string;
   updated_at: string;
   steps?: SequenceStep[];

@@ -46,15 +46,18 @@ async def provision_skills(
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    # Get maven tenant ID from org
+    # Get maven config from org
     org = await db.fetchrow(
-        "SELECT maven_tenant_id FROM organizations WHERE id = $1",
+        "SELECT maven_tenant_id, maven_service_runtime_arn FROM organizations WHERE id = $1",
         org_id,
     )
-    if not org or not org["maven_tenant_id"]:
+    if not org or not org["maven_tenant_id"] or not org["maven_service_runtime_arn"]:
         raise HTTPException(status_code=400, detail="Organization not configured for Maven")
 
-    maven = MavenClient(tenant_id=org["maven_tenant_id"])
+    maven = MavenClient(
+        tenant_id=org["maven_tenant_id"],
+        service_runtime_arn=org["maven_service_runtime_arn"],
+    )
 
     results = []
     for skill_file in SKILLS_DIR.glob("*.md"):

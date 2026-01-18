@@ -206,14 +206,22 @@ export function SequenceEmailBuilder({
   // Templates tab content for the sidebar
   const templatesTabContent = (
     <div className="p-4 space-y-2">
+      {!canEdit && (
+        <div className="p-2 mb-2 bg-muted rounded-md">
+          <span className="text-muted-foreground text-xs">Pause sequence to apply templates</span>
+        </div>
+      )}
       {templates.length === 0 ? (
         <p className="text-sm text-gray-500 text-center py-4">No templates available</p>
       ) : (
         templates.map((template) => (
           <button
             key={template.id}
-            onClick={() => handleTemplateClick(template)}
-            className="w-full p-3 text-left border rounded-lg hover:bg-gray-50 transition-colors"
+            onClick={() => canEdit && handleTemplateClick(template)}
+            disabled={!canEdit}
+            className={`w-full p-3 text-left border rounded-lg transition-colors ${
+              canEdit ? 'hover:bg-gray-50 cursor-pointer' : 'opacity-50 cursor-not-allowed'
+            }`}
           >
             <div className="flex items-center gap-2">
               <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
@@ -352,6 +360,7 @@ export function SequenceEmailBuilder({
             {/* Shared Email Editor Core */}
             <EmailEditorCore
               showCodeTabs={false}
+              readOnly={!canEdit}
               extraSidebarTabs={[
                 {
                   id: 'templates',

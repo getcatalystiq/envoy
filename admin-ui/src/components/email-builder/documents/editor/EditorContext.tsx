@@ -14,6 +14,7 @@ type TValue = {
 
   inspectorDrawerOpen: boolean;
   samplesDrawerOpen: boolean;
+  readOnly: boolean;
 };
 
 const editorStateStore = create<TValue>(() => ({
@@ -25,6 +26,7 @@ const editorStateStore = create<TValue>(() => ({
 
   inspectorDrawerOpen: true,
   samplesDrawerOpen: true,
+  readOnly: false,
 }));
 
 export function useDocument() {
@@ -106,4 +108,12 @@ export function toggleSamplesDrawerOpen() {
 
 export function setSelectedScreenSize(selectedScreenSize: TValue['selectedScreenSize']) {
   return editorStateStore.setState({ selectedScreenSize });
+}
+
+export function useReadOnly() {
+  return editorStateStore((s) => s.readOnly);
+}
+
+export function setReadOnly(readOnly: boolean) {
+  return editorStateStore.setState({ readOnly });
 }

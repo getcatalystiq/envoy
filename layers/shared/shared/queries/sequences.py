@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from uuid import UUID
 
@@ -165,10 +165,9 @@ class SequenceQueries:
         param_idx = 1
 
         for key, value in fields.items():
-            if value is not None:
-                set_clauses.append(f"{key} = ${param_idx}")
-                params.append(value)
-                param_idx += 1
+            set_clauses.append(f"{key} = ${param_idx}")
+            params.append(value)
+            param_idx += 1
 
         if not set_clauses:
             return await SequenceQueries.get_by_id(conn, sequence_id)
@@ -319,6 +318,33 @@ class SequenceQueries:
         )
         return result == "DELETE 1"
 
+    @staticmethod
+    async def get_step_content(
+        conn: asyncpg.Connection,
+        step_id: UUID,
+    ) -> Optional[dict[str, Any]]:
+        """Get step content in format expected by scheduler.
+
+        Returns content dict with content_id, content_subject, content_body.
+        The body is currently empty as builder_content requires client-side rendering.
+        """
+        row = await conn.fetchrow(
+            "SELECT id, subject, builder_content FROM sequence_steps WHERE id = $1",
+            step_id,
+        )
+        if not row:
+            return None
+
+        # Return content in the format expected by the scheduler handler
+        # content_id is None since content is stored directly on the step,
+        # not in the separate content table
+        return {
+            "content_id": None,
+            "content_subject": row["subject"] or "",
+            "content_body": "",  # TODO: Server-side MJML compilation from builder_content
+            "builder_content": row["builder_content"],
+        }
+
     # =========================================================================
     # ENROLLMENTS
     # =========================================================================
@@ -332,7 +358,7 @@ class SequenceQueries:
         first_step_delay_hours: int = 0,
     ) -> dict[str, Any]:
         """Enroll a target in a sequence."""
-        next_eval = datetime.utcnow() + timedelta(hours=first_step_delay_hours)
+        next_eval = datetime.now(timezone.utc) + timedelta(hours=first_step_delay_hours)
         row = await conn.fetchrow(
             """
             INSERT INTO sequence_enrollments (
@@ -469,6 +495,42 @@ class SequenceQueries:
         return dict(row) if row else None
 
     @staticmethod
+    async def pause_all_enrollments(
+        conn: asyncpg.Connection,
+        sequence_id: UUID,
+    ) -> int:
+        """Pause all active enrollments for a sequence."""
+        result = await conn.execute(
+            """
+            UPDATE sequence_enrollments
+            SET status = 'paused', paused_at = NOW()
+            WHERE sequence_id = $1 AND status = 'active'
+            """,
+            sequence_id,
+        )
+        # Extract count from "UPDATE N"
+        return int(result.split()[-1]) if result else 0
+
+    @staticmethod
+    async def resume_all_enrollments(
+        conn: asyncpg.Connection,
+        sequence_id: UUID,
+    ) -> int:
+        """Resume all paused enrollments for a sequence."""
+        result = await conn.execute(
+            """
+            UPDATE sequence_enrollments
+            SET status = 'active',
+                next_evaluation_at = next_evaluation_at + (NOW() - paused_at),
+                paused_at = NULL
+            WHERE sequence_id = $1 AND status = 'paused'
+            """,
+            sequence_id,
+        )
+        # Extract count from "UPDATE N"
+        return int(result.split()[-1]) if result else 0
+
+    @staticmethod
     async def complete_enrollment(
         conn: asyncpg.Connection,
         enrollment_id: UUID,
@@ -496,7 +558,7 @@ class SequenceQueries:
         next_step_delay_hours: int,
     ) -> Optional[dict[str, Any]]:
         """Advance enrollment to next step."""
-        next_eval = datetime.utcnow() + timedelta(hours=next_step_delay_hours)
+        next_eval = datetime.now(timezone.utc) + timedelta(hours=next_step_delay_hours)
         row = await conn.fetchrow(
             """
             UPDATE sequence_enrollments
@@ -526,13 +588,16 @@ class SequenceQueries:
             SELECT e.*, s.name as sequence_name, t.email as target_email,
                    t.first_name as target_first_name, t.last_name as target_last_name,
                    t.company as target_company, t.custom_fields as target_custom_fields,
-                   t.status as target_status
+                   t.status as target_status,
+                   o.maven_tenant_id, o.maven_service_runtime_arn
             FROM sequence_enrollments e
             JOIN sequences s ON s.id = e.sequence_id
             JOIN targets t ON t.id = e.target_id
+            JOIN organizations o ON o.id = e.organization_id
             WHERE e.status = 'active'
               AND e.next_evaluation_at <= NOW()
               AND s.status = 'active'
+              AND o.maven_service_runtime_arn IS NOT NULL
             ORDER BY e.next_evaluation_at
             FOR UPDATE OF e SKIP LOCKED
             LIMIT $1
@@ -591,3 +656,46 @@ class SequenceQueries:
             enrollment_id,
         )
         return [dict(row) for row in rows]
+
+    # =========================================================================
+    # DEFAULT SEQUENCE METHODS
+    # =========================================================================
+
+    @staticmethod
+    async def get_default_for_target_type(
+        conn: asyncpg.Connection,
+        org_id: str,
+        target_type_id: UUID,
+    ) -> Optional[dict[str, Any]]:
+        """Get the default sequence for a target type (only if active)."""
+        row = await conn.fetchrow(
+            """
+            SELECT * FROM sequences
+            WHERE organization_id = $1
+              AND target_type_id = $2
+              AND is_default = TRUE
+              AND status = 'active'
+            """,
+            org_id,
+            target_type_id,
+        )
+        return dict(row) if row else None
+
+    @staticmethod
+    async def unset_default_for_target_type(
+        conn: asyncpg.Connection,
+        org_id: str,
+        target_type_id: UUID,
+    ) -> None:
+        """Unset default for all sequences of a target type."""
+        await conn.execute(
+            """
+            UPDATE sequences
+            SET is_default = FALSE
+            WHERE organization_id = $1
+              AND target_type_id = $2
+              AND is_default = TRUE
+            """,
+            org_id,
+            target_type_id,
+        )

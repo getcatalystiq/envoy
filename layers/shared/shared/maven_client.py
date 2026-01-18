@@ -1,32 +1,52 @@
-"""Maven AI agent client with JWT caching and retry."""
+"""Maven AI agent client with Bedrock AgentCore."""
 
+import asyncio
 import json
 import os
-import time
 import uuid
 from typing import Any, Optional
 
+
+class UUIDEncoder(json.JSONEncoder):
+    """JSON encoder that handles UUID objects."""
+
+    def default(self, obj):
+        if isinstance(obj, uuid.UUID):
+            return str(obj)
+        return super().default(obj)
+
 import boto3
 import httpx
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-ENVOY_SERVICE_USER = {
-    "userId": "envoy-service",
-    "email": "envoy@system.internal",
-    "name": "Envoy Service",
-}
+ENVOY_SERVICE_ID = "envoy-service"
 
 
 class MavenClient:
-    """Client for calling Maven AI agent with caching and retry."""
+    """Client for calling Maven AI agent via Bedrock AgentCore."""
 
-    _jwt_cache: tuple[str, float] | None = None
-    _jwt_ttl: int = 3300  # 55 minutes
-
-    def __init__(self, tenant_id: str, region: str = "us-east-1"):
+    def __init__(
+        self,
+        tenant_id: str,
+        service_runtime_arn: str,
+        region: str = "us-east-1",
+    ):
+        if not service_runtime_arn:
+            raise ValueError("service_runtime_arn is required")
         self.tenant_id = tenant_id
+        self.service_runtime_arn = service_runtime_arn
         self.region = region
-        self._secrets = boto3.client("secretsmanager", region_name=region)
+        session = boto3.Session()
+        self._credentials = session.get_credentials()
+        self._agentcore_client = boto3.client("bedrock-agentcore", region_name=region)
+
+    def _sign_request(self, method: str, url: str, headers: dict, body: str = "") -> dict:
+        """Sign request with AWS SigV4 for API Gateway."""
+        request = AWSRequest(method=method, url=url, headers=headers, data=body)
+        SigV4Auth(self._credentials, "execute-api", self.region).add_auth(request)
+        return dict(request.headers)
 
     @retry(
         stop=stop_after_attempt(3),
@@ -40,7 +60,7 @@ class MavenClient:
         session_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Invoke skill with retry on transient failures."""
-        prompt = f"/skill {skill_name}\n\nContext:\n{json.dumps(context, indent=2)}"
+        prompt = f"use skill {skill_name}\n\nContext:\n{json.dumps(context, indent=2, cls=UUIDEncoder)}"
         response = await self._invoke(prompt, session_id)
         return self._parse_skill_response(response)
 
@@ -65,7 +85,6 @@ class MavenClient:
         prompt: str,
     ) -> dict[str, Any]:
         """Create or update a skill in Maven."""
-        service_jwt = self._get_service_jwt()
         maven_service_url = os.environ.get("MAVEN_SERVICE_API_URL", "")
 
         payload = {
@@ -76,93 +95,77 @@ class MavenClient:
             "enabled": True,
         }
 
-        headers = {
+        body = json.dumps(payload, cls=UUIDEncoder)
+        base_headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {service_jwt}",
-            "X-Service-Id": "envoy-service",
+            "X-Service-Id": ENVOY_SERVICE_ID,
         }
 
+        create_url = f"{maven_service_url}/api/service/{self.tenant_id}/skills"
+        headers = self._sign_request("POST", create_url, base_headers, body)
+
         async with httpx.AsyncClient(timeout=30) as client:
-            # Try to create, if exists try to update
-            response = await client.post(
-                f"{maven_service_url}/api/service/{self.tenant_id}/skills",
-                json=payload,
-                headers=headers,
-            )
+            response = await client.post(create_url, content=body, headers=headers)
 
             if response.status_code == 409:  # Already exists
-                response = await client.put(
-                    f"{maven_service_url}/api/service/{self.tenant_id}/skills/{slug}",
-                    json=payload,
-                    headers=headers,
-                )
+                update_url = f"{maven_service_url}/api/service/{self.tenant_id}/skills/{slug}"
+                headers = self._sign_request("PUT", update_url, base_headers, body)
+                response = await client.put(update_url, content=body, headers=headers)
 
             response.raise_for_status()
             return response.json()
 
     async def _invoke(self, prompt: str, session_id: Optional[str] = None) -> str:
-        """Invoke Maven with optimized SSE handling."""
-        service_jwt = self._get_service_jwt()
-        maven_url = os.environ.get("MAVEN_AGENT_URL", "")
+        """Invoke Maven via Bedrock AgentCore."""
         session_id = session_id or str(uuid.uuid4())
 
         payload = {
             "message": prompt,
             "sessionId": session_id,
             "context": {
-                "source": "envoy",
                 "isServiceExecution": True,
-                "serviceUserId": ENVOY_SERVICE_USER["userId"],
+                "serviceUserId": ENVOY_SERVICE_ID,
+                "serviceUserEmail": f"{ENVOY_SERVICE_ID}@system",
                 "serviceTenantId": self.tenant_id,
-                "serviceUserEmail": ENVOY_SERVICE_USER["email"],
+                "source": ENVOY_SERVICE_ID,
             },
-            "action": "chat",
         }
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {service_jwt}",
-        }
+        def sync_invoke() -> str:
+            response = self._agentcore_client.invoke_agent_runtime(
+                agentRuntimeArn=self.service_runtime_arn,
+                runtimeSessionId=session_id,
+                payload=json.dumps(payload, cls=UUIDEncoder).encode("utf-8"),
+                qualifier="DEFAULT",
+            )
 
-        chunks: list[str] = []
+            chunks: list[str] = []
+            stream = response.get("response")
+            if stream:
+                content = stream.read()
+                if isinstance(content, bytes):
+                    content = content.decode("utf-8")
 
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10, read=300, write=30, pool=10)
-        ) as client:
-            async with client.stream(
-                "POST", maven_url, json=payload, headers=headers
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
+                for line in content.split("\n"):
                     if not line.startswith("data: "):
                         continue
                     try:
                         event = json.loads(line[6:])
-                        if event.get("type") == "error":
-                            raise Exception(event.get("message", "Maven error"))
-                        if event.get("type") == "done":
-                            break
-                        if event.get("type") == "chunk":
+                        event_type = event.get("type")
+                        if event_type == "error":
+                            error_msg = event.get("data", {}).get("message", "Maven error")
+                            raise Exception(error_msg)
+                        if event_type == "chunk":
                             text = event.get("data", {}).get("text", "")
                             if text:
                                 chunks.append(text)
                     except json.JSONDecodeError:
                         continue
 
-        return "".join(chunks)
+            return "".join(chunks)
 
-    def _get_service_jwt(self) -> str:
-        """Get JWT with caching to reduce Secrets Manager calls."""
-        now = time.time()
-        if MavenClient._jwt_cache and now < MavenClient._jwt_cache[1]:
-            return MavenClient._jwt_cache[0]
-
-        secret_arn = os.environ.get("MAVEN_SERVICE_JWT_SECRET_ARN", "")
-        response = self._secrets.get_secret_value(SecretId=secret_arn)
-        jwt_token = response["SecretString"]
-
-        MavenClient._jwt_cache = (jwt_token, now + self._jwt_ttl)
-        return jwt_token
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, sync_invoke)
 
     def _parse_skill_response(self, response: str) -> dict[str, Any]:
         """Parse structured JSON response from skill."""
