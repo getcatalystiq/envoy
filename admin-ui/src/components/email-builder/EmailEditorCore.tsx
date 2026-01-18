@@ -112,8 +112,8 @@ export function EmailEditorCore({
   };
 
   const allTabs: Array<{ id: string; label: string }> = [
-    { id: 'styles', label: 'Styles' },
     { id: 'block-configuration', label: 'Inspect' },
+    { id: 'styles', label: 'Styles' },
     ...extraSidebarTabs.map(tab => ({ id: tab.id, label: tab.label })),
   ];
 

@@ -27,23 +27,23 @@ export default function InspectorDrawer() {
         >
           <TabsList className="w-full rounded-none border-b border-border bg-transparent h-12 p-0">
             <TabsTrigger
-              value="styles"
-              className="flex-1 rounded-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary h-full"
-            >
-              Styles
-            </TabsTrigger>
-            <TabsTrigger
               value="block-configuration"
               className="flex-1 rounded-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary h-full"
             >
               Inspect
             </TabsTrigger>
+            <TabsTrigger
+              value="styles"
+              className="flex-1 rounded-none data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-primary h-full"
+            >
+              Styles
+            </TabsTrigger>
           </TabsList>
-          <TabsContent value="styles" className="flex-1 overflow-auto mt-0">
-            <StylesPanel />
-          </TabsContent>
           <TabsContent value="block-configuration" className="flex-1 overflow-auto mt-0">
             <ConfigurationPanel />
+          </TabsContent>
+          <TabsContent value="styles" className="flex-1 overflow-auto mt-0">
+            <StylesPanel />
           </TabsContent>
         </Tabs>
       </div>

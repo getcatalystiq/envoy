@@ -13,6 +13,7 @@ import {
   Link2,
   AtSign,
   ChevronDown,
+  Baseline,
 } from 'lucide-react';
 import { useState } from 'react';
 import { Toggle } from '@/components/ui/toggle';
@@ -41,6 +42,19 @@ const MERGE_FIELDS = [
   { label: 'Title', value: 'title' },
   { label: 'Email', value: 'email' },
   { label: 'Unsubscribe Link', value: 'unsubscribe_link' },
+];
+
+const TEXT_COLORS = [
+  { label: 'Black', value: '#000000' },
+  { label: 'Dark Gray', value: '#4B5563' },
+  { label: 'Gray', value: '#9CA3AF' },
+  { label: 'Red', value: '#DC2626' },
+  { label: 'Orange', value: '#EA580C' },
+  { label: 'Yellow', value: '#CA8A04' },
+  { label: 'Green', value: '#16A34A' },
+  { label: 'Blue', value: '#2563EB' },
+  { label: 'Purple', value: '#9333EA' },
+  { label: 'Pink', value: '#DB2777' },
 ];
 
 export default function HtmlToolbar({ editor }: HtmlToolbarProps) {
@@ -151,6 +165,34 @@ export default function HtmlToolbar({ editor }: HtmlToolbarProps) {
       >
         <Strikethrough className="h-4 w-4" />
       </Toggle>
+
+      {/* Text Color */}
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+            <Baseline className="h-4 w-4" style={{ color: editor.getAttributes('textStyle').color || '#000000' }} />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-2" align="start">
+          <div className="grid grid-cols-5 gap-1">
+            {TEXT_COLORS.map((color) => (
+              <button
+                key={color.value}
+                title={color.label}
+                className="h-6 w-6 rounded border border-border hover:scale-110 transition-transform"
+                style={{ backgroundColor: color.value }}
+                onClick={() => editor.chain().focus().setColor(color.value).run()}
+              />
+            ))}
+          </div>
+          <button
+            className="mt-2 w-full text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => editor.chain().focus().unsetColor().run()}
+          >
+            Remove color
+          </button>
+        </PopoverContent>
+      </Popover>
 
       <div className="w-px h-5 bg-border mx-1" />
 

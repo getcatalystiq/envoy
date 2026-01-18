@@ -106,7 +106,7 @@ async def _personalize_block(
                     {
                         "mode": "block_personalization",
                         "original_content": original_content,
-                        "prompt": prompt,
+                        "additional_instructions": prompt,
                         "target": sanitize_target_data(target_data),
                         "block_type": block_type,
                     },

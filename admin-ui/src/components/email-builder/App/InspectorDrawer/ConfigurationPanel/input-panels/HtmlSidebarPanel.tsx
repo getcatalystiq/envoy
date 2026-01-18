@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { HtmlProps, HtmlPropsSchema } from '../../../../blocks';
 
 import BaseSidebarPanel from './helpers/BaseSidebarPanel';
-import TextInput from './helpers/inputs/TextInput';
 import PersonalizationInput from './helpers/inputs/PersonalizationInput';
 import MultiStylePropertyPanel from './helpers/style-inputs/MultiStylePropertyPanel';
 
@@ -27,17 +26,10 @@ export default function HtmlSidebarPanel({ data, setData, showPersonalization }:
 
   return (
     <BaseSidebarPanel title="Html block">
-      <TextInput
-        label="Content"
-        rows={5}
-        defaultValue={data.props?.contents ?? ''}
-        onChange={(contents) => updateData({ ...data, props: { ...data.props, contents } })}
-      />
-
       {showPersonalization && <PersonalizationInput />}
 
       <MultiStylePropertyPanel
-        names={['color', 'backgroundColor', 'fontFamily', 'fontSize', 'textAlign', 'padding']}
+        names={['backgroundColor', 'fontFamily', 'fontSize', 'padding']}
         value={data.style}
         onChange={(style) => updateData({ ...data, style })}
       />

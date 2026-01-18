@@ -5,6 +5,8 @@ import Underline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
+import { TextStyle } from '@tiptap/extension-text-style';
+import { Color } from '@tiptap/extension-color';
 
 import { Html as BaseHtml, HtmlProps } from '../../../blocks/Html';
 import { getFontFamily, getPadding } from '../../../blocks/shared';
@@ -42,6 +44,8 @@ export default function HtmlEditor({ style, props }: HtmlProps) {
       Placeholder.configure({
         placeholder: 'Start typing...',
       }),
+      TextStyle,
+      Color,
     ],
     content: contents,
     editable: true,
@@ -168,7 +172,7 @@ export default function HtmlEditor({ style, props }: HtmlProps) {
         {/* Floating Toolbar */}
         <div
           data-html-toolbar
-          className="absolute -top-12 left-0 z-50"
+          className="absolute -top-12 -left-[26px] z-50"
           onMouseDown={(e) => {
             e.preventDefault(); // Prevent blur on toolbar click
             isToolbarInteraction.current = true;
