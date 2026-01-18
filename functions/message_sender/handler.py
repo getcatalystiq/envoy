@@ -45,7 +45,7 @@ async def send_queued_emails() -> dict[str, Any]:
             subject=send["subject"],
             body_html=send["body"],
             from_email=from_email,
-            unsubscribe_url=f"https://api.envoy.app/unsubscribe/{send['target_id']}",
+            unsubscribe_url=f"{os.environ.get('API_BASE_URL', 'https://api.envoy.app')}/unsubscribe/{send['target_id']}",
         )
 
         async with pool.acquire() as conn:

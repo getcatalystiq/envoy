@@ -33,6 +33,7 @@ fi
 
 export JWT_PUBLIC_KEY=""
 export JWT_ISSUER="http://localhost"
+export API_BASE_URL="http://localhost:8000"
 
 # Add shared layer to Python path (NOT layers/shared/python which has Lambda-compiled packages)
 export PYTHONPATH="$PROJECT_DIR/layers/shared:$PROJECT_DIR/functions/api:${PYTHONPATH:-}"

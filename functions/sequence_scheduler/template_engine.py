@@ -1,11 +1,13 @@
 """Simple template engine for email variable replacement."""
 
 import copy
+import os
 import re
 from typing import Any
 
 # Base URL for unsubscribe links
-UNSUBSCRIBE_BASE_URL = "https://api.envoy.app/unsubscribe"
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.envoy.app")
+UNSUBSCRIBE_BASE_URL = f"{API_BASE_URL}/unsubscribe"
 
 
 def replace_templates_in_text(text: str, replacements: dict[str, str]) -> str:

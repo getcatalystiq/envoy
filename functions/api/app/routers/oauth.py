@@ -55,9 +55,34 @@ ALLOWED_AUTO_REGISTER_DOMAINS = [
 
 
 def _get_jwt_secret() -> str:
-    """Get JWT secret for signing tokens."""
+    """Get JWT secret from environment or Secrets Manager."""
+    # First try direct environment variable (for local development)
     if secret := os.environ.get("JWT_SECRET_KEY"):
         return secret
+
+    # Then try to load from Secrets Manager (production)
+    secret_arn = os.environ.get("JWT_SECRET_ARN")
+    if secret_arn:
+        try:
+            import boto3
+            import json
+            client = boto3.client("secretsmanager")
+            response = client.get_secret_value(SecretId=secret_arn)
+            secret_value = response.get("SecretString", "")
+
+            # The generated secret may be a JSON object or plain string
+            try:
+                parsed = json.loads(secret_value)
+                # If it's a dict, extract the value
+                if isinstance(parsed, dict):
+                    return parsed.get("password") or next(iter(parsed.values()), "")
+                return str(parsed)
+            except json.JSONDecodeError:
+                return secret_value
+        except Exception as e:
+            logger.warning(f"Failed to get JWT secret from Secrets Manager: {e}")
+
+    # Fallback to default (only for local development)
     return "dev-secret-change-in-production"
 
 
@@ -65,8 +90,22 @@ def _get_oauth_issuer(request: Request) -> str:
     """Get OAuth issuer URL from request or environment."""
     if issuer := os.environ.get("OAUTH_ISSUER"):
         return issuer
+
     # Derive from request
-    return str(request.base_url).rstrip("/")
+    base_url = str(request.base_url).rstrip("/")
+
+    # Check for API Gateway stage in request scope (via Mangum)
+    # API Gateway adds the stage to the path, but base_url doesn't include it
+    aws_event = request.scope.get("aws.event", {})
+    request_context = aws_event.get("requestContext", {})
+    stage = request_context.get("stage")
+
+    if stage and stage not in ("$default", "default"):
+        # Append stage to base URL if not already present
+        if not base_url.endswith(f"/{stage}"):
+            base_url = f"{base_url}/{stage}"
+
+    return base_url
 
 
 def _is_allowed_auto_register_uri(redirect_uri: str) -> bool:

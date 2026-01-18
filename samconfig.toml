@@ -47,4 +47,5 @@ s3_prefix = "envoy-prod"
 region = "us-east-1"
 parameter_overrides = [
     "Environment=prod",
+    "ApiBaseURL=https://o4sl74bw4g.execute-api.us-east-1.amazonaws.com/prod",
 ]

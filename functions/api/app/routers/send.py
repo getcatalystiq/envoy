@@ -88,7 +88,7 @@ async def send_email(
         subject=subject,
         body_html=body,
         from_email=from_email,
-        unsubscribe_url=f"https://api.envoy.app/unsubscribe/{data.target_id}",
+        unsubscribe_url=f"{os.environ.get('API_BASE_URL', 'https://api.envoy.app')}/unsubscribe/{data.target_id}",
     )
 
     # Update send record

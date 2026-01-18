@@ -65,13 +65,28 @@ else
         --no-confirm-changeset
 fi
 
-echo "==> Deployment complete!"
+echo "==> Backend deployment complete!"
 
-# Output API endpoint
+# Get stack outputs for frontend deployment
 STACK_NAME="envoy-$ENV"
 API_ENDPOINT=$(aws cloudformation describe-stacks \
     --stack-name "$STACK_NAME" \
     --query 'Stacks[0].Outputs[?OutputKey==`ApiEndpoint`].OutputValue' \
+    --output text 2>/dev/null || echo "")
+
+S3_BUCKET=$(aws cloudformation describe-stacks \
+    --stack-name "$STACK_NAME" \
+    --query 'Stacks[0].Outputs[?OutputKey==`AdminUIBucketName`].OutputValue' \
+    --output text 2>/dev/null || echo "")
+
+CLOUDFRONT_ID=$(aws cloudformation describe-stacks \
+    --stack-name "$STACK_NAME" \
+    --query 'Stacks[0].Outputs[?OutputKey==`AdminUIDistributionId`].OutputValue' \
+    --output text 2>/dev/null || echo "")
+
+ADMIN_UI_URL=$(aws cloudformation describe-stacks \
+    --stack-name "$STACK_NAME" \
+    --query 'Stacks[0].Outputs[?OutputKey==`AdminUIUrl`].OutputValue' \
     --output text 2>/dev/null || echo "")
 
 if [[ -n "$API_ENDPOINT" ]]; then
@@ -79,3 +94,42 @@ if [[ -n "$API_ENDPOINT" ]]; then
     echo "API Endpoint: $API_ENDPOINT"
     echo "Health Check: $API_ENDPOINT/health"
 fi
+
+# Deploy frontend if S3 bucket exists
+if [[ -n "$S3_BUCKET" && -d "$PROJECT_DIR/admin-ui" ]]; then
+    echo ""
+    echo "==> Building and deploying frontend"
+
+    cd "$PROJECT_DIR/admin-ui"
+
+    # Install dependencies if node_modules doesn't exist
+    if [[ ! -d "node_modules" ]]; then
+        echo "Installing frontend dependencies..."
+        npm install
+    fi
+
+    # Build with correct API and OAuth URLs
+    # API_ENDPOINT includes the stage (e.g., /prod), so:
+    # - VITE_API_URL points to /api/v1 endpoints
+    # - VITE_OAUTH_URL points to root-level OAuth endpoints (/.well-known/*, /oauth/*)
+    VITE_API_URL="${API_ENDPOINT}/api/v1" VITE_OAUTH_URL="${API_ENDPOINT}" npm run build
+
+    # Upload to S3
+    echo "Uploading to S3 bucket: $S3_BUCKET"
+    aws s3 sync dist/ "s3://$S3_BUCKET/" --delete
+
+    # Invalidate CloudFront cache
+    if [[ -n "$CLOUDFRONT_ID" ]]; then
+        echo "Invalidating CloudFront cache..."
+        aws cloudfront create-invalidation \
+            --distribution-id "$CLOUDFRONT_ID" \
+            --paths "/*" \
+            --output text > /dev/null
+    fi
+
+    echo "Frontend deployed to: $ADMIN_UI_URL"
+    cd "$PROJECT_DIR"
+fi
+
+echo ""
+echo "==> Deployment complete!"

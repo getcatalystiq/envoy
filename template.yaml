@@ -69,6 +69,11 @@ Parameters:
     Description: Maven Service API URL for skill management
     Default: "https://maven.app/api"
 
+  ApiBaseURL:
+    Type: String
+    Description: Base URL for the API (used for unsubscribe links)
+    Default: "https://api.envoy.app"
+
 Resources:
   #############################################################################
   # Security Groups
@@ -202,6 +207,7 @@ Resources:
           JWT_ISSUER: !Ref JWTIssuer
           JWT_SECRET_ARN: !Ref OAuthJWTSecret
           MAVEN_SERVICE_API_URL: !Ref MavenServiceAPIURL
+          API_BASE_URL: !Ref ApiBaseURL
       Events:
         Api:
           Type: HttpApi
@@ -280,6 +286,7 @@ Resources:
           AURORA_CLUSTER_ARN: !GetAtt AuroraCluster.DBClusterArn
           AURORA_DATABASE: envoy
           AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
+          API_BASE_URL: !Ref ApiBaseURL
       Events:
         ScheduleRule:
           Type: Schedule
@@ -305,6 +312,156 @@ Resources:
                 - ses:SendEmail
                 - ses:SendRawEmail
                 - ses:SendBulkEmail
+              Resource: '*'
+
+  # Sequence Scheduler Function
+  SequenceSchedulerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub envoy-sequence-scheduler-${Environment}
+      CodeUri: functions/sequence_scheduler/
+      Handler: handler.lambda_handler
+      Timeout: 900
+      MemorySize: 2048
+      Layers:
+        - !Ref SharedLayer
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref MavenLambdaSecurityGroup
+        SubnetIds:
+          - !Ref MavenPrivateSubnet1
+          - !Ref MavenPrivateSubnet2
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          AURORA_SECRET_ARN: !Ref AuroraSecret
+          AURORA_CLUSTER_ARN: !GetAtt AuroraCluster.DBClusterArn
+          AURORA_DATABASE: envoy
+          AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
+          MAVEN_SERVICE_API_URL: !Ref MavenServiceAPIURL
+          API_BASE_URL: !Ref ApiBaseURL
+      Events:
+        ScheduleRule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 minute)
+            Enabled: true
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Ref AuroraSecret
+                - !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:envoy/*
+            - Effect: Allow
+              Action:
+                - rds-data:ExecuteStatement
+                - rds-data:BatchExecuteStatement
+              Resource: !GetAtt AuroraCluster.DBClusterArn
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - bedrock-agentcore:InvokeAgentRuntime
+              Resource: !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/*
+
+  # Campaign Executor Function
+  CampaignExecutorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub envoy-campaign-executor-${Environment}
+      CodeUri: functions/campaign_executor/
+      Handler: handler.lambda_handler
+      Timeout: 900
+      MemorySize: 2048
+      Layers:
+        - !Ref SharedLayer
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref MavenLambdaSecurityGroup
+        SubnetIds:
+          - !Ref MavenPrivateSubnet1
+          - !Ref MavenPrivateSubnet2
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          AURORA_SECRET_ARN: !Ref AuroraSecret
+          AURORA_CLUSTER_ARN: !GetAtt AuroraCluster.DBClusterArn
+          AURORA_DATABASE: envoy
+          AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
+      Events:
+        ScheduleRule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Enabled: true
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Ref AuroraSecret
+                - !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:envoy/*
+            - Effect: Allow
+              Action:
+                - rds-data:ExecuteStatement
+                - rds-data:BatchExecuteStatement
+              Resource: !GetAtt AuroraCluster.DBClusterArn
+
+  # Message Sender Function
+  MessageSenderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub envoy-message-sender-${Environment}
+      CodeUri: functions/message_sender/
+      Handler: handler.lambda_handler
+      Timeout: 300
+      MemorySize: 1024
+      Layers:
+        - !Ref SharedLayer
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref MavenLambdaSecurityGroup
+        SubnetIds:
+          - !Ref MavenPrivateSubnet1
+          - !Ref MavenPrivateSubnet2
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          AURORA_SECRET_ARN: !Ref AuroraSecret
+          AURORA_CLUSTER_ARN: !GetAtt AuroraCluster.DBClusterArn
+          AURORA_DATABASE: envoy
+          AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
+          API_BASE_URL: !Ref ApiBaseURL
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Ref AuroraSecret
+                - !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:envoy/*
+            - Effect: Allow
+              Action:
+                - rds-data:ExecuteStatement
+                - rds-data:BatchExecuteStatement
+              Resource: !GetAtt AuroraCluster.DBClusterArn
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
               Resource: '*'
 
   # SES Webhook Function

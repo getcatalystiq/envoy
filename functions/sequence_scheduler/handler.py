@@ -17,9 +17,9 @@ from shared.maven_client import MavenClient
 from shared.queries import OutboxQueries, SequenceQueries
 from shared.ses_client import SESClient
 
-from .block_compiler import compile_builder_content
-from .personalization import has_personalized_blocks, process_personalization
-from .template_engine import replace_templates_in_blocks
+from block_compiler import compile_builder_content
+from personalization import has_personalized_blocks, process_personalization
+from template_engine import replace_templates_in_blocks
 
 BATCH_SIZE = 100
 
