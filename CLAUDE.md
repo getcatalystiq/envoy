@@ -44,6 +44,9 @@ pytest tests/unit/test_schemas.py
 pytest --cov
 ```
 
+### QA
+Use agent-browser skill to automate browser interactions for web testing, form filling, screenshots, and data extraction.
+
 ### Linting & Type Checking
 ```bash
 # Python linting
