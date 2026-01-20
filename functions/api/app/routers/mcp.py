@@ -1213,18 +1213,23 @@ async def _tool_preview_block_personalization(
 
     # Generate preview via Maven
     try:
+        target_data = {
+            "email": target.get("email"),
+            "first_name": target.get("first_name"),
+            "last_name": target.get("last_name"),
+            "company": target.get("company"),
+        }
+        # Include metadata if present
+        if target.get("metadata"):
+            target_data["metadata"] = target["metadata"]
+
         result = await maven.invoke_skill(
             "envoy-content-generation",
             {
                 "mode": "block_personalization",
                 "original_content": original_content,
                 "prompt": prompt,
-                "target": {
-                    "email": target.get("email"),
-                    "first_name": target.get("first_name"),
-                    "last_name": target.get("last_name"),
-                    "company": target.get("company"),
-                },
+                "target": target_data,
                 "block_type": block_type,
             },
         )

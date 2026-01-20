@@ -14,7 +14,9 @@ Generate personalized content for the given target.
 - `mode`: type of content we're personalizing
 - `original_content`: The current text/HTML of the block
 - `prompt`: User's personalization instructions
-- `target`: Recipient data (first_name, last_name, email, company, role - allowlisted fields only)
+- `target`: Recipient data containing:
+  - Core fields: first_name, last_name, email, company, role
+  - `metadata`: Optional object with additional target context (e.g., linkedin_url, industry, company_size, recent_activity, interests)
 - `block_type`: Type of block (Text, Heading, Button, Html)
 
 ## Instructions
@@ -34,6 +36,7 @@ Generate personalized content for the given target.
 ## Guidelines
 - Use target's name and company naturally
 - Reference specific details from their LinkedIn profile (if available)
+- Leverage metadata fields when present (industry, company_size, interests, etc.) for deeper personalization
 
 ##Output
 Return ONLY the personalized text/HTML in the `body` field:

@@ -39,14 +39,34 @@ class PersonalizationResult:
 ALLOWED_TARGET_FIELDS = frozenset(["first_name", "last_name", "company", "role", "email"])
 
 
-
-def sanitize_target_data(target: dict[str, Any]) -> dict[str, str]:
-    """Strict allowlist for target data passed to Maven."""
-    return {
+def sanitize_target_data(target: dict[str, Any]) -> dict[str, Any]:
+    """Strict allowlist for target data passed to Maven, including metadata."""
+    result: dict[str, Any] = {
         field: str(target[field])[:100]
         for field in ALLOWED_TARGET_FIELDS
         if field in target and target[field]
     }
+
+    # Include metadata if present (sanitize string values to 500 chars max)
+    metadata = target.get("metadata")
+    if metadata and isinstance(metadata, dict):
+        sanitized_metadata: dict[str, Any] = {}
+        for key, value in metadata.items():
+            if isinstance(value, str):
+                sanitized_metadata[key] = value[:500]
+            elif isinstance(value, (int, float, bool)) or value is None:
+                sanitized_metadata[key] = value
+            elif isinstance(value, list):
+                # Allow lists of primitives
+                sanitized_metadata[key] = [
+                    v[:500] if isinstance(v, str) else v
+                    for v in value[:20]  # Limit list length
+                    if isinstance(v, (str, int, float, bool)) or v is None
+                ]
+        if sanitized_metadata:
+            result["metadata"] = sanitized_metadata
+
+    return result
 
 
 def extract_block_content(block: dict[str, Any]) -> str | None:
