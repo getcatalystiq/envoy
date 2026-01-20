@@ -39,6 +39,32 @@ class PersonalizationResult:
 ALLOWED_TARGET_FIELDS = frozenset(["first_name", "last_name", "company", "role", "email", "phone"])
 
 
+def _parse_metadata(metadata: Any) -> dict[str, Any] | None:
+    """Parse metadata, handling string-encoded JSON (single or double escaped)."""
+    import json
+
+    # Already a dict
+    if isinstance(metadata, dict):
+        return metadata
+
+    # String-encoded JSON - try to parse (handles double-escaping via loop)
+    if isinstance(metadata, str):
+        value = metadata
+        for _ in range(3):  # Max 3 levels of escaping
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, dict):
+                    return parsed
+                if isinstance(parsed, str):
+                    value = parsed  # Try again with unwrapped string
+                else:
+                    return None
+            except (json.JSONDecodeError, TypeError):
+                return None
+
+    return None
+
+
 def sanitize_target_data(target: dict[str, Any]) -> dict[str, Any]:
     """Strict allowlist for target data passed to Maven, including metadata."""
     result: dict[str, Any] = {
@@ -48,8 +74,8 @@ def sanitize_target_data(target: dict[str, Any]) -> dict[str, Any]:
     }
 
     # Include metadata if present (sanitize string values to 500 chars max)
-    metadata = target.get("metadata")
-    if metadata and isinstance(metadata, dict):
+    metadata = _parse_metadata(target.get("metadata"))
+    if metadata:
         sanitized_metadata: dict[str, Any] = {}
         for key, value in metadata.items():
             if isinstance(value, str):
