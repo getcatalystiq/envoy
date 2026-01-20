@@ -311,8 +311,8 @@ export function SequenceEmailBuilder({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="hours">hours</SelectItem>
-                          <SelectItem value="days">days</SelectItem>
+                          <SelectItem value="hours">hour(s)</SelectItem>
+                          <SelectItem value="days">day(s)</SelectItem>
                         </SelectContent>
                       </Select>
                       <span className="text-sm text-gray-500">
