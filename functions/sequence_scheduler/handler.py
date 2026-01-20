@@ -139,7 +139,7 @@ async def process_enrollment(
                     "first_name": enrollment.get("target_first_name"),
                     "last_name": enrollment.get("target_last_name"),
                     "company": enrollment.get("target_company"),
-                    "title": enrollment.get("target_title"),
+                    "phone": enrollment.get("target_phone"),
                 }
                 builder_content = replace_templates_in_blocks(
                     builder_content=builder_content,
@@ -161,6 +161,8 @@ async def process_enrollment(
                         "first_name": enrollment.get("target_first_name"),
                         "last_name": enrollment.get("target_last_name"),
                         "company": enrollment.get("target_company"),
+                        "phone": enrollment.get("target_phone"),
+                        "metadata": enrollment.get("target_metadata"),
                     }
                     builder_content, errors = await process_personalization(
                         builder_content=builder_content,

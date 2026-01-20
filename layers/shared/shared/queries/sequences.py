@@ -643,6 +643,7 @@ class SequenceQueries:
             SELECT u.*, s.name as sequence_name, t.email as target_email,
                    t.first_name as target_first_name, t.last_name as target_last_name,
                    t.company as target_company, t.custom_fields as target_custom_fields,
+                   t.phone_normalized as target_phone, t.metadata as target_metadata,
                    t.status as target_status,
                    o.maven_tenant_id, o.maven_service_runtime_arn
             FROM updated u

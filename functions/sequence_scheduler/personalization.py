@@ -36,7 +36,7 @@ class PersonalizationResult:
 
 
 # Allowlisted target fields for security
-ALLOWED_TARGET_FIELDS = frozenset(["first_name", "last_name", "company", "role", "email"])
+ALLOWED_TARGET_FIELDS = frozenset(["first_name", "last_name", "company", "role", "email", "phone"])
 
 
 def sanitize_target_data(target: dict[str, Any]) -> dict[str, Any]:

@@ -59,18 +59,23 @@ cd admin-ui && npm run build  # TypeScript is checked during build
 
 ### Deployment
 ```bash
-# Build SAM application
-sam build
-
-# Deploy to dev
-sam deploy --config-env default
+# Deploy to dev (default)
+./scripts/deploy.sh
 
 # Deploy to staging
-sam deploy --config-env staging
+./scripts/deploy.sh staging
 
-# Deploy to prod (requires confirmation)
-sam deploy --config-env prod
+# Deploy to prod
+./scripts/deploy.sh prod
 ```
+
+The deploy script handles the full deployment pipeline:
+1. Syncs migrations to Lambda function
+2. Installs shared layer dependencies
+3. Builds SAM application
+4. Deploys backend to AWS
+5. Builds and deploys frontend to S3
+6. Invalidates CloudFront cache
 
 ## Architecture
 
