@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
 import {
   LineChart,
   Line,
@@ -10,7 +9,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
-import { RefreshCw, MessageSquare, Info } from 'lucide-react';
+import { RefreshCw, Info } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -232,12 +231,6 @@ export function EmailMetricsChart() {
               selected={selectedMetrics}
               onChange={setSelectedMetrics}
             />
-            <Button variant="outline" asChild>
-              <Link to="/messages">
-                <MessageSquare className="mr-2 h-4 w-4" />
-                Show messages
-              </Link>
-            </Button>
             <Button
               variant="ghost"
               size="icon"
