@@ -348,6 +348,17 @@ class OutboxWithTarget(OutboxResponse):
     bounced_at: Optional[datetime] = None
     complained_at: Optional[datetime] = None
 
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def parse_metadata(cls, v: Any) -> Optional[dict]:
+        """Parse metadata from JSON string if needed."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            import json
+            return json.loads(v)
+        return v
+
 
 class OutboxStats(BaseModel):
     """Schema for outbox statistics."""
