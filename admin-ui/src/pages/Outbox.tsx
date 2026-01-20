@@ -704,6 +704,49 @@ export function Outbox() {
                   </div>
                 )}
 
+                {/* Target Data */}
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">
+                    Target Data
+                  </label>
+                  <div className="space-y-1 text-sm">
+                    <p>
+                      <span className="text-gray-500">Email:</span>{' '}
+                      {selectedItem.email || 'N/A'}
+                    </p>
+                    <p>
+                      <span className="text-gray-500">Name:</span>{' '}
+                      {[selectedItem.first_name, selectedItem.last_name]
+                        .filter(Boolean)
+                        .join(' ') || 'N/A'}
+                    </p>
+                    <p>
+                      <span className="text-gray-500">Company:</span>{' '}
+                      {selectedItem.company || 'N/A'}
+                    </p>
+                    {selectedItem.metadata &&
+                      Object.keys(selectedItem.metadata).length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-gray-200">
+                          <span className="text-gray-500 block mb-1">
+                            Metadata:
+                          </span>
+                          <div className="pl-2 space-y-1">
+                            {Object.entries(selectedItem.metadata).map(
+                              ([key, value]) => (
+                                <p key={key} className="text-gray-700">
+                                  <span className="text-gray-500">{key}:</span>{' '}
+                                  {typeof value === 'object'
+                                    ? JSON.stringify(value)
+                                    : String(value ?? '')}
+                                </p>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      )}
+                  </div>
+                </div>
+
                 {/* Edit history */}
                 {selectedItem.edit_history?.length > 0 && (
                   <div>

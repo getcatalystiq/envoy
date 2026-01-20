@@ -92,7 +92,7 @@ class OutboxQueries:
 
         rows = await conn.fetch(
             f"""
-            SELECT o.*, t.email, t.first_name, t.last_name, t.company,
+            SELECT o.*, t.email, t.first_name, t.last_name, t.company, t.metadata,
                    es.delivered_at, es.opened_at, es.clicked_at,
                    es.bounced_at, es.complained_at
             FROM outbox o
@@ -122,7 +122,7 @@ class OutboxQueries:
         """List pending outbox items ordered by priority."""
         rows = await conn.fetch(
             """
-            SELECT o.*, t.email, t.first_name, t.last_name, t.company
+            SELECT o.*, t.email, t.first_name, t.last_name, t.company, t.metadata
             FROM outbox o
             LEFT JOIN targets t ON o.target_id = t.id
             WHERE o.organization_id = $1 AND o.status = 'pending'

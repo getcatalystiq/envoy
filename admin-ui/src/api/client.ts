@@ -261,6 +261,7 @@ export interface OutboxItem {
   first_name?: string | null;
   last_name?: string | null;
   company?: string | null;
+  metadata?: Record<string, unknown>;
   // Email engagement metrics (from email_sends)
   delivered_at?: string | null;
   opened_at?: string | null;
