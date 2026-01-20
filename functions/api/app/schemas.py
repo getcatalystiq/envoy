@@ -340,6 +340,7 @@ class OutboxWithTarget(OutboxResponse):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     company: Optional[str] = None
+    metadata: Optional[dict] = None
     # Email engagement metrics (from email_sends)
     delivered_at: Optional[datetime] = None
     opened_at: Optional[datetime] = None
