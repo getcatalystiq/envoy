@@ -31,11 +31,13 @@ import {
 import { TEditorConfiguration } from '../email-builder/documents/editor/core';
 import getConfiguration from '../email-builder/getConfiguration';
 
-const formatDelay = (hours: number) => {
-  if (hours === 0) return 'Immediately';
-  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''}`;
-  const days = Math.floor(hours / 24);
-  return `${days} day${days > 1 ? 's' : ''}`;
+const formatDelay = (hours: number, isFirstEmail: boolean) => {
+  const context = isFirstEmail ? 'after sign up' : 'after last email';
+  if (hours === 0) return isFirstEmail ? 'Immediately after sign up' : 'Immediately after last email';
+  const timeStr = hours < 24
+    ? `${hours} hour${hours > 1 ? 's' : ''}`
+    : `${Math.floor(hours / 24)} day${Math.floor(hours / 24) > 1 ? 's' : ''}`;
+  return `${timeStr} ${context}`;
 };
 
 interface SequenceEmailBuilderProps {
@@ -87,7 +89,7 @@ export function SequenceEmailBuilder({
   const emails = steps.map((step) => ({
     id: step.id,
     subject: step.subject || `Email ${step.position}`,
-    delay: formatDelay(step.default_delay_hours),
+    delay: formatDelay(step.default_delay_hours, step.position === 1),
     hasUnpublishedChanges: step.has_unpublished_changes,
     builderContent: step.builder_content,
   }));
@@ -313,7 +315,9 @@ export function SequenceEmailBuilder({
                           <SelectItem value="days">days</SelectItem>
                         </SelectContent>
                       </Select>
-                      <span className="text-sm text-gray-500">after last email</span>
+                      <span className="text-sm text-gray-500">
+                        {selectedStep.position === 1 ? 'after sign up' : 'after last email'}
+                      </span>
                     </div>
                   )}
                 </div>

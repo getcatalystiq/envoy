@@ -350,14 +350,45 @@ class SequenceQueries:
     # =========================================================================
 
     @staticmethod
+    async def get_first_step_delay(
+        conn: asyncpg.Connection,
+        sequence_id: UUID,
+    ) -> int:
+        """Get the delay hours of the first step in a sequence."""
+        row = await conn.fetchrow(
+            """
+            SELECT default_delay_hours
+            FROM sequence_steps
+            WHERE sequence_id = $1 AND position = 1
+            """,
+            sequence_id,
+        )
+        return row["default_delay_hours"] if row else 0
+
+    @staticmethod
     async def enroll(
         conn: asyncpg.Connection,
         org_id: str,
         target_id: UUID,
         sequence_id: UUID,
-        first_step_delay_hours: int = 0,
+        first_step_delay_hours: Optional[int] = None,
     ) -> dict[str, Any]:
-        """Enroll a target in a sequence."""
+        """Enroll a target in a sequence.
+
+        Args:
+            conn: Database connection
+            org_id: Organization ID
+            target_id: Target ID to enroll
+            sequence_id: Sequence ID to enroll in
+            first_step_delay_hours: Delay before first step. If None, uses
+                the first step's configured default_delay_hours.
+        """
+        # If no explicit delay provided, use the first step's configured delay
+        if first_step_delay_hours is None:
+            first_step_delay_hours = await SequenceQueries.get_first_step_delay(
+                conn, sequence_id
+            )
+
         next_eval = datetime.now(timezone.utc) + timedelta(hours=first_step_delay_hours)
         row = await conn.fetchrow(
             """

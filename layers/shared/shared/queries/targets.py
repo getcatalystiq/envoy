@@ -489,14 +489,14 @@ async def auto_enroll_in_default_sequence(
     if existing:
         return None
 
-    # Enroll with immediate start
+    # Enroll using the step's configured delay
     try:
         enrollment = await SequenceQueries.enroll(
             conn,
             org_id=org_id,
             target_id=target_id,
             sequence_id=default_sequence["id"],
-            first_step_delay_hours=0,
+            first_step_delay_hours=None,  # Use first step's configured delay
         )
         return enrollment
     except Exception as e:

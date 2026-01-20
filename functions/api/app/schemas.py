@@ -399,10 +399,14 @@ class SequenceStepUpdate(BaseModel):
 
 
 class EnrollmentCreate(BaseModel):
-    """Schema for enrolling a target in a sequence."""
+    """Schema for enrolling a target in a sequence.
+
+    If first_step_delay_hours is not provided (None), the enrollment will use
+    the first step's configured default_delay_hours.
+    """
 
     target_id: UUID
-    first_step_delay_hours: int = Field(default=0, ge=0)
+    first_step_delay_hours: Optional[int] = Field(default=None, ge=0)
 
 
 class EnrollmentResponse(BaseModel):
