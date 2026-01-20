@@ -162,6 +162,10 @@ async def activate_sequence(
         )
 
     sequence = await SequenceQueries.update(db, sequence_id, status="active")
+
+    # Activate all paused enrollments in this sequence
+    await SequenceQueries.resume_all_enrollments(db, sequence_id)
+
     return SequenceResponse(**sequence, steps=existing.get("steps", []))
 
 

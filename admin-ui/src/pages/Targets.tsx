@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { api, type Target, type TargetType, type Segment } from '@/api/client';
-import { Plus, Upload, Search, Users, ChevronLeft, ChevronRight, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Upload, Search, Users, ChevronLeft, ChevronRight, Pencil, Trash2, Eye } from 'lucide-react';
 
 const LIFECYCLE_STAGES = [
   'New',
@@ -37,8 +37,10 @@ export function Targets() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showViewDialog, setShowViewDialog] = useState(false);
   const [editingTarget, setEditingTarget] = useState<Target | null>(null);
   const [deletingTarget, setDeletingTarget] = useState<Target | null>(null);
+  const [viewingTarget, setViewingTarget] = useState<Target | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [formData, setFormData] = useState({
@@ -175,6 +177,11 @@ export function Targets() {
   const openDeleteDialog = (target: Target) => {
     setDeletingTarget(target);
     setShowDeleteDialog(true);
+  };
+
+  const openViewDialog = (target: Target) => {
+    setViewingTarget(target);
+    setShowViewDialog(true);
   };
 
   const handleDeleteTarget = async () => {
@@ -394,8 +401,18 @@ export function Targets() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => openViewDialog(target)}
+                          className="h-8 w-8 p-0"
+                          title="View details"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => openEditDialog(target)}
                           className="h-8 w-8 p-0"
+                          title="Edit"
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -404,6 +421,7 @@ export function Targets() {
                           size="sm"
                           onClick={() => openDeleteDialog(target)}
                           className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          title="Delete"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -754,6 +772,123 @@ export function Targets() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Target Dialog */}
+      <Dialog open={showViewDialog} onOpenChange={(open) => {
+        setShowViewDialog(open);
+        if (!open) {
+          setViewingTarget(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Target Details</DialogTitle>
+          </DialogHeader>
+          {viewingTarget && (
+            <div className="space-y-6">
+              {/* Basic Info */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium text-gray-900">Basic Information</h4>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-gray-500">Name</span>
+                    <p className="text-gray-900">{getFullName(viewingTarget) || '-'}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Email</span>
+                    <p className="text-gray-900">{viewingTarget.email}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Company</span>
+                    <p className="text-gray-900">{viewingTarget.company || '-'}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Phone</span>
+                    <p className="text-gray-900">{viewingTarget.phone || '-'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Classification */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium text-gray-900">Classification</h4>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-gray-500">Type</span>
+                    <p className="text-gray-900">{getTargetTypeName(viewingTarget.target_type_id)}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Segment</span>
+                    <p className="text-gray-900">{getSegmentName(viewingTarget.segment_id)}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Lifecycle Stage</span>
+                    <p className="text-gray-900">{LIFECYCLE_STAGES[viewingTarget.lifecycle_stage] || viewingTarget.lifecycle_stage}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Status</span>
+                    <div className="mt-0.5">{getStatusBadge(viewingTarget.status)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Timestamps */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium text-gray-900">Timestamps</h4>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-gray-500">Created</span>
+                    <p className="text-gray-900">{formatDate(viewingTarget.created_at)}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Updated</span>
+                    <p className="text-gray-900">{formatDate(viewingTarget.updated_at)}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Custom Fields */}
+              {viewingTarget.custom_fields && Object.keys(viewingTarget.custom_fields).length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-sm font-medium text-gray-900">Custom Fields</h4>
+                  <div className="bg-gray-50 rounded-md p-3">
+                    <pre className="text-xs text-gray-700 whitespace-pre-wrap overflow-auto max-h-32">
+                      {JSON.stringify(viewingTarget.custom_fields, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              )}
+
+              {/* Metadata */}
+              {viewingTarget.metadata && Object.keys(viewingTarget.metadata).length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-sm font-medium text-gray-900">Metadata</h4>
+                  <div className="bg-gray-50 rounded-md p-3">
+                    <pre className="text-xs text-gray-700 whitespace-pre-wrap overflow-auto max-h-32">
+                      {JSON.stringify(viewingTarget.metadata, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              )}
+
+              {/* Internal IDs */}
+              <div className="space-y-3 border-t pt-4">
+                <h4 className="text-xs font-medium text-gray-500 uppercase">Internal</h4>
+                <div className="text-xs text-gray-500">
+                  <p>ID: {viewingTarget.id}</p>
+                  <p>Organization ID: {viewingTarget.organization_id}</p>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <Button variant="outline" onClick={() => setShowViewDialog(false)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
