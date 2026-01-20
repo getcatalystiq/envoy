@@ -7,8 +7,24 @@ ALTER TABLE design_templates ADD COLUMN IF NOT EXISTS editor_type VARCHAR(20) DE
 -- Add maily_content column for Maily editor JSON content
 ALTER TABLE design_templates ADD COLUMN IF NOT EXISTS maily_content JSONB;
 
--- Make mjml_source nullable since Maily editor doesn't use MJML
-ALTER TABLE design_templates ALTER COLUMN mjml_source DROP NOT NULL;
+-- Make mjml_source nullable since Maily editor doesn't use MJML (if column exists)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'design_templates' AND column_name = 'mjml_source') THEN
+        ALTER TABLE design_templates ALTER COLUMN mjml_source DROP NOT NULL;
+    END IF;
+END $$;
 
-COMMENT ON COLUMN design_templates.editor_type IS 'Editor type: mjml or maily';
-COMMENT ON COLUMN design_templates.maily_content IS 'JSON content from Maily editor';
+-- Comments only if columns exist
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'design_templates' AND column_name = 'editor_type') THEN
+        COMMENT ON COLUMN design_templates.editor_type IS 'Editor type: mjml or maily';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'design_templates' AND column_name = 'maily_content') THEN
+        COMMENT ON COLUMN design_templates.maily_content IS 'JSON content from Maily editor';
+    END IF;
+END $$;

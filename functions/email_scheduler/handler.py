@@ -208,7 +208,8 @@ async def send_queued_emails() -> dict[str, Any]:
         # Get queued emails ready to send with org domain settings
         sends = await conn.fetch(
             """
-            SELECT es.*, o.email_domain, o.email_domain_verified, o.email_from_name
+            SELECT es.*, o.email_domain, o.email_domain_verified, o.email_from_name,
+                   o.ses_tenant_name, o.ses_configuration_set
             FROM email_sends es
             JOIN organizations o ON o.id = es.organization_id
             WHERE es.status = 'queued'
@@ -233,6 +234,8 @@ async def send_queued_emails() -> dict[str, Any]:
             subject=send["subject"],
             body_html=send["body"],
             from_email=from_email,
+            configuration_set=send["ses_configuration_set"],
+            tenant_name=send["ses_tenant_name"],
             unsubscribe_url=f"{os.environ.get('API_BASE_URL', 'https://api.envoy.app')}/unsubscribe/{send['target_id']}",
         )
 

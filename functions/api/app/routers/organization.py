@@ -1,5 +1,6 @@
 """Organization settings router."""
 
+import os
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -7,6 +8,8 @@ from fastapi import APIRouter, HTTPException
 from app.dependencies import CurrentOrg, CurrentUser, DBConnection
 from app.schemas import DNSRecord, OrganizationResponse, OrganizationUpdate
 from shared.ses_client import SESClient
+
+SES_NOTIFICATION_TOPIC_ARN = os.environ.get("SES_NOTIFICATION_TOPIC_ARN", "")
 
 router = APIRouter()
 
@@ -67,7 +70,8 @@ async def get_organization(
     """Get current organization settings."""
     org = await db.fetchrow(
         """SELECT id, name, email_domain, email_domain_verified,
-                  email_domain_dkim_tokens, email_from_name
+                  email_domain_dkim_tokens, email_from_name,
+                  ses_tenant_name, ses_configuration_set
            FROM organizations WHERE id = $1""",
         org_id,
     )
@@ -85,6 +89,8 @@ async def get_organization(
         email_domain=org["email_domain"],
         email_domain_verified=org["email_domain_verified"] or False,
         email_from_name=org["email_from_name"],
+        ses_tenant_name=org["ses_tenant_name"],
+        ses_configuration_set=org["ses_configuration_set"],
         dns_records=dns_records,
     )
 
@@ -169,7 +175,7 @@ async def verify_domain_status(
         raise HTTPException(status_code=403, detail="Admin access required")
 
     org = await db.fetchrow(
-        "SELECT email_domain FROM organizations WHERE id = $1",
+        "SELECT email_domain, ses_tenant_name, ses_configuration_set FROM organizations WHERE id = $1",
         org_id,
     )
 
@@ -185,15 +191,40 @@ async def verify_domain_status(
             detail=f"Failed to check domain status: {result.get('error_message', 'Unknown error')}",
         )
 
+    is_verified = result.get("verified", False)
+    tenant_name = org["ses_tenant_name"]
+    config_set_name = org["ses_configuration_set"]
+
+    # Create SES tenant with configuration set when domain becomes verified
+    if is_verified and not tenant_name and SES_NOTIFICATION_TOPIC_ARN:
+        tenant_name = f"envoy-{org_id}"
+        config_set_name = f"envoy-{org_id}"
+
+        tenant_result = ses.setup_tenant(
+            tenant_name=tenant_name,
+            domain=org["email_domain"],
+            configuration_set_name=config_set_name,
+            sns_topic_arn=SES_NOTIFICATION_TOPIC_ARN,
+        )
+        if not tenant_result.get("success"):
+            # Log but don't fail - domain verification is more important
+            print(f"Failed to create SES tenant: {tenant_result.get('error_message')}")
+            tenant_name = None
+            config_set_name = None
+
     await db.execute(
         """UPDATE organizations
            SET email_domain_verified = $2,
                email_domain_dkim_tokens = $3,
+               ses_tenant_name = COALESCE($4, ses_tenant_name),
+               ses_configuration_set = COALESCE($5, ses_configuration_set),
                updated_at = NOW()
            WHERE id = $1""",
         org_id,
-        result.get("verified", False),
+        is_verified,
         result.get("dkim_tokens", []),
+        tenant_name,
+        config_set_name,
     )
 
     return await get_organization(org_id, db)

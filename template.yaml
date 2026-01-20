@@ -208,6 +208,7 @@ Resources:
           JWT_SECRET_ARN: !Ref OAuthJWTSecret
           MAVEN_SERVICE_API_URL: !Ref MavenServiceAPIURL
           API_BASE_URL: !Ref ApiBaseURL
+          SES_NOTIFICATION_TOPIC_ARN: !Ref SESNotificationTopic
       Events:
         Api:
           Type: HttpApi
@@ -237,6 +238,19 @@ Resources:
                 - ses:CreateEmailIdentity
                 - ses:GetEmailIdentity
                 - ses:DeleteEmailIdentity
+                - ses:CreateConfigurationSet
+                - ses:CreateConfigurationSetEventDestination
+                - ses:CreateTenant
+                - ses:GetTenant
+                - ses:CreateTenantResourceAssociation
+                - ses:DeleteTenant
+                - ses:DeleteTenantResourceAssociation
+                - ses:ListTenants
+                - ses:ListTenantResources
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - sts:GetCallerIdentity
               Resource: '*'
     Metadata:
       BuildMethod: python3.12

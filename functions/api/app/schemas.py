@@ -624,6 +624,8 @@ class OrganizationResponse(BaseModel):
     email_domain: Optional[str] = None
     email_domain_verified: bool = False
     email_from_name: Optional[str] = None
+    ses_tenant_name: Optional[str] = None
+    ses_configuration_set: Optional[str] = None
     dns_records: list[DNSRecord] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}

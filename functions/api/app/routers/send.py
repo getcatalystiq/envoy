@@ -1,5 +1,6 @@
 """Send router for email distribution."""
 
+import os
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -55,15 +56,14 @@ async def send_email(
     send_id = await db.fetchval(
         """
         INSERT INTO email_sends (
-            organization_id, campaign_id, target_id, content_id,
+            organization_id, campaign_id, target_id,
             email, subject, body, status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued')
+        ) VALUES ($1, $2, $3, $4, $5, $6, 'queued')
         RETURNING id
         """,
         org_id,
         data.campaign_id,
         data.target_id,
-        data.content_id,
         target["email"],
         subject,
         body,
@@ -71,7 +71,9 @@ async def send_email(
 
     # Get org email domain settings
     org = await db.fetchrow(
-        "SELECT email_domain, email_domain_verified, email_from_name FROM organizations WHERE id = $1",
+        """SELECT email_domain, email_domain_verified, email_from_name,
+                  ses_tenant_name, ses_configuration_set
+           FROM organizations WHERE id = $1""",
         org_id,
     )
 
@@ -88,6 +90,8 @@ async def send_email(
         subject=subject,
         body_html=body,
         from_email=from_email,
+        configuration_set=org["ses_configuration_set"] if org else None,
+        tenant_name=org["ses_tenant_name"] if org else None,
         unsubscribe_url=f"{os.environ.get('API_BASE_URL', 'https://api.envoy.app')}/unsubscribe/{data.target_id}",
     )
 

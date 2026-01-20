@@ -44,6 +44,17 @@ CREATE TRIGGER trigger_design_templates_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_design_templates_updated_at();
 
-COMMENT ON TABLE design_templates IS 'MJML-based email design templates for consistent branding';
-COMMENT ON COLUMN design_templates.mjml_source IS 'MJML source code for the template';
-COMMENT ON COLUMN design_templates.html_compiled IS 'Pre-compiled HTML from MJML source';
+COMMENT ON TABLE design_templates IS 'Email design templates for consistent branding';
+
+-- Only add comments for columns that exist (may have been dropped by later migrations)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'design_templates' AND column_name = 'mjml_source') THEN
+        COMMENT ON COLUMN design_templates.mjml_source IS 'MJML source code for the template';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'design_templates' AND column_name = 'html_compiled') THEN
+        COMMENT ON COLUMN design_templates.html_compiled IS 'Pre-compiled HTML from MJML source';
+    END IF;
+END $$;

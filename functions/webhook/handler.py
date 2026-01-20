@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -11,6 +12,19 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 
 from shared.database import get_pool
+
+
+def parse_timestamp(timestamp_str: str | None) -> datetime | None:
+    """Parse ISO 8601 timestamp string to datetime object."""
+    if not timestamp_str:
+        return None
+    try:
+        # Handle ISO 8601 format with Z suffix
+        if timestamp_str.endswith("Z"):
+            timestamp_str = timestamp_str[:-1] + "+00:00"
+        return datetime.fromisoformat(timestamp_str)
+    except (ValueError, TypeError):
+        return None
 
 
 async def verify_sns_signature(message: dict) -> bool:
@@ -70,6 +84,7 @@ async def update_send_status(ses_message_id: str, status: str, **extra_fields: A
         "clicked_at",
         "bounced_at",
         "bounce_type",
+        "complained_at",
     }
 
     for field, value in extra_fields.items():
@@ -153,6 +168,34 @@ async def increment_soft_bounce(email: str) -> int:
         return row["soft_bounce_count"] if row else 0
 
 
+def get_event_timestamp(event: dict, event_type: str) -> datetime | None:
+    """Extract timestamp from SES event based on event type."""
+    # Try event-specific timestamp first
+    event_type_map = {
+        "Delivery": "delivery",
+        "Open": "open",
+        "Click": "click",
+        "Bounce": "bounce",
+        "Complaint": "complaint",
+        "Send": "send",
+    }
+
+    if event_type in event_type_map:
+        event_data = event.get(event_type_map[event_type], {})
+        timestamp_str = event_data.get("timestamp")
+        if timestamp_str:
+            return parse_timestamp(timestamp_str)
+
+    # Fall back to top-level timestamp
+    timestamp_str = event.get("timestamp")
+    if timestamp_str:
+        return parse_timestamp(timestamp_str)
+
+    # Last resort: mail timestamp
+    mail = event.get("mail", {})
+    return parse_timestamp(mail.get("timestamp"))
+
+
 async def process_ses_event(event: dict) -> None:
     """Process SES event notification."""
     event_type = event.get("eventType")
@@ -162,7 +205,9 @@ async def process_ses_event(event: dict) -> None:
     if not ses_message_id:
         return
 
-    timestamp = event.get("timestamp", mail.get("timestamp"))
+    timestamp = get_event_timestamp(event, event_type)
+
+    print(f"SES Event: type={event_type}, message_id={ses_message_id}, timestamp={timestamp}")
 
     if event_type == "Delivery":
         await update_send_status(ses_message_id, "delivered", delivered_at=timestamp)
@@ -208,6 +253,8 @@ async def process_ses_event(event: dict) -> None:
 
     elif event_type == "Complaint":
         complaint = event.get("complaint", {})
+        await update_send_status(ses_message_id, "complained", complained_at=timestamp)
+
         for recipient in complaint.get("complainedRecipients", []):
             email = recipient.get("emailAddress")
             if email:
