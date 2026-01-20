@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { api, type Analytics } from '@/api/client';
+import { EmailMetricsChart } from '@/components/EmailMetricsChart';
 import {
   Mail,
-  Users,
   MousePointer,
   MessageSquare,
   TrendingUp,
-  ArrowRight,
   Plus,
 } from 'lucide-react';
 
@@ -108,83 +107,8 @@ export function Dashboard() {
         ))}
       </div>
 
-      {/* Quick actions */}
-      <div className="grid md:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Quick Actions</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Link
-              to="/targets"
-              className="flex items-center justify-between p-3 rounded-lg border hover:bg-gray-50 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <Users className="w-5 h-5 text-gray-500" />
-                <span>Upload new targets</span>
-              </div>
-              <ArrowRight className="w-4 h-4 text-gray-400" />
-            </Link>
-            <Link
-              to="/content"
-              className="flex items-center justify-between p-3 rounded-lg border hover:bg-gray-50 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <Mail className="w-5 h-5 text-gray-500" />
-                <span>Create email template</span>
-              </div>
-              <ArrowRight className="w-4 h-4 text-gray-400" />
-            </Link>
-            <Link
-              to="/campaigns"
-              className="flex items-center justify-between p-3 rounded-lg border hover:bg-gray-50 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <TrendingUp className="w-5 h-5 text-gray-500" />
-                <span>Launch a campaign</span>
-              </div>
-              <ArrowRight className="w-4 h-4 text-gray-400" />
-            </Link>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Getting Started</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span className="text-xs font-bold text-primary">1</span>
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900">Upload your prospects</p>
-                  <p className="text-sm text-gray-600">Import a CSV with email addresses and LinkedIn URLs</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span className="text-xs font-bold text-primary">2</span>
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900">Create a content template</p>
-                  <p className="text-sm text-gray-600">Set up your email structure with dynamic placeholders</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span className="text-xs font-bold text-primary">3</span>
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900">Launch your campaign</p>
-                  <p className="text-sm text-gray-600">Review AI-generated emails and start sending</p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Email Metrics Charts */}
+      <EmailMetricsChart />
     </div>
   );
 }

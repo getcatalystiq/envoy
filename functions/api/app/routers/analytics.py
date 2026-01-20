@@ -1,13 +1,18 @@
 """Analytics router."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Query
 
 from app.dependencies import CurrentOrg, DBConnection
-from app.schemas import AnalyticsResponse
+from app.schemas import (
+    AnalyticsResponse,
+    MetricsDataPoint,
+    MetricsMetadata,
+    MetricsTimeSeriesResponse,
+)
 
 router = APIRouter()
 
@@ -175,3 +180,68 @@ async def get_engagement_metrics(
             for row in rows
         ]
     }
+
+
+@router.get("/metrics", response_model=MetricsTimeSeriesResponse)
+async def get_metrics_time_series(
+    org_id: CurrentOrg,
+    db: DBConnection,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+) -> MetricsTimeSeriesResponse:
+    """Get time-series email metrics for charts."""
+    # Default to last 7 days
+    if not end_date:
+        end_date = datetime.now(timezone.utc)
+    if not start_date:
+        start_date = end_date - timedelta(days=7)
+
+    # Determine granularity based on date range
+    hours_diff = (end_date - start_date).total_seconds() / 3600
+    granularity = "hour" if hours_diff <= 48 else "day"
+
+    rows = await db.fetch(
+        f"""
+        SELECT
+            date_trunc('{granularity}', sent_at) as timestamp,
+            COUNT(*) FILTER (WHERE sent_at IS NOT NULL) as sent,
+            COUNT(*) FILTER (WHERE delivered_at IS NOT NULL) as delivered,
+            COUNT(*) FILTER (WHERE bounce_type = 'Transient') as transient_bounces,
+            COUNT(*) FILTER (WHERE bounce_type = 'Permanent') as permanent_bounces,
+            COUNT(*) FILTER (WHERE complained_at IS NOT NULL) as complaints,
+            COUNT(*) FILTER (WHERE opened_at IS NOT NULL) as opens,
+            COUNT(*) FILTER (WHERE clicked_at IS NOT NULL) as clicks
+        FROM email_sends
+        WHERE organization_id = $1
+          AND sent_at >= $2
+          AND sent_at < $3
+        GROUP BY date_trunc('{granularity}', sent_at)
+        ORDER BY timestamp
+        """,
+        org_id,
+        start_date,
+        end_date,
+    )
+
+    data = [
+        MetricsDataPoint(
+            timestamp=row["timestamp"],
+            sent=row["sent"] or 0,
+            delivered=row["delivered"] or 0,
+            transient_bounces=row["transient_bounces"] or 0,
+            permanent_bounces=row["permanent_bounces"] or 0,
+            complaints=row["complaints"] or 0,
+            opens=row["opens"] or 0,
+            clicks=row["clicks"] or 0,
+        )
+        for row in rows
+    ]
+
+    return MetricsTimeSeriesResponse(
+        data=data,
+        meta=MetricsMetadata(
+            granularity="hourly" if granularity == "hour" else "daily",
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
+        ),
+    )

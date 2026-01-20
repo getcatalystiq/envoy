@@ -19,6 +19,7 @@ import boto3
 import httpx
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
+from botocore.config import Config
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 ENVOY_SERVICE_ID = "envoy-service"
@@ -40,7 +41,9 @@ class MavenClient:
         self.region = region
         session = boto3.Session()
         self._credentials = session.get_credentials()
-        self._agentcore_client = boto3.client("bedrock-agentcore", region_name=region)
+        # 5 minute read timeout for long-running Maven operations (e.g., image generation)
+        config = Config(read_timeout=300, connect_timeout=10)
+        self._agentcore_client = boto3.client("bedrock-agentcore", region_name=region, config=config)
 
     def _sign_request(self, method: str, url: str, headers: dict, body: str = "") -> dict:
         """Sign request with AWS SigV4 for API Gateway."""

@@ -25,6 +25,10 @@ import {
   MessageSquare,
   Smartphone,
   RotateCcw,
+  CheckCircle2,
+  MousePointerClick,
+  Ban,
+  Flag,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -204,6 +208,91 @@ export function Outbox() {
     return new Date(dateString).toLocaleString();
   };
 
+  const renderEngagementMetrics = (item: OutboxItem) => {
+    if (item.status !== 'sent') return null;
+
+    const metrics = [
+      {
+        key: 'delivered',
+        value: item.delivered_at,
+        icon: CheckCircle2,
+        activeColor: 'text-green-600',
+        label: 'Delivered',
+      },
+      {
+        key: 'opened',
+        value: item.opened_at,
+        icon: Eye,
+        activeColor: 'text-blue-600',
+        label: 'Opened',
+      },
+      {
+        key: 'clicked',
+        value: item.clicked_at,
+        icon: MousePointerClick,
+        activeColor: 'text-purple-600',
+        label: 'Clicked',
+      },
+    ];
+
+    // Only show bounced/complained if they occurred
+    const negativeMetrics = [
+      {
+        key: 'bounced',
+        value: item.bounced_at,
+        icon: Ban,
+        activeColor: 'text-red-600',
+        label: 'Bounced',
+      },
+      {
+        key: 'complained',
+        value: item.complained_at,
+        icon: Flag,
+        activeColor: 'text-orange-600',
+        label: 'Complained',
+      },
+    ].filter((m) => m.value);
+
+    return (
+      <div className="flex items-center gap-1">
+        {metrics.map((metric) => {
+          const Icon = metric.icon;
+          const isActive = !!metric.value;
+          return (
+            <div
+              key={metric.key}
+              className="relative group"
+              title={
+                isActive
+                  ? `${metric.label}: ${formatDate(metric.value!)}`
+                  : `Not ${metric.label.toLowerCase()}`
+              }
+            >
+              <Icon
+                className={cn(
+                  'w-4 h-4',
+                  isActive ? metric.activeColor : 'text-gray-300'
+                )}
+              />
+            </div>
+          );
+        })}
+        {negativeMetrics.map((metric) => {
+          const Icon = metric.icon;
+          return (
+            <div
+              key={metric.key}
+              className="relative group"
+              title={`${metric.label}: ${formatDate(metric.value!)}`}
+            >
+              <Icon className={cn('w-4 h-4', metric.activeColor)} />
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -364,6 +453,7 @@ export function Outbox() {
                     <div className="flex items-center gap-3 mt-3">
                       {getStatusBadge(item.status)}
                       {getConfidenceBadge(item.confidence_score)}
+                      {renderEngagementMetrics(item)}
                       <span className="text-xs text-gray-400">
                         {formatDate(item.created_at)}
                       </span>
@@ -472,6 +562,93 @@ export function Outbox() {
                     </p>
                   )}
                 </div>
+
+                {/* Engagement Metrics (for sent items) */}
+                {selectedItem.status === 'sent' && (
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">
+                      Engagement
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2
+                          className={cn(
+                            'w-4 h-4',
+                            selectedItem.delivered_at
+                              ? 'text-green-600'
+                              : 'text-gray-300'
+                          )}
+                        />
+                        <div className="text-sm">
+                          <span className="text-gray-700">Delivered</span>
+                          {selectedItem.delivered_at && (
+                            <p className="text-xs text-gray-500">
+                              {formatDate(selectedItem.delivered_at)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Eye
+                          className={cn(
+                            'w-4 h-4',
+                            selectedItem.opened_at
+                              ? 'text-blue-600'
+                              : 'text-gray-300'
+                          )}
+                        />
+                        <div className="text-sm">
+                          <span className="text-gray-700">Opened</span>
+                          {selectedItem.opened_at && (
+                            <p className="text-xs text-gray-500">
+                              {formatDate(selectedItem.opened_at)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <MousePointerClick
+                          className={cn(
+                            'w-4 h-4',
+                            selectedItem.clicked_at
+                              ? 'text-purple-600'
+                              : 'text-gray-300'
+                          )}
+                        />
+                        <div className="text-sm">
+                          <span className="text-gray-700">Clicked</span>
+                          {selectedItem.clicked_at && (
+                            <p className="text-xs text-gray-500">
+                              {formatDate(selectedItem.clicked_at)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      {selectedItem.bounced_at && (
+                        <div className="flex items-center gap-2">
+                          <Ban className="w-4 h-4 text-red-600" />
+                          <div className="text-sm">
+                            <span className="text-gray-700">Bounced</span>
+                            <p className="text-xs text-gray-500">
+                              {formatDate(selectedItem.bounced_at)}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {selectedItem.complained_at && (
+                        <div className="flex items-center gap-2">
+                          <Flag className="w-4 h-4 text-orange-600" />
+                          <div className="text-sm">
+                            <span className="text-gray-700">Complained</span>
+                            <p className="text-xs text-gray-500">
+                              {formatDate(selectedItem.complained_at)}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Subject */}
                 {!!(selectedItem.subject || editMode) && (

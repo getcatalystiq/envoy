@@ -92,9 +92,18 @@ class OutboxQueries:
 
         rows = await conn.fetch(
             f"""
-            SELECT o.*, t.email, t.first_name, t.last_name, t.company
+            SELECT o.*, t.email, t.first_name, t.last_name, t.company,
+                   es.delivered_at, es.opened_at, es.clicked_at,
+                   es.bounced_at, es.complained_at
             FROM outbox o
             LEFT JOIN targets t ON o.target_id = t.id
+            LEFT JOIN LATERAL (
+                SELECT delivered_at, opened_at, clicked_at, bounced_at, complained_at
+                FROM email_sends
+                WHERE outbox_id = o.id
+                ORDER BY created_at DESC
+                LIMIT 1
+            ) es ON true
             WHERE {where_clause}
             ORDER BY o.priority DESC, o.created_at DESC
             LIMIT ${param_idx} OFFSET ${param_idx + 1}

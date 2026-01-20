@@ -218,6 +218,34 @@ class AnalyticsResponse(BaseModel):
     bounce_rate: float
 
 
+class MetricsDataPoint(BaseModel):
+    """Schema for a single time-series data point."""
+
+    timestamp: datetime
+    sent: int
+    delivered: int
+    transient_bounces: int
+    permanent_bounces: int
+    complaints: int
+    opens: int
+    clicks: int
+
+
+class MetricsMetadata(BaseModel):
+    """Schema for metrics response metadata."""
+
+    granularity: str
+    start_date: str
+    end_date: str
+
+
+class MetricsTimeSeriesResponse(BaseModel):
+    """Schema for time-series metrics response."""
+
+    data: list[MetricsDataPoint]
+    meta: MetricsMetadata
+
+
 # Outbox schemas
 class OutboxCreate(BaseModel):
     """Schema for creating an outbox item."""
@@ -312,6 +340,12 @@ class OutboxWithTarget(OutboxResponse):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     company: Optional[str] = None
+    # Email engagement metrics (from email_sends)
+    delivered_at: Optional[datetime] = None
+    opened_at: Optional[datetime] = None
+    clicked_at: Optional[datetime] = None
+    bounced_at: Optional[datetime] = None
+    complained_at: Optional[datetime] = None
 
 
 class OutboxStats(BaseModel):

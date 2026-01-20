@@ -210,6 +210,27 @@ export interface Analytics {
   reply_rate: number;
 }
 
+// Time-series metrics types
+export interface TimeSeriesDataPoint {
+  timestamp: string;
+  sent: number;
+  delivered: number;
+  transient_bounces: number;
+  permanent_bounces: number;
+  complaints: number;
+  opens: number;
+  clicks: number;
+}
+
+export interface MetricsResponse {
+  data: TimeSeriesDataPoint[];
+  meta: {
+    granularity: 'hourly' | 'daily';
+    start_date: string;
+    end_date: string;
+  };
+}
+
 export interface OutboxItem {
   id: string;
   target_id: string;
@@ -240,6 +261,12 @@ export interface OutboxItem {
   first_name?: string | null;
   last_name?: string | null;
   company?: string | null;
+  // Email engagement metrics (from email_sends)
+  delivered_at?: string | null;
+  opened_at?: string | null;
+  clicked_at?: string | null;
+  bounced_at?: string | null;
+  complained_at?: string | null;
 }
 
 export interface OutboxStats {
@@ -474,4 +501,16 @@ export async function deleteSegment(id: string): Promise<void> {
 
 export async function getSegmentUsage(id: string): Promise<SegmentUsageCount> {
   return api.get<SegmentUsageCount>(`/segments/${id}/usage`);
+}
+
+// Analytics API functions
+export async function getMetrics(
+  startDate?: string,
+  endDate?: string
+): Promise<MetricsResponse> {
+  const params = new URLSearchParams();
+  if (startDate) params.append('start_date', startDate);
+  if (endDate) params.append('end_date', endDate);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return api.get<MetricsResponse>(`/analytics/metrics${query}`);
 }
