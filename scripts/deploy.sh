@@ -49,10 +49,10 @@ sam build --parallel
 # Deploy based on environment
 echo "==> Deploying to AWS ($ENV)"
 if [[ "$ENV" == "prod" ]]; then
-    # Production requires explicit confirmation
     sam deploy \
         --config-env prod \
-        --no-fail-on-empty-changeset
+        --no-fail-on-empty-changeset \
+        --no-confirm-changeset
 elif [[ "$ENV" == "staging" ]]; then
     sam deploy \
         --config-env staging \
