@@ -69,6 +69,11 @@ Parameters:
     Description: Maven Service API URL for skill management
     Default: "https://maven.app/api"
 
+  MavenAdminAPIURL:
+    Type: String
+    Description: Maven Admin API URL for admin operations
+    Default: "https://admin.maven.app"
+
   ApiBaseURL:
     Type: String
     Description: Base URL for the API (used for unsubscribe links)
@@ -207,6 +212,7 @@ Resources:
           JWT_ISSUER: !Ref JWTIssuer
           JWT_SECRET_ARN: !Ref OAuthJWTSecret
           MAVEN_SERVICE_API_URL: !Ref MavenServiceAPIURL
+          MAVEN_ADMIN_API_URL: !Ref MavenAdminAPIURL
           API_BASE_URL: !Ref ApiBaseURL
           SES_NOTIFICATION_TOPIC_ARN: !Ref SESNotificationTopic
       Events:
@@ -252,6 +258,11 @@ Resources:
               Action:
                 - sts:GetCallerIdentity
               Resource: '*'
+            - Effect: Allow
+              Action:
+                - execute-api:Invoke
+              Resource:
+                - arn:aws:execute-api:us-east-1:807467870613:3jn5r031x9/*
     Metadata:
       BuildMethod: python3.12
       BuildArchitecture: arm64

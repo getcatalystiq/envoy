@@ -180,3 +180,106 @@ class MavenClient:
             return json.loads(response)
         except (json.JSONDecodeError, ValueError):
             return {"raw": response}
+
+    # ============================================================
+    # Maven Admin API Methods
+    # ============================================================
+
+    async def _admin_request(
+        self, method: str, path: str, body: dict = None
+    ) -> dict | list | None:
+        """Make request to Maven Admin API using SigV4 auth."""
+        maven_admin_url = os.environ.get("MAVEN_ADMIN_API_URL", "")
+        if not maven_admin_url:
+            raise ValueError("MAVEN_ADMIN_API_URL environment variable not set")
+
+        url = f"{maven_admin_url}/tenants/{self.tenant_id}{path}"
+        base_headers = {"Content-Type": "application/json"}
+        body_str = json.dumps(body, cls=UUIDEncoder) if body else ""
+        headers = self._sign_request(method, url, base_headers, body_str)
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.request(
+                method, url, headers=headers, content=body_str if body else None
+            )
+            if response.status_code == 204:
+                return None
+            response.raise_for_status()
+            return response.json()
+
+    # Skills CRUD
+    async def list_skills(self) -> list[dict]:
+        """List all skills for the tenant."""
+        return await self._admin_request("GET", "/skills")
+
+    async def get_skill(self, skill_id: str) -> dict:
+        """Get a specific skill."""
+        return await self._admin_request("GET", f"/skills/{skill_id}")
+
+    async def create_skill(self, data: dict) -> dict:
+        """Create a new skill."""
+        return await self._admin_request("POST", "/skills", data)
+
+    async def update_skill(self, skill_id: str, data: dict) -> dict:
+        """Update an existing skill."""
+        return await self._admin_request("PATCH", f"/skills/{skill_id}", data)
+
+    async def delete_skill(self, skill_id: str) -> None:
+        """Delete a skill."""
+        await self._admin_request("DELETE", f"/skills/{skill_id}")
+
+    # Connectors
+    async def get_service_connector_status(
+        self, service_id: str = ENVOY_SERVICE_ID
+    ) -> dict:
+        """Get connector status for service account."""
+        return await self._admin_request(
+            "GET", f"/connectors/user-status?user_id={service_id}"
+        )
+
+    async def initiate_service_oauth(
+        self,
+        connector_id: str,
+        admin_user_id: str,
+        origin: str,
+        service_id: str = ENVOY_SERVICE_ID,
+    ) -> dict:
+        """
+        Start OAuth flow for service account.
+        Admin authenticates, token stored under service account.
+        Returns: { authorization_url: str }
+        """
+        return await self._admin_request(
+            "POST",
+            f"/connectors/{connector_id}/service-oauth/initiate",
+            {
+                "service_id": service_id,
+                "admin_user_id": admin_user_id,
+                "origin": origin,
+            },
+        )
+
+    async def disconnect_service_connector(
+        self, connector_id: str, service_id: str = ENVOY_SERVICE_ID
+    ) -> None:
+        """Disconnect service account from connector."""
+        await self._admin_request(
+            "POST", f"/connectors/{connector_id}/disconnect", {"user_id": service_id}
+        )
+
+    # Invocations
+    async def list_invocations(
+        self, limit: int = 50, service_id: str = ENVOY_SERVICE_ID
+    ) -> list[dict]:
+        """List recent invocations for service account."""
+        return await self._admin_request(
+            "GET", f"/service-accounts/{service_id}/invocations?limit={limit}"
+        )
+
+    async def get_invocation(
+        self, session_id: str, service_id: str = ENVOY_SERVICE_ID
+    ) -> dict:
+        """Get invocation details including transcript."""
+        return await self._admin_request(
+            "GET", f"/service-accounts/{service_id}/invocations/{session_id}"
+        )
