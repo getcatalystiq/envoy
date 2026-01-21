@@ -49,6 +49,7 @@ interface SequenceEmailBuilderProps {
   onDeleteStep?: (stepId: string) => void;
   onReorderSteps?: (fromIndex: number, toIndex: number) => void;
   canEdit?: boolean;
+  hideSidebar?: boolean;
 }
 
 export function SequenceEmailBuilder({
@@ -60,6 +61,7 @@ export function SequenceEmailBuilder({
   onDeleteStep,
   onReorderSteps,
   canEdit = true,
+  hideSidebar = false,
 }: SequenceEmailBuilderProps) {
   const document = useDocument();
   const selectedSidebarTab = useSelectedSidebarTab();
@@ -241,16 +243,18 @@ export function SequenceEmailBuilder({
   );
 
   return (
-    <div className="flex h-[calc(100vh-120px)]">
-      {/* Left Sidebar - Email List */}
-      <EmailListSidebar
-        emails={emails}
-        selectedEmailId={selectedStepId}
-        onSelectEmail={onSelectStep}
-        onAddEmail={onAddStep}
-        onReorderEmails={onReorderSteps}
-        canEdit={canEdit}
-      />
+    <div className={hideSidebar ? "flex flex-col h-full" : "flex h-[calc(100vh-120px)]"}>
+      {/* Left Sidebar - Email List (hidden in embedded mode) */}
+      {!hideSidebar && (
+        <EmailListSidebar
+          emails={emails}
+          selectedEmailId={selectedStepId}
+          onSelectEmail={onSelectStep}
+          onAddEmail={onAddStep}
+          onReorderEmails={onReorderSteps}
+          canEdit={canEdit}
+        />
+      )}
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">

@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api } from '@/api/client';
 import { CheckCircle, XCircle, Loader2, Zap, Users, Tags, AtSign } from 'lucide-react';
+import { MenuButton } from '@/components/Layout';
 import { TargetTypesList } from './TargetTypes';
 import { SegmentsList } from './Segments';
 import { EmailSettings } from './EmailSettings';
@@ -156,9 +157,12 @@ export function Settings() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-        <p className="text-gray-600">Configure your organization settings</p>
+      <div className="flex items-center gap-3">
+        <MenuButton />
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+          <p className="text-gray-600">Configure your organization settings</p>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>

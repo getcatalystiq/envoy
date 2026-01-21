@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { api, type Target, type TargetType, type Segment } from '@/api/client';
 import { Plus, Upload, Search, Users, ChevronLeft, ChevronRight, Pencil, Trash2, Eye } from 'lucide-react';
+import { MenuButton } from '@/components/Layout';
 
 const LIFECYCLE_STAGES = [
   'New',
@@ -307,9 +308,12 @@ export function Targets() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Targets</h1>
-          <p className="text-gray-600">Manage your prospect list</p>
+        <div className="flex items-center gap-3">
+          <MenuButton />
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Targets</h1>
+            <p className="text-gray-600">Manage your prospect list</p>
+          </div>
         </div>
         <div className="flex gap-3">
           <Button variant="outline">

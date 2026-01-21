@@ -30,6 +30,7 @@ import {
   type BuilderContent,
 } from '@/api/client';
 import { Reader, type TReaderDocument } from '@/components/email-builder/Reader';
+import { MenuButton } from '@/components/Layout';
 
 // Preview component for minified email template
 function TemplatePreview({ content }: { content: BuilderContent | null }) {
@@ -156,9 +157,12 @@ export function DesignTemplates() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Design Templates</h1>
-          <p className="text-gray-600">Manage email designs and branding</p>
+        <div className="flex items-center gap-3">
+          <MenuButton />
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Design Templates</h1>
+            <p className="text-gray-600">Manage email designs and branding</p>
+          </div>
         </div>
         <Button onClick={() => setCreateOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />

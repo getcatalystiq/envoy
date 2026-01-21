@@ -35,10 +35,75 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SequenceEmailBuilder } from '@/components/sequence-builder/SequenceEmailBuilder';
+import { useLayout, MenuButton } from '@/components/Layout';
+import { Reader, type TReaderDocument } from '@/components/email-builder/Reader';
+import { Clock } from 'lucide-react';
+
+// Format delay for thumbnail display
+const formatDelayShort = (hours: number): string => {
+  if (hours === 0) return 'Now';
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+};
+
+// Mini email preview for embedded mode
+function StepThumbnail({
+  step,
+  isSelected,
+  onClick,
+}: {
+  step: SequenceStep;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  const document = step.builder_content as TReaderDocument | null;
+  const hasContent = document && Object.keys(document).length > 0 && document.root;
+
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex-shrink-0 w-20 rounded-lg border-2 transition-all overflow-hidden',
+        isSelected
+          ? 'border-primary ring-2 ring-primary/20'
+          : 'border-gray-200 hover:border-gray-300'
+      )}
+    >
+      {/* Mini preview */}
+      <div className="w-full h-14 bg-white relative overflow-hidden">
+        {hasContent ? (
+          <div
+            className="absolute inset-0 origin-top-left pointer-events-none"
+            style={{
+              transform: 'scale(0.15)',
+              width: '666%',
+              height: '666%',
+            }}
+          >
+            <Reader document={document} rootBlockId="root" />
+          </div>
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-gray-50">
+            <span className="text-[10px] text-gray-400">Empty</span>
+          </div>
+        )}
+      </div>
+      {/* Delay indicator */}
+      <div className="px-1.5 py-1 bg-gray-50 border-t flex items-center justify-center gap-1">
+        <Clock className="w-3 h-3 text-gray-400" />
+        <span className="text-[10px] font-medium text-gray-600">
+          {formatDelayShort(step.default_delay_hours)}
+        </span>
+      </div>
+    </button>
+  );
+}
 
 export function SequenceBuilder() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const layout = useLayout();
 
   // Core state
   const [sequence, setSequence] = useState<Sequence | null>(null);
@@ -349,62 +414,78 @@ export function SequenceBuilder() {
     );
   }
 
+  const isEmbedded = layout?.isEmbedded ?? false;
+
   return (
     <div className="flex flex-col h-screen">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
-        <div className="flex items-center gap-4">
+      <div className={cn(
+        "flex items-center justify-between border-b bg-white",
+        isEmbedded ? "px-4 py-2" : "px-6 py-4"
+      )}>
+        <div className="flex items-center gap-3">
+          <MenuButton />
           <Button variant="ghost" size="sm" onClick={() => navigate('/sequences')}>
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back
+            <ArrowLeft className="w-4 h-4 mr-1" />
+            {!isEmbedded && 'Back'}
           </Button>
           <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">{sequence.name}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className={cn(
+                "font-bold text-gray-900",
+                isEmbedded ? "text-lg" : "text-2xl"
+              )}>{sequence.name}</h1>
               {getStatusBadge(sequence.status)}
             </div>
-            <div className="flex items-center gap-2 mt-1">
-              <Badge variant="outline">
-                {sequence.target_type_id
-                  ? targetTypes.find((t) => t.id === sequence.target_type_id)?.name ?? 'Unknown type'
-                  : 'All targets'}
-              </Badge>
-              {sequence.is_default && (
-                <Badge variant="secondary">Default</Badge>
-              )}
-            </div>
+            {!isEmbedded && (
+              <div className="flex items-center gap-2 mt-1">
+                <Badge variant="outline">
+                  {sequence.target_type_id
+                    ? targetTypes.find((t) => t.id === sequence.target_type_id)?.name ?? 'Unknown type'
+                    : 'All targets'}
+                </Badge>
+                {sequence.is_default && (
+                  <Badge variant="secondary">Default</Badge>
+                )}
+              </div>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {sequence.status === 'draft' && enrollmentCounts.paused === 0 && (
-            <Button onClick={handleActivate}>
-              <Play className="w-4 h-4 mr-2" />
-              Activate
-            </Button>
-          )}
-          {sequence.status === 'draft' && enrollmentCounts.paused > 0 && (
-            <>
-              <Button onClick={handleResume}>
-                <Play className="w-4 h-4 mr-2" />
-                Resume
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
+            {sequence.status === 'draft' && enrollmentCounts.paused === 0 && (
+              <Button size={isEmbedded ? "sm" : "default"} onClick={handleActivate}>
+                <Play className="w-4 h-4 mr-1" />
+                Activate
               </Button>
-              <Button variant="outline" onClick={() => setShowArchiveDialog(true)}>
-                <Archive className="w-4 h-4 mr-2" />
-                Archive
-              </Button>
-            </>
-          )}
-          {sequence.status === 'active' && (
-            <>
-              <Button variant="outline" onClick={handlePause}>
-                <Pause className="w-4 h-4 mr-2" />
-                Pause
-              </Button>
-              <Button variant="outline" onClick={() => setShowArchiveDialog(true)}>
-                <Archive className="w-4 h-4 mr-2" />
-                Archive
-              </Button>
-            </>
+            )}
+            {sequence.status === 'draft' && enrollmentCounts.paused > 0 && (
+              <>
+                <Button size={isEmbedded ? "sm" : "default"} onClick={handleResume}>
+                  <Play className="w-4 h-4 mr-1" />
+                  Resume
+                </Button>
+                <Button size={isEmbedded ? "sm" : "default"} variant="outline" onClick={() => setShowArchiveDialog(true)}>
+                  <Archive className="w-4 h-4 mr-1" />
+                  Archive
+                </Button>
+              </>
+            )}
+            {sequence.status === 'active' && (
+              <>
+                <Button size={isEmbedded ? "sm" : "default"} variant="outline" onClick={handlePause}>
+                  <Pause className="w-4 h-4 mr-1" />
+                  Pause
+                </Button>
+                <Button size={isEmbedded ? "sm" : "default"} variant="outline" onClick={() => setShowArchiveDialog(true)}>
+                  <Archive className="w-4 h-4 mr-1" />
+                  Archive
+                </Button>
+              </>
+            )}
+          </div>
+          {!canEdit && sequence.status === 'active' && (
+            <span className="text-xs text-muted-foreground">Pause to make changes</span>
           )}
         </div>
       </div>
@@ -423,7 +504,7 @@ export function SequenceBuilder() {
         onValueChange={(v) => setActiveTab(v as 'builder' | 'enrollments')}
         className="flex-1 flex flex-col"
       >
-        <div className="border-b bg-white px-6">
+        <div className={cn("border-b bg-white", isEmbedded ? "px-4" : "px-6")}>
           <TabsList>
             <TabsTrigger value="builder">Builder</TabsTrigger>
             <TabsTrigger value="enrollments">
@@ -438,19 +519,32 @@ export function SequenceBuilder() {
           </TabsList>
         </div>
 
+        {/* Embedded: Horizontal Step Strip */}
+        {isEmbedded && activeTab === 'builder' && (
+          <div className="border-b bg-gray-50 px-4 py-2">
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+              {steps.map((step) => (
+                <StepThumbnail
+                  key={step.id}
+                  step={step}
+                  isSelected={step.id === selectedStepId}
+                  onClick={() => setSelectedStepId(step.id)}
+                />
+              ))}
+              {canEdit && (
+                <button
+                  onClick={handleAddStep}
+                  className="flex-shrink-0 w-20 h-[74px] rounded-lg border-2 border-dashed border-gray-300 hover:border-primary hover:bg-primary/5 transition-colors flex items-center justify-center"
+                >
+                  <span className="text-2xl text-gray-400">+</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Builder Tab */}
         <TabsContent value="builder" className="flex-1 mt-0">
-          {!canEdit && (
-            <Alert className="mx-6 mt-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                {sequence.status === 'active'
-                  ? 'This sequence is active. Pause it to make changes.'
-                  : `This sequence is ${sequence.status}. You cannot edit emails.`}
-              </AlertDescription>
-            </Alert>
-          )}
-
           <SequenceEmailBuilder
             steps={steps}
             selectedStepId={selectedStepId}
@@ -460,6 +554,7 @@ export function SequenceBuilder() {
             onDeleteStep={handleDeleteStep}
             onReorderSteps={handleReorderSteps}
             canEdit={canEdit}
+            hideSidebar={isEmbedded}
           />
         </TabsContent>
 

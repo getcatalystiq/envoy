@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { MenuButton } from '@/components/Layout';
 import { api, type Sequence, type SequenceStatus, type CreateSequenceInput } from '@/api/client';
 import {
   Plus,
@@ -229,9 +230,12 @@ export function Sequences() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Sequences</h1>
-          <p className="text-gray-600">Build multi-step email sequences for automated outreach</p>
+        <div className="flex items-center gap-3">
+          <MenuButton />
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Sequences</h1>
+            <p className="text-gray-600">Build multi-step email sequences for automated outreach</p>
+          </div>
         </div>
         <Button onClick={() => setShowCreateDialog(true)}>
           <Plus className="w-4 h-4 mr-2" />

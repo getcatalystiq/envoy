@@ -1,15 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { api, type Analytics } from '@/api/client';
 import { EmailMetricsChart } from '@/components/EmailMetricsChart';
+import { MenuButton } from '@/components/Layout';
 import {
   Mail,
   MousePointer,
   MessageSquare,
   TrendingUp,
-  Plus,
 } from 'lucide-react';
 
 export function Dashboard() {
@@ -75,17 +73,12 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <MenuButton />
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
           <p className="text-gray-600">Overview of your email campaigns</p>
         </div>
-        <Button asChild>
-          <Link to="/campaigns">
-            <Plus className="w-4 h-4 mr-2" />
-            New Campaign
-          </Link>
-        </Button>
       </div>
 
       {/* Stats grid */}

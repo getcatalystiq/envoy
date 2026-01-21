@@ -33,6 +33,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MenuButton } from '@/components/Layout';
 
 export function Outbox() {
   const [items, setItems] = useState<OutboxItem[]>([]);
@@ -309,9 +310,12 @@ export function Outbox() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Outbox</h1>
-          <p className="text-gray-600">Review and approve AI-generated content</p>
+        <div className="flex items-center gap-3">
+          <MenuButton />
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Outbox</h1>
+            <p className="text-gray-600">Review and approve AI-generated content</p>
+          </div>
         </div>
       </div>
 

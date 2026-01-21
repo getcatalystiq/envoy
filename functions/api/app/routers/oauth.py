@@ -91,21 +91,8 @@ def _get_oauth_issuer(request: Request) -> str:
     if issuer := os.environ.get("OAUTH_ISSUER"):
         return issuer
 
-    # Derive from request
-    base_url = str(request.base_url).rstrip("/")
-
-    # Check for API Gateway stage in request scope (via Mangum)
-    # API Gateway adds the stage to the path, but base_url doesn't include it
-    aws_event = request.scope.get("aws.event", {})
-    request_context = aws_event.get("requestContext", {})
-    stage = request_context.get("stage")
-
-    if stage and stage not in ("$default", "default"):
-        # Append stage to base URL if not already present
-        if not base_url.endswith(f"/{stage}"):
-            base_url = f"{base_url}/{stage}"
-
-    return base_url
+    # Using $default stage, just return the base URL without any stage prefix
+    return str(request.base_url).rstrip("/")
 
 
 def _is_allowed_auto_register_uri(redirect_uri: str) -> bool:
@@ -821,17 +808,22 @@ async def _handle_refresh_token_grant(
 async def userinfo(
     authorization: str = Header(...),
 ) -> JSONResponse:
-    """Return user information for the authenticated user."""
+    """Return user information for the authenticated user.
+
+    Accepts only Envoy OAuth tokens (JWTs signed by Envoy with HS256).
+    Users must connect their Envoy account via OAuth in Maven's Connectors.
+    """
     # Extract bearer token
     if not authorization.lower().startswith("bearer "):
         raise HTTPException(401, "Invalid Authorization header")
 
     token = authorization[7:]
 
+    # Verify Envoy token
     try:
         claims = _verify_access_token(token)
     except ValueError as e:
-        raise HTTPException(401, str(e))
+        raise HTTPException(401, f"Invalid token: {e}")
 
     async with get_raw_connection() as conn:
         user = await OAuthUserQueries.get_by_id(conn, claims["sub"])
