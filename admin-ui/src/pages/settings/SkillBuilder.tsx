@@ -7,7 +7,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { api } from '@/api/client';
-import { ArrowLeft, Save, Loader2 } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, FileCode, ExternalLink } from 'lucide-react';
 import CodeMirror from '@uiw/react-codemirror';
 
 interface Skill {
@@ -121,24 +121,26 @@ export function SkillBuilder() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={handleSave}
-            disabled={!hasUnsavedChanges || isSaving}
-          >
-            {isSaving ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4 mr-2" />
-                Save
-              </>
-            )}
-          </Button>
-        </div>
+        {skill.prompt !== null && (
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={handleSave}
+              disabled={!hasUnsavedChanges || isSaving}
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save
+                </>
+              )}
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Error message */}
@@ -150,19 +152,39 @@ export function SkillBuilder() {
 
       {/* Editor */}
       <div className="flex-1 overflow-hidden">
-        <CodeMirror
-          value={prompt}
-          onChange={handlePromptChange}
-          height="100%"
-          className="h-full"
-          theme="light"
-          basicSetup={{
-            lineNumbers: true,
-            highlightActiveLine: true,
-            highlightActiveLineGutter: true,
-            foldGutter: true,
-          }}
-        />
+        {skill.prompt === null ? (
+          <div className="flex flex-col items-center justify-center h-full bg-gray-50 p-8">
+            <FileCode className="w-16 h-16 text-gray-300 mb-4" />
+            <h2 className="text-xl font-semibold text-gray-700 mb-2">File-Based Skill</h2>
+            <p className="text-gray-500 text-center max-w-md mb-4">
+              This skill uses file-based storage (SKILL.md and other files) instead of a simple prompt.
+              To edit this skill, use the Maven admin interface.
+            </p>
+            <a
+              href={`https://admin.heymaven.com/tenants/adbb68cb-5136-4dea-a56e-814f9a499b60/skills/builder/${skill.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+            >
+              Open in Maven
+              <ExternalLink className="w-4 h-4" />
+            </a>
+          </div>
+        ) : (
+          <CodeMirror
+            value={prompt}
+            onChange={handlePromptChange}
+            height="100%"
+            className="h-full"
+            theme="light"
+            basicSetup={{
+              lineNumbers: true,
+              highlightActiveLine: true,
+              highlightActiveLineGutter: true,
+              foldGutter: true,
+            }}
+          />
+        )}
       </div>
 
       {/* Footer with skill info */}
