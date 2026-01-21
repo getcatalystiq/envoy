@@ -44,7 +44,7 @@ export function Settings() {
           </TabsTrigger>
           <TabsTrigger value="ai-skills" className="flex items-center gap-2">
             <Sparkles className="w-4 h-4" />
-            AI Skills
+            Skills
           </TabsTrigger>
           <TabsTrigger value="mcp-servers" className="flex items-center gap-2">
             <Plug className="w-4 h-4" />
