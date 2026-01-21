@@ -16,6 +16,7 @@ import { SequenceBuilder } from './pages/SequenceBuilder';
 import { EmbeddedApp } from './pages/EmbeddedApp';
 import { DesignTemplates } from './pages/DesignTemplates';
 import { DesignTemplateEditor } from './pages/DesignTemplateEditor';
+import { SkillBuilder } from './pages/settings/SkillBuilder';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn, isLoading } = useAuth();
@@ -101,6 +102,15 @@ export default function App() {
       <Route
         path="/setup"
         element={<Navigate to="/settings" replace />}
+      />
+
+      <Route
+        path="/settings/skills/:id"
+        element={
+          <ProtectedRoute>
+            <SkillBuilder />
+          </ProtectedRoute>
+        }
       />
 
       <Route

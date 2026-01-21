@@ -18,7 +18,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { api } from '@/api/client';
-import { Plus, Edit, Trash2, Sparkles, Loader2 } from 'lucide-react';
+import { Plus, Edit, Trash2, Sparkles, Loader2, Code } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface Skill {
   id: string;
@@ -30,6 +31,7 @@ interface Skill {
 }
 
 export function MavenSkillsTab() {
+  const navigate = useNavigate();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +45,10 @@ export function MavenSkillsTab() {
   const [formSlug, setFormSlug] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [formPrompt, setFormPrompt] = useState('');
+
+  const openSkillEditor = (skillId: string) => {
+    navigate(`/settings/skills/${skillId}`);
+  };
 
   useEffect(() => {
     loadSkills();
@@ -109,7 +115,6 @@ export function MavenSkillsTab() {
       await api.patch(`/maven/skills/${editingSkill.id}`, {
         name: formName,
         description: formDescription || null,
-        prompt: formPrompt,
       });
       setEditingSkill(null);
       resetForm();
@@ -234,13 +239,23 @@ export function MavenSkillsTab() {
                     variant="ghost"
                     size="sm"
                     onClick={() => openEditDialog(skill)}
+                    title="Edit details"
                   >
                     <Edit className="w-4 h-4" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
+                    onClick={() => openSkillEditor(skill.id)}
+                    title="Open in editor"
+                  >
+                    <Code className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setDeleteConfirm(skill.id)}
+                    title="Delete skill"
                   >
                     <Trash2 className="w-4 h-4 text-red-500" />
                   </Button>
@@ -322,7 +337,7 @@ export function MavenSkillsTab() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingSkill} onOpenChange={() => setEditingSkill(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Edit Skill</DialogTitle>
           </DialogHeader>
@@ -354,15 +369,6 @@ export function MavenSkillsTab() {
                 onChange={(e) => setFormDescription(e.target.value)}
               />
             </div>
-            <div>
-              <Label htmlFor="edit-prompt">Prompt</Label>
-              <Textarea
-                id="edit-prompt"
-                value={formPrompt}
-                onChange={(e) => setFormPrompt(e.target.value)}
-                className="min-h-[200px] font-mono text-sm"
-              />
-            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingSkill(null)}>
@@ -370,7 +376,7 @@ export function MavenSkillsTab() {
             </Button>
             <Button
               onClick={handleUpdate}
-              disabled={!formName || !formPrompt || isSaving}
+              disabled={!formName || isSaving}
             >
               {isSaving ? (
                 <>
