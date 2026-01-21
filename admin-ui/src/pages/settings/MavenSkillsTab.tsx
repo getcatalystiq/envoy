@@ -173,7 +173,7 @@ export function MavenSkillsTab() {
           <div>
             <CardTitle className="flex items-center gap-2">
               <Sparkles className="w-5 h-5" />
-              AI Skills
+              Skills
             </CardTitle>
             <CardDescription>
               Manage custom AI skills for your organization

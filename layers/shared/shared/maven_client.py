@@ -221,8 +221,15 @@ class MavenClient:
         return await self._admin_request("POST", "/skills", data)
 
     async def update_skill(self, skill_id: str, data: dict) -> dict:
-        """Update an existing skill."""
-        return await self._admin_request("PATCH", f"/skills/{skill_id}", data)
+        """Update an existing skill (fetch-merge-put pattern)."""
+        # Maven Admin API doesn't support PATCH, so we fetch, merge, and PUT
+        # Only include fields that Maven accepts to avoid validation errors
+        allowed_fields = {"name", "slug", "description", "prompt", "enabled", "category"}
+        current = await self.get_skill(skill_id)
+        merged = {**current, **data}
+        # Filter to allowed fields and remove None values
+        filtered = {k: v for k, v in merged.items() if k in allowed_fields and v is not None}
+        return await self._admin_request("PUT", f"/skills/{skill_id}", filtered)
 
     async def delete_skill(self, skill_id: str) -> None:
         """Delete a skill."""

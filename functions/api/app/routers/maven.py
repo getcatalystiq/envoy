@@ -6,6 +6,7 @@ Thin wrapper around MavenClient for Skills, Connectors, and Invocations.
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from httpx import HTTPStatusError
 from pydantic import BaseModel
 
 from app.dependencies import CurrentUser, MavenDep
@@ -52,7 +53,11 @@ async def get_skill(skill_id: str, maven: MavenDep):
 @router.patch("/skills/{skill_id}")
 async def update_skill(skill_id: str, body: SkillUpdate, maven: MavenDep):
     """Update an existing skill."""
-    return await maven.update_skill(skill_id, body.model_dump(exclude_unset=True))
+    try:
+        return await maven.update_skill(skill_id, body.model_dump(exclude_unset=True))
+    except HTTPStatusError as e:
+        detail = e.response.text if e.response else str(e)
+        raise HTTPException(status_code=e.response.status_code, detail=detail)
 
 
 @router.delete("/skills/{skill_id}")
