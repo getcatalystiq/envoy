@@ -675,3 +675,83 @@ class OrganizationResponse(BaseModel):
     dns_records: list[DNSRecord] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
+
+
+# Graduation schemas
+class RuleCondition(BaseModel):
+    """Schema for a graduation rule condition."""
+
+    field: str = Field(..., min_length=1, max_length=100)
+    operator: str = Field(
+        ..., pattern="^(eq|ne|gt|gte|lt|lte|contains|exists)$"
+    )
+    value: Optional[Any] = None
+
+    @field_validator("field")
+    @classmethod
+    def validate_field(cls, v: str) -> str:
+        if "__" in v or v.startswith("_"):
+            raise ValueError("Invalid field name")
+        if v.count(".") > 2:  # MAX_FIELD_DEPTH - 1
+            raise ValueError("Field path too deep")
+        return v
+
+
+class GraduationRuleCreate(BaseModel):
+    """Schema for creating a graduation rule."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    source_target_type_id: UUID
+    destination_target_type_id: UUID
+    conditions: list[RuleCondition] = Field(..., min_length=1, max_length=20)
+    enabled: bool = True
+
+
+class GraduationRuleUpdate(BaseModel):
+    """Schema for updating a graduation rule."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = None
+    conditions: Optional[list[RuleCondition]] = None
+    enabled: Optional[bool] = None
+
+
+class GraduationRuleResponse(BaseModel):
+    """Schema for graduation rule response."""
+
+    id: UUID
+    organization_id: UUID
+    source_target_type_id: UUID
+    destination_target_type_id: UUID
+    source_type_name: Optional[str] = None
+    destination_type_name: Optional[str] = None
+    name: str
+    description: Optional[str]
+    conditions: list[dict[str, Any]]
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ManualGraduationRequest(BaseModel):
+    """Schema for manual graduation request."""
+
+    destination_target_type_id: UUID
+
+
+class GraduationEventResponse(BaseModel):
+    """Schema for graduation event response."""
+
+    id: UUID
+    target_id: Optional[UUID]
+    rule_id: Optional[UUID]
+    source_target_type_id: UUID
+    destination_target_type_id: UUID
+    manual: bool
+    triggered_by_user_id: Optional[UUID]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
