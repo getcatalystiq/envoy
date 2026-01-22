@@ -237,9 +237,9 @@ async def graduate(
         exited_count = int(exit_result.split()[-1]) if exit_result else 0
         logger.info(f"Exited {exited_count} enrollments for target {target_id}")
 
-        # 2. Update target type
+        # 2. Update target type (clear segment_id since target is now in new type)
         await conn.execute(
-            "UPDATE targets SET target_type_id = $1, updated_at = NOW() WHERE id = $2",
+            "UPDATE targets SET target_type_id = $1, segment_id = NULL, updated_at = NOW() WHERE id = $2",
             destination_type_id,
             target_id,
         )
@@ -278,24 +278,35 @@ async def evaluate_and_graduate(
 
     Returns the graduation event if graduated, None if no rules matched.
     Raises GraduationError on failures (does not silently return None).
+
+    Uses a transaction with FOR UPDATE lock to prevent race conditions
+    between checking conditions and executing graduation.
     """
-    target = await TargetQueries.get_by_id(conn, target_id)
+    async with conn.transaction():
+        # Lock the target row to prevent concurrent graduation attempts
+        target = await conn.fetchrow(
+            "SELECT * FROM targets WHERE id = $1 FOR UPDATE",
+            target_id,
+        )
 
-    if not target:
-        raise TargetNotFoundError(f"Target not found: {target_id}")
+        if not target:
+            raise TargetNotFoundError(f"Target not found: {target_id}")
 
-    if str(target.get("organization_id")) != org_id:
-        raise UnauthorizedError(f"Target {target_id} does not belong to organization")
+        target_dict = dict(target)
 
-    rule = await find_matching_rule(conn, org_id, target)
+        if str(target_dict.get("organization_id")) != org_id:
+            raise UnauthorizedError(f"Target {target_id} does not belong to organization")
 
-    if not rule:
-        return None
+        rule = await find_matching_rule(conn, org_id, target_dict)
 
-    return await graduate(
-        conn=conn,
-        org_id=org_id,
-        target_id=target_id,
-        destination_type_id=rule["destination_target_type_id"],
-        rule_id=rule["id"],
-    )
+        if not rule:
+            return None
+
+        # graduate() will start its own nested transaction
+        return await graduate(
+            conn=conn,
+            org_id=org_id,
+            target_id=target_id,
+            destination_type_id=rule["destination_target_type_id"],
+            rule_id=rule["id"],
+        )

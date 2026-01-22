@@ -1,5 +1,5 @@
 ---
-status: pending
+status: resolved
 priority: p1
 issue_id: "001"
 tags: [code-review, security, authorization, idor]

@@ -152,11 +152,12 @@ async def list_targets(
 @router.get("/{target_id}", response_model=TargetResponse)
 async def get_target(
     target_id: UUID,
+    org_id: CurrentOrg,
     db: DBConnection,
 ) -> TargetResponse:
     """Get a target by ID."""
     target = await TargetQueries.get_by_id(db, target_id)
-    if not target:
+    if not target or str(target.get("organization_id")) != org_id:
         raise HTTPException(status_code=404, detail="Target not found")
     return TargetResponse(**target)
 
@@ -207,12 +208,14 @@ async def update_target(
 @router.delete("/{target_id}", status_code=204)
 async def delete_target(
     target_id: UUID,
+    org_id: CurrentOrg,
     db: DBConnection,
 ) -> None:
     """Delete a target."""
-    deleted = await TargetQueries.delete(db, target_id)
-    if not deleted:
+    target = await TargetQueries.get_by_id(db, target_id)
+    if not target or str(target.get("organization_id")) != org_id:
         raise HTTPException(status_code=404, detail="Target not found")
+    await TargetQueries.delete(db, target_id)
 
 
 @router.post("/{target_id}/graduate", response_model=GraduationEventResponse)
