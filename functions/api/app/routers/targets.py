@@ -1,16 +1,26 @@
 """Targets router."""
 
+import logging
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
-from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from app.dependencies import CurrentOrg, DBConnection
-from app.schemas import ListResponse, TargetCreate, TargetResponse, TargetUpdate
+from app.dependencies import CurrentOrg, CurrentUser, DBConnection
+from app.schemas import (
+    GraduationEventResponse,
+    ListResponse,
+    ManualGraduationRequest,
+    TargetCreate,
+    TargetResponse,
+    TargetUpdate,
+)
 from shared.queries import TargetQueries
 from shared.queries.targets import auto_enroll_in_default_sequence
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -155,16 +165,42 @@ async def get_target(
 async def update_target(
     target_id: UUID,
     data: TargetUpdate,
+    org_id: CurrentOrg,
     db: DBConnection,
 ) -> TargetResponse:
-    """Update a target."""
+    """Update a target and evaluate graduation rules."""
     # Check target exists
     existing = await TargetQueries.get_by_id(db, target_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Target not found")
 
+    if str(existing.get("organization_id")) != org_id:
+        raise HTTPException(status_code=404, detail="Target not found")
+
     update_data = data.model_dump(exclude_unset=True)
+
+    # Check if graduation-relevant fields changed
+    graduation_fields = {"lifecycle_stage", "custom_fields", "metadata", "status"}
+    should_evaluate_graduation = any(
+        f in update_data for f in graduation_fields
+    ) and existing.get("target_type_id")
+
+    # Update the target
     target = await TargetQueries.update(db, target_id, **update_data)
+
+    # Evaluate graduation rules if relevant fields changed
+    if should_evaluate_graduation:
+        from shared.graduation import GraduationError, evaluate_and_graduate
+
+        try:
+            result = await evaluate_and_graduate(db, org_id, target_id)
+            if result:
+                # Refetch target since type may have changed
+                target = await TargetQueries.get_by_id(db, target_id)
+        except GraduationError as e:
+            # Log but don't fail the update
+            logger.warning(f"Graduation evaluation failed for {target_id}: {e}")
+
     return TargetResponse(**target)
 
 
@@ -177,3 +213,35 @@ async def delete_target(
     deleted = await TargetQueries.delete(db, target_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Target not found")
+
+
+@router.post("/{target_id}/graduate", response_model=GraduationEventResponse)
+async def graduate_target(
+    target_id: UUID,
+    data: ManualGraduationRequest,
+    org_id: CurrentOrg,
+    user: CurrentUser,
+    db: DBConnection,
+) -> GraduationEventResponse:
+    """Manually graduate a target to a new target type."""
+    from shared.graduation import (
+        GraduationError,
+        TargetNotFoundError,
+        UnauthorizedError,
+        graduate,
+    )
+
+    try:
+        user_id = UUID(user["sub"]) if user.get("sub") else None
+        event = await graduate(
+            db, org_id, target_id, data.destination_target_type_id, user_id=user_id
+        )
+        return GraduationEventResponse(**event)
+    except TargetNotFoundError:
+        raise HTTPException(status_code=404, detail="Target not found")
+    except UnauthorizedError:
+        raise HTTPException(
+            status_code=404, detail="Target not found"
+        )  # Don't reveal existence
+    except GraduationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
