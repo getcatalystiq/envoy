@@ -1,70 +1,135 @@
 /**
- * Skill Builder - Full-page editor for skill prompts.
- * Uses CodeMirror for the prompt editor.
+ * Skill Builder - Full-page editor for skills.
+ * Supports both simple prompt editing and file-based skills with full file browser.
  */
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { api } from '@/api/client';
-import { ArrowLeft, Save, Loader2, FileCode, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Upload } from 'lucide-react';
 import CodeMirror from '@uiw/react-codemirror';
+import { SkillBuilderProvider, useSkillBuilder } from './skill-builder/SkillBuilderContext';
+import { SkillFileBrowser } from './skill-builder/SkillFileBrowser';
+import { SkillCodeEditor } from './skill-builder/SkillCodeEditor';
+import type { Skill } from './skill-builder/types';
 
-interface Skill {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  prompt: string;
-  enabled: boolean;
+// Inner component for file-based skills
+function FileBasedSkillEditor() {
+  const { state, saveAllFiles, publishSkill } = useSkillBuilder();
+  const navigate = useNavigate();
+  const hasUnsavedChanges = state.unsavedChanges.size > 0;
+
+  const handleBack = () => {
+    if (hasUnsavedChanges) {
+      if (!confirm('You have unsaved changes. Are you sure you want to leave?')) {
+        return;
+      }
+    }
+    navigate('/settings?tab=ai-skills');
+  };
+
+  return (
+    <div className="flex flex-col h-screen bg-gray-50">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b bg-white">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={handleBack}>
+            <ArrowLeft className="w-4 h-4 mr-1" />
+            Back
+          </Button>
+          <div className="flex items-center gap-2">
+            <h1 className="text-lg font-semibold">{state.skillName}</h1>
+            <Badge variant={state.draftStatus === 'published' ? 'default' : 'secondary'}>
+              {state.draftStatus === 'published' ? 'Published' : 'Draft'}
+            </Badge>
+            {hasUnsavedChanges && (
+              <Badge variant="outline" className="text-yellow-600 border-yellow-600">
+                Unsaved
+              </Badge>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={saveAllFiles}
+            disabled={!hasUnsavedChanges || state.isSaving}
+          >
+            {state.isSaving ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 mr-2" />
+                Save All
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={publishSkill}
+            disabled={state.isPublishing}
+          >
+            {state.isPublishing ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Publishing...
+              </>
+            ) : (
+              <>
+                <Upload className="w-4 h-4 mr-2" />
+                Publish
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Error message */}
+      {state.publishError && (
+        <div className="px-4 py-2 bg-red-50 text-red-700 text-sm border-b border-red-200">
+          {state.publishError}
+        </div>
+      )}
+
+      {/* Two-panel layout: file browser | code editor */}
+      <div className="flex flex-1 overflow-hidden">
+        <div className="w-64 flex-shrink-0">
+          <SkillFileBrowser />
+        </div>
+        <div className="flex-1">
+          <SkillCodeEditor />
+        </div>
+      </div>
+
+      {/* Footer with skill info */}
+      <div className="px-4 py-2 border-t bg-white text-xs text-gray-500 flex items-center gap-4">
+        <span>Slug: <code className="font-mono bg-gray-100 px-1 rounded">{state.skillSlug}</code></span>
+      </div>
+    </div>
+  );
 }
 
-export function SkillBuilder() {
-  const { id } = useParams<{ id: string }>();
+// Simple prompt editor (existing functionality)
+function SimplePromptEditor({ skill, onSkillUpdate }: { skill: Skill; onSkillUpdate: (skill: Skill) => void }) {
   const navigate = useNavigate();
-
-  const [skill, setSkill] = useState<Skill | null>(null);
-  const [prompt, setPrompt] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [prompt, setPrompt] = useState(skill.prompt || '');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-
-  useEffect(() => {
-    if (id) {
-      loadSkill();
-    }
-  }, [id]);
-
-  const loadSkill = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await api.get<Skill>(`/maven/skills/${id}`);
-      setSkill(data);
-      setPrompt(data.prompt || '');
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const hasUnsavedChanges = prompt !== skill.prompt;
 
   const handlePromptChange = (value: string) => {
     setPrompt(value);
-    setHasUnsavedChanges(value !== skill?.prompt);
   };
 
   const handleSave = async () => {
-    if (!skill) return;
     setIsSaving(true);
     setError(null);
     try {
-      await api.patch(`/maven/skills/${skill.id}`, {
-        prompt,
-      });
-      setSkill({ ...skill, prompt });
-      setHasUnsavedChanges(false);
+      await api.patch(`/maven/skills/${skill.id}`, { prompt });
+      onSkillUpdate({ ...skill, prompt });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -78,27 +143,8 @@ export function SkillBuilder() {
         return;
       }
     }
-    navigate('/settings?tab=skills');
+    navigate('/settings?tab=ai-skills');
   };
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  if (!skill) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen">
-        <p className="text-gray-600 mb-4">Skill not found</p>
-        <Button variant="outline" onClick={() => navigate('/settings?tab=skills')}>
-          Back to Skills
-        </Button>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
@@ -121,26 +167,24 @@ export function SkillBuilder() {
             )}
           </div>
         </div>
-        {skill.prompt !== null && (
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={handleSave}
-              disabled={!hasUnsavedChanges || isSaving}
-            >
-              {isSaving ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4 mr-2" />
-                  Save
-                </>
-              )}
-            </Button>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={handleSave}
+            disabled={!hasUnsavedChanges || isSaving}
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 mr-2" />
+                Save
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Error message */}
@@ -152,39 +196,19 @@ export function SkillBuilder() {
 
       {/* Editor */}
       <div className="flex-1 overflow-hidden">
-        {skill.prompt === null ? (
-          <div className="flex flex-col items-center justify-center h-full bg-gray-50 p-8">
-            <FileCode className="w-16 h-16 text-gray-300 mb-4" />
-            <h2 className="text-xl font-semibold text-gray-700 mb-2">File-Based Skill</h2>
-            <p className="text-gray-500 text-center max-w-md mb-4">
-              This skill uses file-based storage (SKILL.md and other files) instead of a simple prompt.
-              To edit this skill, use the Maven admin interface.
-            </p>
-            <a
-              href={`https://admin.heymaven.com/tenants/adbb68cb-5136-4dea-a56e-814f9a499b60/skills/builder/${skill.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
-            >
-              Open in Maven
-              <ExternalLink className="w-4 h-4" />
-            </a>
-          </div>
-        ) : (
-          <CodeMirror
-            value={prompt}
-            onChange={handlePromptChange}
-            height="100%"
-            className="h-full"
-            theme="light"
-            basicSetup={{
-              lineNumbers: true,
-              highlightActiveLine: true,
-              highlightActiveLineGutter: true,
-              foldGutter: true,
-            }}
-          />
-        )}
+        <CodeMirror
+          value={prompt}
+          onChange={handlePromptChange}
+          height="100%"
+          className="h-full"
+          theme="light"
+          basicSetup={{
+            lineNumbers: true,
+            highlightActiveLine: true,
+            highlightActiveLineGutter: true,
+            foldGutter: true,
+          }}
+        />
       </div>
 
       {/* Footer with skill info */}
@@ -194,4 +218,63 @@ export function SkillBuilder() {
       </div>
     </div>
   );
+}
+
+export function SkillBuilder() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+
+  const [skill, setSkill] = useState<Skill | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (id) {
+      loadSkill();
+    }
+  }, [id]);
+
+  const loadSkill = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.get<Skill>(`/maven/skills/${id}`);
+      setSkill(data);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (error || !skill) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen">
+        <p className="text-gray-600 mb-4">{error || 'Skill not found'}</p>
+        <Button variant="outline" onClick={() => navigate('/settings?tab=skills')}>
+          Back to Skills
+        </Button>
+      </div>
+    );
+  }
+
+  // File-based skill (prompt is null)
+  if (skill.prompt === null) {
+    return (
+      <SkillBuilderProvider skill={skill}>
+        <FileBasedSkillEditor />
+      </SkillBuilderProvider>
+    );
+  }
+
+  // Simple prompt-based skill
+  return <SimplePromptEditor skill={skill} onSkillUpdate={setSkill} />;
 }

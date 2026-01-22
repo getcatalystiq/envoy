@@ -1,6 +1,6 @@
 import { useSearchParams } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Users, Tags, AtSign, Sparkles, Plug, Activity } from 'lucide-react';
+import { Users, Tags, AtSign, Sparkles, Plug, Activity, ArrowRightLeft } from 'lucide-react';
 import { MenuButton } from '@/components/Layout';
 import { TargetTypesList } from './TargetTypes';
 import { SegmentsList } from './Segments';
@@ -8,6 +8,7 @@ import { EmailSettings } from './EmailSettings';
 import { MavenSkillsTab } from './settings/MavenSkillsTab';
 import { MavenConnectorsTab } from './settings/MavenConnectorsTab';
 import { MavenInvocationsTab } from './settings/MavenInvocationsTab';
+import { GraduationRulesTab } from './settings/GraduationRulesTab';
 
 export function Settings() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -42,6 +43,10 @@ export function Settings() {
             <Tags className="w-4 h-4" />
             Segments
           </TabsTrigger>
+          <TabsTrigger value="graduation-rules" className="flex items-center gap-2">
+            <ArrowRightLeft className="w-4 h-4" />
+            Graduation Rules
+          </TabsTrigger>
           <TabsTrigger value="ai-skills" className="flex items-center gap-2">
             <Sparkles className="w-4 h-4" />
             Skills
@@ -66,6 +71,10 @@ export function Settings() {
 
         <TabsContent value="segments" className="mt-6">
           <SegmentsList />
+        </TabsContent>
+
+        <TabsContent value="graduation-rules" className="mt-6">
+          <GraduationRulesTab />
         </TabsContent>
 
         <TabsContent value="ai-skills" className="mt-6">

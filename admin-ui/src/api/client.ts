@@ -297,6 +297,7 @@ export interface Sequence {
   total_enrollments?: number;
   active_enrollments?: number;
   exited_enrollments?: number;
+  unsubscribed_count?: number;
   open_rate?: number;
   click_rate?: number;
 }
@@ -514,4 +515,88 @@ export async function getMetrics(
   if (endDate) params.append('end_date', endDate);
   const query = params.toString() ? `?${params.toString()}` : '';
   return api.get<MetricsResponse>(`/analytics/metrics${query}`);
+}
+
+// Graduation Rule types
+export type RuleOperator = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'exists';
+
+export interface RuleCondition {
+  field: string;
+  operator: RuleOperator;
+  value?: unknown;
+}
+
+export interface GraduationRule {
+  id: string;
+  name: string;
+  description?: string;
+  source_target_type_id: string;
+  destination_target_type_id: string;
+  source_type_name?: string;
+  destination_type_name?: string;
+  conditions: RuleCondition[];
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GraduationRuleCreate {
+  name: string;
+  description?: string;
+  source_target_type_id: string;
+  destination_target_type_id: string;
+  conditions: RuleCondition[];
+  enabled?: boolean;
+}
+
+export interface GraduationRuleUpdate {
+  name?: string;
+  description?: string;
+  source_target_type_id?: string;
+  destination_target_type_id?: string;
+  conditions?: RuleCondition[];
+  enabled?: boolean;
+}
+
+// Graduation Rule API functions
+export async function listGraduationRules(): Promise<GraduationRule[]> {
+  return api.get<GraduationRule[]>('/graduation-rules');
+}
+
+export async function getGraduationRule(id: string): Promise<GraduationRule> {
+  return api.get<GraduationRule>(`/graduation-rules/${id}`);
+}
+
+export async function createGraduationRule(data: GraduationRuleCreate): Promise<GraduationRule> {
+  return api.post<GraduationRule>('/graduation-rules', data);
+}
+
+export async function updateGraduationRule(id: string, data: GraduationRuleUpdate): Promise<GraduationRule> {
+  return api.patch<GraduationRule>(`/graduation-rules/${id}`, data);
+}
+
+export async function deleteGraduationRule(id: string): Promise<void> {
+  await api.delete(`/graduation-rules/${id}`);
+}
+
+// Graduation Event types
+export interface GraduationEvent {
+  id: string;
+  target_id: string | null;
+  target_email: string | null;
+  rule_id: string | null;
+  rule_name: string | null;
+  source_target_type_id: string;
+  source_type_name: string;
+  destination_target_type_id: string;
+  destination_type_name: string;
+  manual: boolean;
+  triggered_by_user_id: string | null;
+  triggered_by_email: string | null;
+  created_at: string;
+}
+
+// Graduation Event API functions
+export async function listGraduationEvents(limit = 50): Promise<GraduationEvent[]> {
+  return api.get<GraduationEvent[]>(`/graduation-rules/events?limit=${limit}`);
 }

@@ -109,7 +109,7 @@ if [[ -n "$S3_BUCKET" && -d "$PROJECT_DIR/admin-ui" ]]; then
     fi
 
     # Build with correct API and OAuth URLs
-    # API_ENDPOINT includes the stage (e.g., /prod), so:
+    # API_ENDPOINT is the base URL (using $default stage, no path prefix):
     # - VITE_API_URL points to /api/v1 endpoints
     # - VITE_OAUTH_URL points to root-level OAuth endpoints (/.well-known/*, /oauth/*)
     VITE_API_URL="${API_ENDPOINT}/api/v1" VITE_OAUTH_URL="${API_ENDPOINT}" npm run build

@@ -105,6 +105,7 @@ class SequenceQueries:
                 COALESCE(enrollment_stats.total_enrollments, 0) as total_enrollments,
                 COALESCE(enrollment_stats.active_enrollments, 0) as active_enrollments,
                 COALESCE(enrollment_stats.exited_enrollments, 0) as exited_enrollments,
+                COALESCE(enrollment_stats.unsubscribed_count, 0) as unsubscribed_count,
                 CASE
                     WHEN COALESCE(email_stats.sent_count, 0) > 0
                     THEN ROUND(COALESCE(email_stats.opened_count, 0)::numeric / email_stats.sent_count * 100, 2)
@@ -127,7 +128,8 @@ class SequenceQueries:
                 SELECT
                     COUNT(*) as total_enrollments,
                     COUNT(*) FILTER (WHERE status = 'active') as active_enrollments,
-                    COUNT(*) FILTER (WHERE status = 'exited') as exited_enrollments
+                    COUNT(*) FILTER (WHERE status = 'exited') as exited_enrollments,
+                    COUNT(*) FILTER (WHERE status = 'exited' AND exit_reason = 'unsubscribed') as unsubscribed_count
                 FROM sequence_enrollments
                 WHERE sequence_id = s.id
             ) enrollment_stats ON true
@@ -137,10 +139,11 @@ class SequenceQueries:
                     COUNT(*) FILTER (WHERE es.opened_at IS NOT NULL) as opened_count,
                     COUNT(*) FILTER (WHERE es.clicked_at IS NOT NULL) as clicked_count
                 FROM sequence_step_executions sse
-                JOIN email_sends es ON es.id = sse.email_send_id
+                LEFT JOIN email_sends es ON es.outbox_id = sse.outbox_id
                 WHERE sse.enrollment_id IN (
                     SELECT id FROM sequence_enrollments WHERE sequence_id = s.id
                 )
+                AND es.id IS NOT NULL
             ) email_stats ON true
             WHERE {" AND ".join(conditions)}
             ORDER BY s.created_at DESC
@@ -667,6 +670,7 @@ class SequenceQueries:
         step_position: int,
         content_id: Optional[UUID] = None,
         email_send_id: Optional[UUID] = None,
+        outbox_id: Optional[UUID] = None,
         status: str = "executed",
     ) -> dict[str, Any]:
         """Record a step execution."""
@@ -674,9 +678,9 @@ class SequenceQueries:
             """
             INSERT INTO sequence_step_executions (
                 organization_id, enrollment_id, step_position,
-                content_id, email_send_id, status
+                content_id, email_send_id, outbox_id, status
             )
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
             """,
             org_id,
@@ -684,6 +688,7 @@ class SequenceQueries:
             step_position,
             content_id,
             email_send_id,
+            outbox_id,
             status,
         )
         return dict(row)

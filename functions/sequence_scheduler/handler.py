@@ -195,7 +195,8 @@ async def process_enrollment(
                 org_id=org_id,
                 enrollment_id=enrollment_id,
                 step_position=enrollment["current_step_position"],
-                email_send_id=None,  # Will be set when outbox item is approved and sent
+                email_send_id=None,
+                outbox_id=outbox_item["id"],
                 status="executed",
             )
 

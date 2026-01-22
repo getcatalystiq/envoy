@@ -1,10 +1,11 @@
 """Webhook router for target ingestion."""
 
+import json
 from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from shared.database import get_raw_connection
 from shared.queries import TargetQueries
@@ -34,6 +35,36 @@ class TargetWebhookPayload(BaseModel):
     # Extensible fields
     custom_fields: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("metadata", "custom_fields", mode="before")
+    @classmethod
+    def parse_json_fields(cls, v: Any) -> dict:
+        """Parse JSON string fields if they arrive as strings, including nested."""
+
+        def parse_recursive(val: Any) -> Any:
+            """Recursively parse JSON strings within dicts and lists."""
+            if isinstance(val, str):
+                if not val.strip():
+                    return val
+                # Try to parse as JSON if it looks like JSON
+                if val.startswith(("{", "[", '"')):
+                    try:
+                        parsed = json.loads(val)
+                        # Recursively parse the result
+                        return parse_recursive(parsed)
+                    except json.JSONDecodeError:
+                        return val
+                return val
+            elif isinstance(val, dict):
+                return {k: parse_recursive(v) for k, v in val.items()}
+            elif isinstance(val, list):
+                return [parse_recursive(item) for item in val]
+            return val
+
+        if v is None:
+            return {}
+        result = parse_recursive(v)
+        return result if isinstance(result, dict) else {}
 
     @model_validator(mode="after")
     def at_least_one_identifier(self) -> "TargetWebhookPayload":

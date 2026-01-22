@@ -120,3 +120,55 @@ async def list_invocations(maven: MavenDep, limit: int = 50):
 async def get_invocation(session_id: str, maven: MavenDep):
     """Get invocation details including transcript."""
     return await maven.get_invocation(session_id)
+
+
+# === Skill Builder ===
+
+
+class SBCreateFileRequest(BaseModel):
+    path: str
+    file_type: str  # "file" or "directory"
+
+
+class SBWriteFileRequest(BaseModel):
+    content: str
+
+
+class SBPublishRequest(BaseModel):
+    skill_slug: str
+
+
+@router.get("/skills/{skill_id}/files")
+async def sb_list_files(skill_id: str, skill_slug: str, skill_name: str, maven: MavenDep):
+    """List all files in skill draft."""
+    return await maven.sb_list_files(skill_id, skill_slug, skill_name)
+
+
+@router.get("/skills/{skill_id}/files/{path:path}")
+async def sb_read_file(skill_id: str, path: str, maven: MavenDep):
+    """Read file content from skill draft."""
+    return await maven.sb_read_file(skill_id, path)
+
+
+@router.put("/skills/{skill_id}/files/{path:path}")
+async def sb_write_file(skill_id: str, path: str, body: SBWriteFileRequest, maven: MavenDep):
+    """Write/update file content."""
+    return await maven.sb_write_file(skill_id, path, body.content)
+
+
+@router.post("/skills/{skill_id}/files")
+async def sb_create_file(skill_id: str, body: SBCreateFileRequest, maven: MavenDep):
+    """Create new file or directory."""
+    return await maven.sb_create_file(skill_id, body.path, body.file_type)
+
+
+@router.delete("/skills/{skill_id}/files/{path:path}")
+async def sb_delete_file(skill_id: str, path: str, maven: MavenDep):
+    """Delete file or directory."""
+    return await maven.sb_delete_file(skill_id, path)
+
+
+@router.post("/skills/{skill_id}/publish")
+async def sb_publish(skill_id: str, body: SBPublishRequest, maven: MavenDep):
+    """Publish skill draft to production."""
+    return await maven.sb_publish(skill_id, body.skill_slug)

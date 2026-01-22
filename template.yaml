@@ -654,7 +654,7 @@ Resources:
 Outputs:
   ApiEndpoint:
     Description: API Gateway endpoint URL
-    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
 
   ApiFunction:
     Description: API Lambda Function ARN

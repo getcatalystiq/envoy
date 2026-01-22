@@ -243,3 +243,43 @@ class GraduationQueries:
                 stack.append(row["destination_target_type_id"])
 
         return False  # No cycle
+
+    @staticmethod
+    async def list_graduation_events(
+        conn: asyncpg.Connection,
+        org_id: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """List graduation events for an organization with joined names."""
+        rows = await conn.fetch(
+            """
+            SELECT
+                ge.id,
+                ge.target_id,
+                t.email as target_email,
+                ge.rule_id,
+                gr.name as rule_name,
+                ge.source_target_type_id,
+                st.name as source_type_name,
+                ge.destination_target_type_id,
+                dt.name as destination_type_name,
+                ge.manual,
+                ge.triggered_by_user_id,
+                u.email as triggered_by_email,
+                ge.created_at
+            FROM graduation_events ge
+            LEFT JOIN targets t ON t.id = ge.target_id
+            LEFT JOIN graduation_rules gr ON gr.id = ge.rule_id
+            JOIN target_types st ON st.id = ge.source_target_type_id
+            JOIN target_types dt ON dt.id = ge.destination_target_type_id
+            LEFT JOIN users u ON u.id = ge.triggered_by_user_id
+            WHERE ge.organization_id = $1
+            ORDER BY ge.created_at DESC
+            LIMIT $2 OFFSET $3
+            """,
+            org_id,
+            limit,
+            offset,
+        )
+        return [dict(r) for r in rows]

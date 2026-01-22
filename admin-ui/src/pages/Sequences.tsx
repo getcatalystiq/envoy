@@ -465,7 +465,7 @@ export function Sequences() {
                       Unsubscribers
                     </p>
                     <p className="text-xl font-bold text-gray-900">
-                      {sequence.exited_enrollments ?? 0}
+                      {sequence.unsubscribed_count ?? 0}
                     </p>
                   </div>
                 </div>

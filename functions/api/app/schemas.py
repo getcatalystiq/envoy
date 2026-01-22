@@ -743,15 +743,20 @@ class ManualGraduationRequest(BaseModel):
 
 
 class GraduationEventResponse(BaseModel):
-    """Schema for graduation event response."""
+    """Schema for graduation event response with joined names."""
 
     id: UUID
     target_id: Optional[UUID]
+    target_email: Optional[str] = None
     rule_id: Optional[UUID]
+    rule_name: Optional[str] = None
     source_target_type_id: UUID
+    source_type_name: str
     destination_target_type_id: UUID
+    destination_type_name: str
     manual: bool
     triggered_by_user_id: Optional[UUID]
+    triggered_by_email: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

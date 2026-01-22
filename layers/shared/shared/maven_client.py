@@ -290,3 +290,55 @@ class MavenClient:
         return await self._admin_request(
             "GET", f"/service-accounts/{service_id}/invocations/{session_id}"
         )
+
+    # Skill Builder Operations
+    async def sb_list_files(self, skill_id: str, skill_slug: str, skill_name: str) -> dict:
+        """List all files in a skill draft."""
+        return await self._admin_request("POST", "/skill-builder", {
+            "operation": "list_files",
+            "skillId": skill_id,
+            "skillSlug": skill_slug,
+            "skillName": skill_name,
+        })
+
+    async def sb_read_file(self, skill_id: str, path: str) -> dict:
+        """Read file content from skill draft."""
+        return await self._admin_request("POST", "/skill-builder", {
+            "operation": "read_file",
+            "skillId": skill_id,
+            "path": path,
+        })
+
+    async def sb_write_file(self, skill_id: str, path: str, content: str) -> dict:
+        """Write/update file content in skill draft."""
+        return await self._admin_request("POST", "/skill-builder", {
+            "operation": "write_file",
+            "skillId": skill_id,
+            "path": path,
+            "content": content,
+        })
+
+    async def sb_create_file(self, skill_id: str, path: str, file_type: str) -> dict:
+        """Create new file or directory in skill draft."""
+        return await self._admin_request("POST", "/skill-builder", {
+            "operation": "create_file",
+            "skillId": skill_id,
+            "path": path,
+            "fileType": file_type,
+        })
+
+    async def sb_delete_file(self, skill_id: str, path: str) -> dict:
+        """Delete file or directory from skill draft."""
+        return await self._admin_request("POST", "/skill-builder", {
+            "operation": "delete_file",
+            "skillId": skill_id,
+            "path": path,
+        })
+
+    async def sb_publish(self, skill_id: str, skill_slug: str) -> dict:
+        """Publish skill draft to production."""
+        return await self._admin_request("POST", "/skill-builder", {
+            "operation": "publish",
+            "skillId": skill_id,
+            "skillSlug": skill_slug,
+        })

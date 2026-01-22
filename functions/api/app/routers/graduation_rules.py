@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.dependencies import CurrentOrg, DBConnection
 from app.schemas import (
+    GraduationEventResponse,
     GraduationRuleCreate,
     GraduationRuleResponse,
     GraduationRuleUpdate,
@@ -28,6 +29,20 @@ async def list_graduation_rules(
         db, org_id, source_target_type_id=source_target_type_id, enabled=enabled
     )
     return [GraduationRuleResponse(**r) for r in rules]
+
+
+@router.get("/events", response_model=list[GraduationEventResponse])
+async def list_graduation_events(
+    org_id: CurrentOrg,
+    db: DBConnection,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[GraduationEventResponse]:
+    """List graduation events for the organization."""
+    events = await GraduationQueries.list_graduation_events(
+        db, org_id, limit=limit, offset=offset
+    )
+    return [GraduationEventResponse(**e) for e in events]
 
 
 @router.post(

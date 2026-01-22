@@ -275,6 +275,7 @@ export async function refreshToken(): Promise<string> {
   }
 
   // Set up the refresh promise so concurrent callers can wait on it
+  // Pass the initial refresh token to detect cross-tab updates
   refreshPromise = doRefresh(storedRefreshToken);
 
   try {
@@ -284,7 +285,7 @@ export async function refreshToken(): Promise<string> {
   }
 }
 
-async function doRefresh(storedRefreshToken: string): Promise<string> {
+async function doRefresh(initialRefreshToken: string): Promise<string> {
   let metadata: OAuthMetadata;
   let client_id: string;
   let client_secret: string;
@@ -306,6 +307,26 @@ async function doRefresh(storedRefreshToken: string): Promise<string> {
   let lastResponseBody: unknown = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    // Re-read refresh token before each attempt - another tab may have updated it
+    const currentRefreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+    if (!currentRefreshToken) {
+      authError('Refresh token disappeared from storage');
+      break;
+    }
+
+    // If token changed, another tab refreshed successfully - use the new access token directly
+    if (currentRefreshToken !== initialRefreshToken) {
+      authLog('Refresh token changed by another tab, using updated tokens');
+      const newAccessToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+      if (newAccessToken) {
+        // Restart our refresh timer to sync with the new expiry
+        startTokenRefreshTimer();
+        return newAccessToken;
+      }
+      // Token changed but no access token? Continue with refresh using new token
+      authLog('Token changed but no access token found, continuing with new refresh token');
+    }
+
     authLog(`Refresh attempt ${attempt}/${maxRetries}`);
 
     try {
@@ -317,7 +338,7 @@ async function doRefresh(storedRefreshToken: string): Promise<string> {
         },
         body: new URLSearchParams({
           grant_type: 'refresh_token',
-          refresh_token: storedRefreshToken,
+          refresh_token: currentRefreshToken,
         }),
       });
 
@@ -515,6 +536,26 @@ export function stopTokenRefreshTimer(): void {
     tokenRefreshTimeoutId = null;
     authLog('Token refresh timer stopped');
   }
+}
+
+/**
+ * Listen for storage changes from other tabs.
+ * This handles cross-tab token synchronization to prevent logout race conditions.
+ */
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key === STORAGE_KEYS.ACCESS_TOKEN && event.newValue) {
+      authLog('Access token updated by another tab');
+      // Restart the refresh timer with the new expiry
+      startTokenRefreshTimer();
+    }
+    if (event.key === STORAGE_KEYS.ACCESS_TOKEN && !event.newValue) {
+      authLog('Access token cleared by another tab - logging out');
+      // Another tab logged out, sync this tab
+      stopTokenRefreshTimer();
+      window.location.href = '/login';
+    }
+  });
 }
 
 /**

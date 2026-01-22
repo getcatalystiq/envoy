@@ -53,7 +53,7 @@ class TargetQueries:
             target_type_id,
             segment_id,
             lifecycle_stage,
-            json.dumps(custom_fields or {}),
+            custom_fields or {},
         )
         return TargetQueries._parse_json_fields(dict(row))
 
@@ -150,11 +150,7 @@ class TargetQueries:
         for key, value in fields.items():
             if value is not None:
                 set_clauses.append(f"{key} = ${param_idx}")
-                # Serialize dict values for JSONB columns
-                if key in ("custom_fields", "metadata") and isinstance(value, dict):
-                    params.append(json.dumps(value))
-                else:
-                    params.append(value)
+                params.append(value)
                 param_idx += 1
 
         if not set_clauses:
@@ -397,8 +393,8 @@ class TargetQueries:
             target_type_id,
             segment_id,
             lifecycle_stage or 0,
-            json.dumps(custom_fields or {}),
-            json.dumps(metadata or {}),
+            custom_fields or {},
+            metadata or {},
         )
         return TargetQueries._parse_json_fields(dict(row)), "created", None
 
