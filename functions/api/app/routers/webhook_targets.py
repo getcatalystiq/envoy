@@ -1,5 +1,6 @@
 """Webhook router for target ingestion."""
 
+import logging
 import json
 from typing import Any, Optional
 from uuid import UUID
@@ -11,6 +12,8 @@ from shared.database import get_raw_connection
 from shared.queries import TargetQueries
 from shared.queries.targets import auto_enroll_in_default_sequence
 from shared.webhook_auth import verify_webhook_secret
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 
@@ -187,6 +190,24 @@ async def ingest_target(
                 conn, org_id, target["id"], target_type_id
             )
 
+        # Evaluate graduation rules if target has a type and graduation-relevant fields were provided
+        has_graduation_fields = any([
+            payload.metadata,
+            payload.custom_fields,
+            payload.lifecycle_stage is not None,
+        ])
+        if target.get("target_type_id") and has_graduation_fields:
+            from shared.graduation import GraduationError, evaluate_and_graduate
+
+            try:
+                result = await evaluate_and_graduate(conn, org_id, target["id"])
+                if result:
+                    logger.info(
+                        f"Webhook graduated target {target['id']} via rule {result.get('rule_id')}"
+                    )
+            except GraduationError as e:
+                logger.warning(f"Graduation evaluation failed for {target['id']}: {e}")
+
     status_code = 201 if action == "created" else 200
     return TargetWebhookResponse(
         id=target["id"],
@@ -247,6 +268,20 @@ async def ingest_targets_bulk(
                     await auto_enroll_in_default_sequence(
                         conn, org_id, target["id"], target_type_id
                     )
+
+                # Evaluate graduation rules
+                has_graduation_fields = any([
+                    target_data.metadata,
+                    target_data.custom_fields,
+                    target_data.lifecycle_stage is not None,
+                ])
+                if target.get("target_type_id") and has_graduation_fields:
+                    from shared.graduation import GraduationError, evaluate_and_graduate
+
+                    try:
+                        await evaluate_and_graduate(conn, org_id, target["id"])
+                    except GraduationError:
+                        pass  # Log but don't fail bulk operation
 
                 if action == "created":
                     created += 1
