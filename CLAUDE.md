@@ -103,11 +103,26 @@ The deploy script handles the full deployment pipeline:
 ### API Structure
 - OAuth: `/.well-known/*`, `/oauth/*`
 - Auth: `/auth/*`
-- All resources: `/api/v1/{resource}` (targets, campaigns, sequences, content, etc.)
 - MCP tools: `/mcp/*`
+- Unsubscribe: `/unsubscribe/*`
+- API v1 resources (`/api/v1/*`):
+  - `targets` - Target management
+  - `content` - Email content/templates
+  - `campaigns` - Campaign management
+  - `send` - Email sending
+  - `analytics` - Usage analytics
+  - `setup` - Organization setup
+  - `outbox` - Email outbox
+  - `sequences` - Multi-step sequences
+  - `design-templates` - Email design templates
+  - `organization` - Organization settings
+  - `target-types` - Target type definitions
+  - `segments` - Audience segments
+  - `maven` - Maven AI integration
+  - `graduation-rules` - Target graduation rules
 
 ### Database
-PostgreSQL (Aurora Serverless v2) with asyncpg. Query classes in `layers/shared/shared/queries/` handle database operations. Migrations are SQL files in `migrations/` numbered `000_` through `026_`.
+PostgreSQL (Aurora Serverless v2) with asyncpg. Query classes in `layers/shared/shared/queries/` handle database operations. Migrations are SQL files in `migrations/` numbered `000_` through `029_`.
 
 ### Frontend State Management
 - **Zustand** for global state
@@ -145,4 +160,4 @@ All API request/response models are in `functions/api/app/schemas.py`. Use Pydan
 4. Register router in `functions/api/app/main.py`
 
 ### Adding Database Migrations
-Create new file in `migrations/` with next sequential number (e.g., `027_description.sql`). Migrations run automatically during deployment via the migration Lambda.
+Create new file in `migrations/` with next sequential number (e.g., `030_description.sql`). Migrations run automatically during deployment via the migration Lambda.
