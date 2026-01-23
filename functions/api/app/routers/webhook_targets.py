@@ -138,6 +138,11 @@ async def resolve_segment(
     return result["id"] if result else None
 
 
+def has_graduation_relevant_fields(payload: TargetWebhookPayload) -> bool:
+    """Check if payload contains fields that could trigger graduation rules."""
+    return any([payload.metadata, payload.custom_fields, payload.lifecycle_stage is not None])
+
+
 @router.post("/targets", response_model=TargetWebhookResponse)
 async def ingest_target(
     payload: TargetWebhookPayload,
@@ -191,12 +196,7 @@ async def ingest_target(
             )
 
         # Evaluate graduation rules if target has a type and graduation-relevant fields were provided
-        has_graduation_fields = any([
-            payload.metadata,
-            payload.custom_fields,
-            payload.lifecycle_stage is not None,
-        ])
-        if target.get("target_type_id") and has_graduation_fields:
+        if target.get("target_type_id") and has_graduation_relevant_fields(payload):
             from shared.graduation import GraduationError, evaluate_and_graduate
 
             try:
@@ -270,18 +270,17 @@ async def ingest_targets_bulk(
                     )
 
                 # Evaluate graduation rules
-                has_graduation_fields = any([
-                    target_data.metadata,
-                    target_data.custom_fields,
-                    target_data.lifecycle_stage is not None,
-                ])
-                if target.get("target_type_id") and has_graduation_fields:
+                if target.get("target_type_id") and has_graduation_relevant_fields(target_data):
                     from shared.graduation import GraduationError, evaluate_and_graduate
 
                     try:
-                        await evaluate_and_graduate(conn, org_id, target["id"])
-                    except GraduationError:
-                        pass  # Log but don't fail bulk operation
+                        result = await evaluate_and_graduate(conn, org_id, target["id"])
+                        if result:
+                            logger.info(
+                                f"Bulk webhook graduated target {target['id']} via rule {result.get('rule_id')}"
+                            )
+                    except GraduationError as e:
+                        logger.warning(f"Graduation evaluation failed for {target['id']}: {e}")
 
                 if action == "created":
                     created += 1
