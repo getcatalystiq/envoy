@@ -23,14 +23,21 @@ class OutboxQueries:
         priority: int = 5,
         scheduled_for: Optional[str] = None,
         created_by: Optional[UUID] = None,
+        status: str = "pending",
     ) -> dict[str, Any]:
-        """Create a new outbox item."""
+        """Create a new outbox item.
+
+        Args:
+            status: Initial status. Use 'approved' for auto-approval (sets reviewed_at).
+        """
         row = await conn.fetchrow(
             """
             INSERT INTO outbox (
                 organization_id, target_id, channel, subject, body,
-                confidence_score, priority, scheduled_for, created_by
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                confidence_score, priority, scheduled_for, created_by,
+                status, reviewed_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                CASE WHEN $10 = 'approved' THEN NOW() ELSE NULL END)
             RETURNING *
             """,
             org_id,
@@ -42,6 +49,7 @@ class OutboxQueries:
             priority,
             scheduled_for,
             created_by,
+            status,
         )
         return dict(row)
 

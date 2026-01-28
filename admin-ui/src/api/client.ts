@@ -310,6 +310,7 @@ export interface SequenceStep {
   subject: string | null;
   builder_content: BuilderContent | null;
   has_unpublished_changes?: boolean;
+  approval_required: boolean;
   created_at: string;
   updated_at?: string;
 }

@@ -332,7 +332,10 @@ class SequenceQueries:
         The body is currently empty as builder_content requires client-side rendering.
         """
         row = await conn.fetchrow(
-            "SELECT id, subject, builder_content FROM sequence_steps WHERE id = $1",
+            """
+            SELECT id, subject, builder_content, approval_required
+            FROM sequence_steps WHERE id = $1
+            """,
             step_id,
         )
         if not row:
@@ -346,6 +349,7 @@ class SequenceQueries:
             "content_subject": row["subject"] or "",
             "content_body": "",  # TODO: Server-side MJML compilation from builder_content
             "builder_content": row["builder_content"],
+            "approval_required": row["approval_required"],
         }
 
     # =========================================================================

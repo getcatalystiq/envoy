@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { FileText, Trash2 } from 'lucide-react';
+import { FileText, Trash2, AlertCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -19,6 +19,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Upload, Undo2 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { type SequenceStep, type BuilderContent, type DesignTemplate, listDesignTemplates } from '@/api/client';
 
 import { EmailListSidebar } from './EmailListSidebar';
@@ -261,7 +263,7 @@ export function SequenceEmailBuilder({
         {selectedStep ? (
           <>
             {/* Top Bar - Subject & Delay Controls */}
-            <div className="border-b bg-white px-6 py-4 shrink-0">
+            <div className="border-b bg-white px-6 py-4 shrink-0 space-y-3">
               <div className="flex items-center gap-6">
                 {/* Subject Line */}
                 <div className="flex-1">
@@ -326,6 +328,28 @@ export function SequenceEmailBuilder({
                   )}
                 </div>
 
+                {/* Approval Required Toggle */}
+                <div className="border-l pl-6">
+                  <div className="flex items-center gap-3">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="require-approval" className="text-sm font-medium text-gray-700">
+                        Require approval
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        {selectedStep.approval_required
+                          ? 'Emails queued for review'
+                          : 'Emails send automatically'}
+                      </p>
+                    </div>
+                    <Switch
+                      id="require-approval"
+                      checked={selectedStep.approval_required}
+                      onCheckedChange={(checked) => onUpdateStep(selectedStep.id, { approval_required: checked })}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                </div>
+
                 {/* Delete Button */}
                 {canEdit && onDeleteStep && (
                   <div className="flex items-end">
@@ -363,6 +387,16 @@ export function SequenceEmailBuilder({
                   </div>
                 )}
               </div>
+
+              {/* Warning when auto-send is enabled */}
+              {!selectedStep.approval_required && (
+                <Alert className="bg-amber-50 border-amber-200">
+                  <AlertCircle className="h-4 w-4 text-amber-600" />
+                  <AlertDescription className="text-amber-800 text-sm">
+                    Emails will send automatically without review. Make sure your content is ready.
+                  </AlertDescription>
+                </Alert>
+              )}
             </div>
 
             {/* Shared Email Editor Core */}

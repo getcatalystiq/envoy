@@ -399,6 +399,7 @@ class SequenceStepResponse(BaseModel):
     subject: Optional[str] = None
     builder_content: Optional[dict] = None
     has_unpublished_changes: bool = False
+    approval_required: bool = True
 
     model_config = {"from_attributes": True}
 
@@ -442,6 +443,7 @@ class SequenceStepUpdate(BaseModel):
     subject: Optional[str] = Field(None, max_length=998)
     builder_content: Optional[dict] = None
     has_unpublished_changes: Optional[bool] = None
+    approval_required: Optional[bool] = None
 
 
 class EnrollmentCreate(BaseModel):

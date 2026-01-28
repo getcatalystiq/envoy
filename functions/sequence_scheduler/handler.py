@@ -177,7 +177,11 @@ async def process_enrollment(
                 # Fallback to legacy content_body
                 body = content.get("content_body", "")
 
-            # Create outbox item for approval
+            # Determine if auto-approval is enabled for this step
+            approval_required = content.get("approval_required", True)
+            outbox_status = "pending" if approval_required else "approved"
+
+            # Create outbox item with appropriate status
             outbox_item = await OutboxQueries.create(
                 conn,
                 org_id=org_id,
@@ -186,9 +190,27 @@ async def process_enrollment(
                 subject=subject,
                 body=body,
                 priority=5,
+                status=outbox_status,
             )
 
-            # Record execution (outbox item created, awaiting approval)
+            # If auto-approved, create email_sends record immediately
+            if not approval_required:
+                await conn.execute(
+                    """
+                    INSERT INTO email_sends
+                        (organization_id, target_id, email, subject, body, status, outbox_id)
+                    SELECT $1, $2, t.email, $3, $4, 'queued', $5
+                    FROM targets t WHERE t.id = $2
+                    """,
+                    org_id,
+                    enrollment["target_id"],
+                    subject or "",
+                    body,
+                    outbox_item["id"],
+                )
+                logger.info(f"Auto-approved outbox item {outbox_item['id']} for enrollment {enrollment_id}")
+
+            # Record execution (outbox item created)
             # Note: content_id is omitted since content is stored directly on the step
             await SequenceQueries.record_execution(
                 conn,
