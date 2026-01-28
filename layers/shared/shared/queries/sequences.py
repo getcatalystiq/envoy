@@ -55,7 +55,8 @@ class SequenceQueries:
                             'default_delay_hours', ss.default_delay_hours,
                             'subject', ss.subject,
                             'builder_content', ss.builder_content,
-                            'has_unpublished_changes', ss.has_unpublished_changes
+                            'has_unpublished_changes', ss.has_unpublished_changes,
+                            'approval_required', ss.approval_required
                         )
                         ORDER BY ss.position
                     ) FILTER (WHERE ss.id IS NOT NULL),
