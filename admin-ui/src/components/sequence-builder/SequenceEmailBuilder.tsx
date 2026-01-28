@@ -98,8 +98,9 @@ export function SequenceEmailBuilder({
     builderContent: step.builder_content,
   }));
 
-  // Track if we're in the initial load phase (to avoid false positive change detection)
-  const isInitialLoadRef = useRef(false);
+  // Track renders since step change to allow document to stabilize
+  const renderCountRef = useRef(0);
+  const stepChangeRenderRef = useRef(0);
 
   // Load document when selected step changes
   useEffect(() => {
@@ -108,8 +109,9 @@ export function SequenceEmailBuilder({
         ? selectedStep.builder_content as TEditorConfiguration
         : getConfiguration('#sample/empty-email-message');
 
-      isInitialLoadRef.current = true;
+      stepChangeRenderRef.current = renderCountRef.current;
       resetDocument(content);
+      savedDocumentRef.current = null;
       savedSubjectRef.current = selectedStep.subject || '';
       setLocalSubject(selectedStep.subject || '');
       setHasLocalChanges(false);
@@ -131,12 +133,16 @@ export function SequenceEmailBuilder({
 
   // Track document changes
   useEffect(() => {
+    renderCountRef.current++;
+
     if (!selectedStepId) return;
 
-    // On initial load, save the processed document as the baseline
-    if (isInitialLoadRef.current) {
+    // Skip the first few renders after step change to let document stabilize
+    const rendersSinceStepChange = renderCountRef.current - stepChangeRenderRef.current;
+    if (rendersSinceStepChange < 3) {
+      // Keep updating baseline while document stabilizes
       savedDocumentRef.current = document as TEditorConfiguration;
-      isInitialLoadRef.current = false;
+      setHasLocalChanges(false);
       return;
     }
 
