@@ -72,8 +72,12 @@ export function SequenceEmailBuilder({
   const [localSubject, setLocalSubject] = useState<string>('');
   const [hasLocalChanges, setHasLocalChanges] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  // Use ref for user interaction flag to avoid React state timing issues
+  const userHasInteractedRef = useRef(false);
   const savedDocumentRef = useRef<TEditorConfiguration | null>(null);
   const savedSubjectRef = useRef<string>('');
+  // Loading flag to completely ignore document changes during step transitions
+  const isLoadingStepRef = useRef(false);
 
   // Templates state
   const [templates, setTemplates] = useState<DesignTemplate[]>([]);
@@ -98,23 +102,26 @@ export function SequenceEmailBuilder({
     builderContent: step.builder_content,
   }));
 
-  // Track renders since step change to allow document to stabilize
-  const renderCountRef = useRef(0);
-  const stepChangeRenderRef = useRef(0);
+  // Track the step ID to detect step changes
+  const currentStepIdRef = useRef<string | null>(null);
 
   // Load document when selected step changes
   useEffect(() => {
     if (selectedStep) {
+      // Set loading flag BEFORE any state changes - blocks all change detection
+      isLoadingStepRef.current = true;
+      userHasInteractedRef.current = false;
+      savedDocumentRef.current = null;
+      setHasLocalChanges(false);
+      currentStepIdRef.current = selectedStepId;
+
       const content = selectedStep.builder_content
         ? selectedStep.builder_content as TEditorConfiguration
         : getConfiguration('#sample/empty-email-message');
 
-      stepChangeRenderRef.current = renderCountRef.current;
       resetDocument(content);
-      savedDocumentRef.current = null;
       savedSubjectRef.current = selectedStep.subject || '';
       setLocalSubject(selectedStep.subject || '');
-      setHasLocalChanges(false);
 
       // Convert hours to value + unit
       const hours = selectedStep.default_delay_hours;
@@ -128,30 +135,45 @@ export function SequenceEmailBuilder({
         setDelayValue(hours);
         setDelayUnit('hours');
       }
+
+      // Clear loading flag after document has had time to stabilize
+      // This prevents false positives from resetDocument's async updates
+      const timeoutId = setTimeout(() => {
+        isLoadingStepRef.current = false;
+      }, 500);
+
+      return () => clearTimeout(timeoutId);
     }
   }, [selectedStepId]);
 
-  // Track document changes
+  // Track document changes - only after loading completes and user has interacted
   useEffect(() => {
-    renderCountRef.current++;
-
-    if (!selectedStepId) return;
-
-    // Skip the first few renders after step change to let document stabilize
-    const rendersSinceStepChange = renderCountRef.current - stepChangeRenderRef.current;
-    if (rendersSinceStepChange < 3) {
-      // Keep updating baseline while document stabilizes
-      savedDocumentRef.current = document as TEditorConfiguration;
-      setHasLocalChanges(false);
+    // Completely ignore document changes during step loading
+    if (isLoadingStepRef.current) {
       return;
     }
-
-    if (!savedDocumentRef.current) return;
-
+    // Only track if user has actually interacted
+    if (!userHasInteractedRef.current || !savedDocumentRef.current) {
+      return;
+    }
+    // Check if document differs from saved baseline
     const hasDocChanges = JSON.stringify(document) !== JSON.stringify(savedDocumentRef.current);
     const hasSubjectChanges = localSubject !== savedSubjectRef.current;
     setHasLocalChanges(hasDocChanges || hasSubjectChanges);
-  }, [document, localSubject, selectedStepId]);
+  }, [document, localSubject]);
+
+  // Mark user as having interacted when they click in the editor
+  const handleEditorInteraction = () => {
+    // Don't register interaction during step loading
+    if (isLoadingStepRef.current) {
+      return;
+    }
+    if (!userHasInteractedRef.current && selectedStepId) {
+      // Save current document as baseline when user first interacts
+      savedDocumentRef.current = document as TEditorConfiguration;
+      userHasInteractedRef.current = true;
+    }
+  };
 
   // Load templates when templates tab is selected
   useEffect(() => {
@@ -162,6 +184,19 @@ export function SequenceEmailBuilder({
 
   const handleSubjectChange = (subject: string) => {
     setLocalSubject(subject);
+    // Don't register changes during step loading
+    if (isLoadingStepRef.current) {
+      return;
+    }
+    // Subject change counts as user interaction
+    if (selectedStepId && !userHasInteractedRef.current) {
+      savedDocumentRef.current = document as TEditorConfiguration;
+      userHasInteractedRef.current = true;
+    }
+    // Check if subject differs from saved baseline
+    if (savedSubjectRef.current !== subject) {
+      setHasLocalChanges(true);
+    }
   };
 
   const handleDelayValueChange = (value: number) => {
@@ -417,18 +452,20 @@ export function SequenceEmailBuilder({
               )}
             </div>
 
-            {/* Shared Email Editor Core */}
-            <EmailEditorCore
-              showCodeTabs={false}
-              readOnly={!canEdit}
-              extraSidebarTabs={[
-                {
-                  id: 'templates',
-                  label: 'Templates',
-                  content: templatesTabContent,
-                },
-              ]}
-            />
+            {/* Shared Email Editor Core - wrapped to detect user interaction */}
+            <div onMouseDown={handleEditorInteraction} onKeyDown={handleEditorInteraction}>
+              <EmailEditorCore
+                showCodeTabs={false}
+                readOnly={!canEdit}
+                extraSidebarTabs={[
+                  {
+                    id: 'templates',
+                    label: 'Templates',
+                    content: templatesTabContent,
+                  },
+                ]}
+              />
+            </div>
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center bg-gray-50">
