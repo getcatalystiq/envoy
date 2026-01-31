@@ -1056,61 +1056,70 @@ async def _tool_get_dashboard(
     db: Any,
 ) -> dict[str, Any]:
     """Get dashboard with daily stats for charts."""
-    days = args.get("days", 30)
-    end_date = datetime.utcnow()
-    start_date = end_date - timedelta(days=days)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[Dashboard] Called with org_id={org_id}, args={args}")
+    try:
+        days = args.get("days", 30)
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days)
 
-    # Get daily stats
-    rows = await db.fetch(
-        """
-        SELECT
-            DATE(created_at) as date,
-            COUNT(*) as sends,
-            COUNT(*) FILTER (WHERE status IN ('opened', 'clicked')) as opens,
-            COUNT(*) FILTER (WHERE status = 'clicked') as clicks,
-            COUNT(*) FILTER (WHERE replied_at IS NOT NULL) as replies
-        FROM email_sends
-        WHERE organization_id = $1
-          AND created_at >= $2
-          AND created_at <= $3
-        GROUP BY DATE(created_at)
-        ORDER BY date ASC
-        """,
-        UUID(org_id), start_date, end_date,
-    )
+        # Get daily stats
+        rows = await db.fetch(
+            """
+            SELECT
+                DATE(created_at) as date,
+                COUNT(*) as sends,
+                COUNT(*) FILTER (WHERE status IN ('opened', 'clicked')) as opens,
+                COUNT(*) FILTER (WHERE status = 'clicked') as clicks,
+                COUNT(*) FILTER (WHERE replied_at IS NOT NULL) as replies
+            FROM email_sends
+            WHERE organization_id = $1
+              AND created_at >= $2
+              AND created_at <= $3
+            GROUP BY DATE(created_at)
+            ORDER BY date ASC
+            """,
+            UUID(org_id), start_date, end_date,
+        )
 
-    daily_stats = []
-    totals = {"sends": 0, "opens": 0, "clicks": 0, "replies": 0}
+        daily_stats = []
+        totals = {"sends": 0, "opens": 0, "clicks": 0, "replies": 0}
 
-    for row in rows:
-        daily_stats.append({
-            "date": row["date"].isoformat(),
-            "sends": row["sends"],
-            "opens": row["opens"],
-            "clicks": row["clicks"],
-            "replies": row["replies"],
-        })
-        totals["sends"] += row["sends"]
-        totals["opens"] += row["opens"]
-        totals["clicks"] += row["clicks"]
-        totals["replies"] += row["replies"]
+        for row in rows:
+            daily_stats.append({
+                "date": row["date"].isoformat(),
+                "sends": row["sends"],
+                "opens": row["opens"],
+                "clicks": row["clicks"],
+                "replies": row["replies"],
+            })
+            totals["sends"] += row["sends"]
+            totals["opens"] += row["opens"]
+            totals["clicks"] += row["clicks"]
+            totals["replies"] += row["replies"]
 
-    summary = f"Last {days} days: {totals['sends']} sends, {totals['opens']} opens, {totals['clicks']} clicks, {totals['replies']} replies"
+        summary = f"Last {days} days: {totals['sends']} sends, {totals['opens']} opens, {totals['clicks']} clicks, {totals['replies']} replies"
 
-    return {
-        "content": [{"type": "text", "text": summary}],
-        "structuredContent": {
-            "daily_stats": daily_stats,
-            "totals": totals,
-            "period_days": days,
-        },
-        "_meta": {
-            "ui": {
-                "resourceUri": "ui://widget/dashboard.html",
-                "visibility": ["app", "model"],
+        result = {
+            "content": [{"type": "text", "text": summary}],
+            "structuredContent": {
+                "daily_stats": daily_stats,
+                "totals": totals,
+                "period_days": days,
             },
-        },
-    }
+            "_meta": {
+                "ui": {
+                    "resourceUri": "ui://widget/dashboard.html",
+                    "visibility": ["app", "model"],
+                },
+            },
+        }
+        logger.info(f"[Dashboard] Returning {len(daily_stats)} days, totals={totals}")
+        return result
+    except Exception as e:
+        logger.error(f"[Dashboard] Error: {e}", exc_info=True)
+        raise
 
 
 async def _tool_get_outbox(
