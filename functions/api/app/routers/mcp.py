@@ -1056,9 +1056,6 @@ async def _tool_get_dashboard(
     db: Any,
 ) -> dict[str, Any]:
     """Get dashboard with daily stats for charts."""
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"[Dashboard] Tool called with args={args}, org_id={org_id}")
     days = args.get("days", 30)
     end_date = datetime.utcnow()
     start_date = end_date - timedelta(days=days)
@@ -1100,7 +1097,7 @@ async def _tool_get_dashboard(
 
     summary = f"Last {days} days: {totals['sends']} sends, {totals['opens']} opens, {totals['clicks']} clicks, {totals['replies']} replies"
 
-    result = {
+    return {
         "content": [{"type": "text", "text": summary}],
         "structuredContent": {
             "daily_stats": daily_stats,
@@ -1114,8 +1111,6 @@ async def _tool_get_dashboard(
             },
         },
     }
-    logger.info(f"[Dashboard] Returning result: {len(daily_stats)} days of data, totals={totals}")
-    return result
 
 
 async def _tool_get_outbox(
@@ -1576,10 +1571,8 @@ def _get_target_list_widget() -> str:
             input.addEventListener('input', (e) => {
                 searchQuery = e.target.value;
                 render();
-                // Re-query the new input after render (old reference is orphaned)
-                const newInput = root.querySelector('.search-input');
-                newInput.focus();
-                newInput.setSelectionRange(searchQuery.length, searchQuery.length);
+                input.focus();
+                input.setSelectionRange(searchQuery.length, searchQuery.length);
             });
 
             root.querySelectorAll('.target').forEach(el => {
@@ -1858,16 +1851,6 @@ def _get_dashboard_widget() -> str:
 </head>
 <body>
     <div id="root"><div class="loading">Loading...</div></div>
-    <script>
-        // Debug: raw postMessage listener - runs BEFORE module loads
-        console.log('[Dashboard] Script starting');
-        window.addEventListener('message', function(event) {
-            console.log('[Dashboard RAW MSG]', typeof event.data, event.data);
-        });
-        window.onerror = function(msg, url, line) {
-            console.error('[Dashboard ERROR]', msg, url, line);
-        };
-    </script>
     <script type="module">
         import { App } from 'https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps@1.0.1/+esm';
 
@@ -1921,32 +1904,8 @@ def _get_dashboard_widget() -> str:
             `;
         }
 
-        app.ontoolinput = (params) => {
-            console.log('[Dashboard] Tool input received:', params);
-        };
-
-        app.ontoolinputpartial = (params) => {
-            console.log('[Dashboard] Tool input partial:', params);
-        };
-
         app.ontoolresult = (params) => {
-            console.log('[Dashboard] Tool result received:', params);
-            try {
-                render(params.structuredContent || {});
-            } catch (e) {
-                console.error('[Dashboard] Render error:', e);
-                root.innerHTML = '<div class="loading">Error rendering data</div>';
-            }
-        };
-
-        app.onerror = (error) => {
-            console.error('[Dashboard] MCP error:', error);
-            root.innerHTML = '<div class="loading">Error: ' + (error.message || 'Unknown error') + '</div>';
-        };
-
-        app.ontoolcancelled = (params) => {
-            console.log('[Dashboard] Tool cancelled:', params);
-            root.innerHTML = '<div class="loading">Tool was cancelled</div>';
+            render(params.structuredContent || {});
         };
 
         app.onhostcontextchanged = (ctx) => {
@@ -1954,12 +1913,8 @@ def _get_dashboard_widget() -> str:
         };
 
         app.connect().then(() => {
-            console.log('[Dashboard] Connected');
             const ctx = app.getHostContext();
             if (ctx?.theme) applyTheme(ctx.theme);
-        }).catch((e) => {
-            console.error('[Dashboard] Connect error:', e);
-            root.innerHTML = '<div class="loading">Connection failed</div>';
         });
     </script>
 </body>
