@@ -145,6 +145,26 @@ TOOLS = [
         },
     },
     {
+        "name": "get_target",
+        "description": "Get detailed information about a specific lead/target by ID.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "target_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "The target/lead ID",
+                },
+            },
+            "required": ["target_id"],
+        },
+        "annotations": {
+            "title": "Get Lead Details",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+        },
+    },
+    {
         "name": "generate_email_content",
         "description": "Generate personalized AI email content for a specific lead. "
                       "Uses Maven AI to create contextual, engaging emails.",
@@ -515,7 +535,6 @@ async def mcp_handler(
     claims: TokenClaims,
 ) -> MCPResponse:
     """Handle MCP JSON-RPC requests."""
-    print(f"[MCP] method={mcp_request.method} params={mcp_request.params}")
     try:
         result = await _dispatch_method(
             method=mcp_request.method,
@@ -596,89 +615,39 @@ async def _handle_read_resource(params: dict[str, Any]) -> dict[str, Any]:
     """Handle resources/read request - serve widget HTML."""
     uri = params.get("uri", "")
 
+    # Mapping of widget URIs to their generator functions
+    widget_functions = {
+        "ui://widget/target-list.html": _get_target_list_widget,
+        "ui://widget/analytics-summary.html": _get_analytics_widget,
+        "ui://widget/dashboard.html": _get_dashboard_widget,
+        "ui://widget/outbox.html": _get_outbox_widget,
+        "ui://widget/sequences.html": _get_sequences_widget,
+    }
+
+    widget_fn = widget_functions.get(uri)
+    if not widget_fn:
+        raise ValueError(f"Unknown resource: {uri}")
+
     # CSP config for widgets that load MCP Apps SDK from jsdelivr
     csp_config = {
         "resourceDomains": ["https://cdn.jsdelivr.net"],
         "connectDomains": ["https://cdn.jsdelivr.net"],
     }
 
-    if uri == "ui://widget/target-list.html":
-        return {
-            "contents": [
-                {
-                    "uri": uri,
-                    "mimeType": MCP_APP_MIME_TYPE,
-                    "text": _get_target_list_widget(),
-                    "_meta": {
-                        "ui": {
-                            "csp": csp_config,
-                        },
+    return {
+        "contents": [
+            {
+                "uri": uri,
+                "mimeType": MCP_APP_MIME_TYPE,
+                "text": widget_fn(),
+                "_meta": {
+                    "ui": {
+                        "csp": csp_config,
                     },
-                }
-            ]
-        }
-    elif uri == "ui://widget/analytics-summary.html":
-        return {
-            "contents": [
-                {
-                    "uri": uri,
-                    "mimeType": MCP_APP_MIME_TYPE,
-                    "text": _get_analytics_widget(),
-                    "_meta": {
-                        "ui": {
-                            "csp": csp_config,
-                        },
-                    },
-                }
-            ]
-        }
-    elif uri == "ui://widget/dashboard.html":
-        return {
-            "contents": [
-                {
-                    "uri": uri,
-                    "mimeType": MCP_APP_MIME_TYPE,
-                    "text": _get_dashboard_widget(),
-                    "_meta": {
-                        "ui": {
-                            "csp": csp_config,
-                        },
-                    },
-                }
-            ]
-        }
-    elif uri == "ui://widget/outbox.html":
-        return {
-            "contents": [
-                {
-                    "uri": uri,
-                    "mimeType": MCP_APP_MIME_TYPE,
-                    "text": _get_outbox_widget(),
-                    "_meta": {
-                        "ui": {
-                            "csp": csp_config,
-                        },
-                    },
-                }
-            ]
-        }
-    elif uri == "ui://widget/sequences.html":
-        return {
-            "contents": [
-                {
-                    "uri": uri,
-                    "mimeType": MCP_APP_MIME_TYPE,
-                    "text": _get_sequences_widget(),
-                    "_meta": {
-                        "ui": {
-                            "csp": csp_config,
-                        },
-                    },
-                }
-            ]
-        }
-    else:
-        raise ValueError(f"Unknown resource: {uri}")
+                },
+            }
+        ]
+    }
 
 
 async def _handle_call_tool(
@@ -696,6 +665,8 @@ async def _handle_call_tool(
             return await _tool_search_targets(args, org_id, db)
         case "create_target":
             return await _tool_create_target(args, org_id, db)
+        case "get_target":
+            return await _tool_get_target(args, org_id, db)
         case "generate_email_content":
             return await _tool_generate_email_content(args, org_id, db, maven)
         case "list_campaigns":
@@ -817,6 +788,48 @@ async def _tool_create_target(
                 "email": target["email"],
                 "name": name,
                 "lifecycle_stage": target["lifecycle_stage"],
+            },
+        },
+    }
+
+
+async def _tool_get_target(
+    args: dict[str, Any],
+    org_id: str,
+    db: Any,
+) -> dict[str, Any]:
+    """Get target details by ID."""
+    target_id = args.get("target_id")
+    if not target_id:
+        raise ValueError("target_id is required")
+
+    target = await TargetQueries.get_by_id(db, UUID(target_id))
+    if not target or str(target.get("organization_id")) != org_id:
+        return {
+            "content": [{"type": "text", "text": "Target not found."}],
+            "isError": True,
+        }
+
+    name = f"{target.get('first_name', '') or ''} {target.get('last_name', '') or ''}".strip() or None
+
+    return {
+        "content": [
+            {"type": "text", "text": f"Lead: {name or target['email']} - {LIFECYCLE_STAGES.get(target['lifecycle_stage'], 'Unknown')}"}
+        ],
+        "structuredContent": {
+            "target": {
+                "id": str(target["id"]),
+                "email": target["email"],
+                "name": name,
+                "first_name": target.get("first_name"),
+                "last_name": target.get("last_name"),
+                "company": target.get("company"),
+                "phone": target.get("phone"),
+                "type": target.get("type") or target.get("target_type"),
+                "lifecycle_stage": target["lifecycle_stage"],
+                "lifecycle_stage_name": LIFECYCLE_STAGES.get(target["lifecycle_stage"], "Unknown"),
+                "status": target["status"],
+                "metadata": target.get("metadata"),
             },
         },
     }
@@ -982,7 +995,7 @@ async def _tool_get_analytics(
 
     # Build query
     conditions = ["organization_id = $1", "created_at >= $2", "created_at <= $3"]
-    params = [org_id, start_date, end_date]
+    params = [UUID(org_id), start_date, end_date]
 
     if campaign_id:
         conditions.append(f"campaign_id = ${len(params) + 1}")
@@ -1063,7 +1076,7 @@ async def _tool_get_dashboard(
         GROUP BY DATE(created_at)
         ORDER BY date ASC
         """,
-        org_id, start_date, end_date,
+        UUID(org_id), start_date, end_date,
     )
 
     daily_stats = []
@@ -1134,7 +1147,7 @@ async def _tool_get_outbox(
         LIMIT $2
     """
 
-    params = [org_id, limit]
+    params = [UUID(org_id), limit]
     if status != "all":
         params.append(status)
 
@@ -1202,42 +1215,44 @@ async def _tool_approve_outbox_item(
     if not outbox_id:
         raise ValueError("outbox_id is required")
 
-    # Verify item exists and belongs to org
-    item = await db.fetchrow(
-        "SELECT id, status, subject FROM outbox WHERE id = $1 AND organization_id = $2",
-        UUID(outbox_id), org_id,
-    )
+    # Use transaction with FOR UPDATE to prevent race conditions
+    async with db.transaction():
+        # Verify item exists and belongs to org, lock for update
+        item = await db.fetchrow(
+            "SELECT id, status, subject FROM outbox WHERE id = $1 AND organization_id = $2 FOR UPDATE",
+            UUID(outbox_id), UUID(org_id),
+        )
 
-    if not item:
-        return {
-            "content": [{"type": "text", "text": "Outbox item not found."}],
-            "isError": True,
-        }
+        if not item:
+            return {
+                "content": [{"type": "text", "text": "Outbox item not found."}],
+                "isError": True,
+            }
 
-    if item["status"] != "pending":
-        return {
-            "content": [{"type": "text", "text": f"Cannot approve item with status '{item['status']}'. Only pending items can be approved."}],
-            "isError": True,
-        }
+        if item["status"] != "pending":
+            return {
+                "content": [{"type": "text", "text": f"Cannot approve item with status '{item['status']}'. Only pending items can be approved."}],
+                "isError": True,
+            }
 
-    # Update status to approved
-    await db.execute(
-        "UPDATE outbox SET status = 'approved', updated_at = NOW() WHERE id = $1",
-        UUID(outbox_id),
-    )
+        # Update status to approved
+        await db.execute(
+            "UPDATE outbox SET status = 'approved', updated_at = NOW() WHERE id = $1",
+            UUID(outbox_id),
+        )
 
-    # Create email_sends record
-    await db.execute(
-        """
-        INSERT INTO email_sends
-            (organization_id, target_id, email, subject, body, status, outbox_id)
-        SELECT o.organization_id, o.target_id, t.email, o.subject, o.body, 'queued', o.id
-        FROM outbox o
-        JOIN targets t ON t.id = o.target_id
-        WHERE o.id = $1
-        """,
-        UUID(outbox_id),
-    )
+        # Create email_sends record
+        await db.execute(
+            """
+            INSERT INTO email_sends
+                (organization_id, target_id, email, subject, body, status, outbox_id)
+            SELECT o.organization_id, o.target_id, t.email, o.subject, o.body, 'queued', o.id
+            FROM outbox o
+            JOIN targets t ON t.id = o.target_id
+            WHERE o.id = $1
+            """,
+            UUID(outbox_id),
+        )
 
     return {
         "content": [{"type": "text", "text": f"Approved email: {item['subject']}"}],
@@ -1260,29 +1275,31 @@ async def _tool_reject_outbox_item(
     if not outbox_id:
         raise ValueError("outbox_id is required")
 
-    # Verify item exists and belongs to org
-    item = await db.fetchrow(
-        "SELECT id, status, subject FROM outbox WHERE id = $1 AND organization_id = $2",
-        UUID(outbox_id), org_id,
-    )
+    # Use transaction with FOR UPDATE to prevent race conditions
+    async with db.transaction():
+        # Verify item exists and belongs to org, lock for update
+        item = await db.fetchrow(
+            "SELECT id, status, subject FROM outbox WHERE id = $1 AND organization_id = $2 FOR UPDATE",
+            UUID(outbox_id), UUID(org_id),
+        )
 
-    if not item:
-        return {
-            "content": [{"type": "text", "text": "Outbox item not found."}],
-            "isError": True,
-        }
+        if not item:
+            return {
+                "content": [{"type": "text", "text": "Outbox item not found."}],
+                "isError": True,
+            }
 
-    if item["status"] != "pending":
-        return {
-            "content": [{"type": "text", "text": f"Cannot reject item with status '{item['status']}'. Only pending items can be rejected."}],
-            "isError": True,
-        }
+        if item["status"] != "pending":
+            return {
+                "content": [{"type": "text", "text": f"Cannot reject item with status '{item['status']}'. Only pending items can be rejected."}],
+                "isError": True,
+            }
 
-    # Update status to rejected
-    await db.execute(
-        "UPDATE outbox SET status = 'rejected', updated_at = NOW() WHERE id = $1",
-        UUID(outbox_id),
-    )
+        # Update status to rejected
+        await db.execute(
+            "UPDATE outbox SET status = 'rejected', updated_at = NOW() WHERE id = $1",
+            UUID(outbox_id),
+        )
 
     return {
         "content": [{"type": "text", "text": f"Rejected email: {item['subject']}" + (f" - Reason: {reason}" if reason else "")}],
@@ -1306,10 +1323,11 @@ async def _tool_get_sequences(
     if status_filter != "all":
         status_condition = "AND s.status = $2"
 
-    params = [org_id]
+    params = [UUID(org_id)]
     if status_filter != "all":
         params.append(status_filter)
 
+    # Use LATERAL join instead of correlated subquery for step_count
     rows = await db.fetch(
         f"""
         SELECT
@@ -1318,15 +1336,18 @@ async def _tool_get_sequences(
             s.description,
             s.status,
             s.created_at,
-            (SELECT COUNT(*) FROM sequence_steps WHERE sequence_id = s.id) as step_count,
+            COALESCE(steps.cnt, 0) as step_count,
             COUNT(e.id) FILTER (WHERE e.status = 'active') as active_enrollments,
             COUNT(e.id) FILTER (WHERE e.status = 'completed') as completed_enrollments,
             COUNT(e.id) FILTER (WHERE e.status IN ('exited', 'converted')) as exited_enrollments
         FROM sequences s
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*) as cnt FROM sequence_steps WHERE sequence_id = s.id
+        ) steps ON true
         LEFT JOIN sequence_enrollments e ON e.sequence_id = s.id
         WHERE s.organization_id = $1
         {status_condition}
-        GROUP BY s.id
+        GROUP BY s.id, steps.cnt
         ORDER BY s.created_at DESC
         """,
         *params,
@@ -1476,6 +1497,17 @@ def _get_target_list_widget() -> str:
         let pendingId = null;
         let searching = false;
 
+        // Escape HTML to prevent XSS
+        function escapeHtml(str) {
+            if (str == null) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
         const app = new App({ name: 'Target List', version: '1.0.0' });
 
         function applyTheme(theme) {
@@ -1500,34 +1532,34 @@ def _get_target_list_widget() -> str:
 
             root.innerHTML = `
                 <div class="search-box">
-                    <input type="text" class="search-input" placeholder="Search by name, email, or company..." value="${searchQuery}">
+                    <input type="text" class="search-input" placeholder="Search by name, email, or company..." value="${escapeHtml(searchQuery)}">
                 </div>
                 <div class="summary">${filteredTargets.length} of ${targets.length} leads</div>
                 ${!filteredTargets.length
                     ? '<div class="empty">No leads found</div>'
                     : `<div class="target-list">${filteredTargets.map(t => `
-                        <div class="target ${pendingId === t.id ? 'loading' : ''}" data-id="${t.id}">
+                        <div class="target ${pendingId === t.id ? 'loading' : ''}" data-id="${escapeHtml(t.id)}">
                             <div class="target-header">
-                                <span class="target-name">${t.name || 'Unknown'}</span>
-                                <span class="stage stage-${t.lifecycle_stage}">${t.lifecycle_stage_name || 'Stage ' + t.lifecycle_stage}</span>
-                                <span class="status status-${t.status}">${t.status}</span>
+                                <span class="target-name">${escapeHtml(t.name) || 'Unknown'}</span>
+                                <span class="stage stage-${escapeHtml(t.lifecycle_stage)}">${escapeHtml(t.lifecycle_stage_name) || 'Stage ' + escapeHtml(t.lifecycle_stage)}</span>
+                                <span class="status status-${escapeHtml(t.status)}">${escapeHtml(t.status)}</span>
                             </div>
                             <div class="target-details">
                                 <div class="target-field">
                                     <span class="field-label">Email:</span>
-                                    <span class="field-value">${t.email || '-'}</span>
+                                    <span class="field-value">${escapeHtml(t.email) || '-'}</span>
                                 </div>
                                 <div class="target-field">
                                     <span class="field-label">Company:</span>
-                                    <span class="field-value">${t.company || '-'}</span>
+                                    <span class="field-value">${escapeHtml(t.company) || '-'}</span>
                                 </div>
                                 <div class="target-field">
                                     <span class="field-label">Phone:</span>
-                                    <span class="field-value">${t.phone || '-'}</span>
+                                    <span class="field-value">${escapeHtml(t.phone) || '-'}</span>
                                 </div>
                                 <div class="target-field">
                                     <span class="field-label">Type:</span>
-                                    <span class="field-value">${t.type || '-'}</span>
+                                    <span class="field-value">${escapeHtml(t.type) || '-'}</span>
                                 </div>
                             </div>
                         </div>
@@ -1995,6 +2027,17 @@ def _get_outbox_widget() -> str:
         let expanded = null;
         let pending = null;
 
+        // Escape HTML to prevent XSS
+        function escapeHtml(str) {
+            if (str == null) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
         function applyTheme(theme) {
             document.body.classList.toggle('dark', theme === 'dark');
         }
@@ -2014,15 +2057,15 @@ def _get_outbox_widget() -> str:
                 </div>
                 <div class="items">
                     ${items.map(item => `
-                        <div class="item ${expanded === item.id ? 'expanded' : ''}" data-id="${item.id}">
+                        <div class="item ${expanded === item.id ? 'expanded' : ''}" data-id="${escapeHtml(item.id)}">
                             <div class="item-header">
                                 <div class="item-info">
-                                    <div class="item-to">${item.target?.email || 'Unknown'}</div>
-                                    <div class="item-subject">${item.subject || '(No subject)'}</div>
+                                    <div class="item-to">${escapeHtml(item.target?.email) || 'Unknown'}</div>
+                                    <div class="item-subject">${escapeHtml(item.subject) || '(No subject)'}</div>
                                 </div>
-                                <span class="item-status status-${item.status}">${item.status}</span>
+                                <span class="item-status status-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span>
                             </div>
-                            <div class="item-body">${item.body || ''}</div>
+                            <div class="item-body">${escapeHtml(item.body) || ''}</div>
                             ${item.status === 'pending' ? `
                                 <div class="item-actions">
                                     <button class="btn btn-approve" data-action="approve" ${pending ? 'disabled' : ''}>Approve</button>
@@ -2170,6 +2213,17 @@ def _get_sequences_widget() -> str:
         const root = document.getElementById('root');
         const app = new App({ name: 'Sequences', version: '1.0.0' });
 
+        // Escape HTML to prevent XSS
+        function escapeHtml(str) {
+            if (str == null) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
         function applyTheme(theme) {
             document.body.classList.toggle('dark', theme === 'dark');
         }
@@ -2185,11 +2239,11 @@ def _get_sequences_widget() -> str:
                     ${sequences.map(s => `
                         <div class="sequence">
                             <div class="sequence-header">
-                                <span class="sequence-name">${s.name}</span>
+                                <span class="sequence-name">${escapeHtml(s.name)}</span>
                                 <span class="steps-badge">${s.step_count} steps</span>
-                                <span class="sequence-status status-${s.status}">${s.status}</span>
+                                <span class="sequence-status status-${escapeHtml(s.status)}">${escapeHtml(s.status)}</span>
                             </div>
-                            ${s.description ? `<div class="sequence-desc">${s.description}</div>` : ''}
+                            ${s.description ? `<div class="sequence-desc">${escapeHtml(s.description)}</div>` : ''}
                             <div class="sequence-stats">
                                 <div class="stat active">
                                     <span class="stat-value">${s.enrollments?.active || 0}</span>
