@@ -1571,8 +1571,10 @@ def _get_target_list_widget() -> str:
             input.addEventListener('input', (e) => {
                 searchQuery = e.target.value;
                 render();
-                input.focus();
-                input.setSelectionRange(searchQuery.length, searchQuery.length);
+                // Re-query the new input after render (old reference is orphaned)
+                const newInput = root.querySelector('.search-input');
+                newInput.focus();
+                newInput.setSelectionRange(searchQuery.length, searchQuery.length);
             });
 
             root.querySelectorAll('.target').forEach(el => {
@@ -1905,7 +1907,18 @@ def _get_dashboard_widget() -> str:
         }
 
         app.ontoolresult = (params) => {
-            render(params.structuredContent || {});
+            console.log('[Dashboard] Tool result received:', params);
+            try {
+                render(params.structuredContent || {});
+            } catch (e) {
+                console.error('[Dashboard] Render error:', e);
+                root.innerHTML = '<div class="loading">Error rendering data</div>';
+            }
+        };
+
+        app.onerror = (error) => {
+            console.error('[Dashboard] MCP error:', error);
+            root.innerHTML = '<div class="loading">Error: ' + (error.message || 'Unknown error') + '</div>';
         };
 
         app.onhostcontextchanged = (ctx) => {
@@ -1913,8 +1926,12 @@ def _get_dashboard_widget() -> str:
         };
 
         app.connect().then(() => {
+            console.log('[Dashboard] Connected');
             const ctx = app.getHostContext();
             if (ctx?.theme) applyTheme(ctx.theme);
+        }).catch((e) => {
+            console.error('[Dashboard] Connect error:', e);
+            root.innerHTML = '<div class="loading">Connection failed</div>';
         });
     </script>
 </body>
