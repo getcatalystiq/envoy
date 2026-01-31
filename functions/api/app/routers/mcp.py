@@ -93,6 +93,11 @@ TOOLS = [
             "destructiveHint": False,
             "openWorldHint": False,
         },
+        "_meta": {
+            "ui": {
+                "resourceUri": "ui://widget/target-list.html"
+            }
+        },
     },
     {
         "name": "create_target",
@@ -231,6 +236,11 @@ TOOLS = [
             "title": "Get Analytics",
             "readOnlyHint": True,
             "destructiveHint": False,
+        },
+        "_meta": {
+            "ui": {
+                "resourceUri": "ui://widget/analytics-summary.html"
+            }
         },
     },
     {
