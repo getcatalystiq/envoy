@@ -270,7 +270,7 @@ TOOLS = [
     },
     {
         "name": "get_dashboard",
-        "description": "Get dashboard with interactive analytics charts showing email sends, opens, clicks, and replies over time.",
+        "description": "Get dashboard with interactive analytics charts showing email sends, deliveries, opens, and clicks over time.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1070,9 +1070,9 @@ async def _tool_get_dashboard(
             SELECT
                 DATE(created_at) as date,
                 COUNT(*) as sends,
+                COUNT(*) FILTER (WHERE status IN ('delivered', 'opened', 'clicked')) as delivered,
                 COUNT(*) FILTER (WHERE status IN ('opened', 'clicked')) as opens,
-                COUNT(*) FILTER (WHERE status = 'clicked') as clicks,
-                COUNT(*) FILTER (WHERE replied_at IS NOT NULL) as replies
+                COUNT(*) FILTER (WHERE status = 'clicked') as clicks
             FROM email_sends
             WHERE organization_id = $1
               AND created_at >= $2
@@ -1084,22 +1084,22 @@ async def _tool_get_dashboard(
         )
 
         daily_stats = []
-        totals = {"sends": 0, "opens": 0, "clicks": 0, "replies": 0}
+        totals = {"sends": 0, "delivered": 0, "opens": 0, "clicks": 0}
 
         for row in rows:
             daily_stats.append({
                 "date": row["date"].isoformat(),
                 "sends": row["sends"],
+                "delivered": row["delivered"],
                 "opens": row["opens"],
                 "clicks": row["clicks"],
-                "replies": row["replies"],
             })
             totals["sends"] += row["sends"]
+            totals["delivered"] += row["delivered"]
             totals["opens"] += row["opens"]
             totals["clicks"] += row["clicks"]
-            totals["replies"] += row["replies"]
 
-        summary = f"Last {days} days: {totals['sends']} sends, {totals['opens']} opens, {totals['clicks']} clicks, {totals['replies']} replies"
+        summary = f"Last {days} days: {totals['sends']} sends, {totals['delivered']} delivered, {totals['opens']} opens, {totals['clicks']} clicks"
 
         result = {
             "content": [{"type": "text", "text": summary}],
@@ -1798,9 +1798,9 @@ def _get_dashboard_widget() -> str:
         .total-label { font-size: 11px; color: #666; }
         .dark .total-label { color: #999; }
         .total.sends { border-left: 3px solid #059669; }
+        .total.delivered { border-left: 3px solid #10b981; }
         .total.opens { border-left: 3px solid #3b82f6; }
         .total.clicks { border-left: 3px solid #7c3aed; }
-        .total.replies { border-left: 3px solid #f59e0b; }
         .chart-container {
             background: #f5f5f5;
             border-radius: 8px;
@@ -1835,9 +1835,9 @@ def _get_dashboard_widget() -> str:
             border-radius: 2px;
         }
         .bar.sends { background: #059669; }
+        .bar.delivered { background: #10b981; }
         .bar.opens { background: #3b82f6; }
         .bar.clicks { background: #7c3aed; }
-        .bar.replies { background: #f59e0b; }
         .legend {
             display: flex;
             justify-content: center;
@@ -1880,6 +1880,10 @@ def _get_dashboard_widget() -> str:
                         <div class="total-value">${(totals.sends || 0).toLocaleString()}</div>
                         <div class="total-label">Sends</div>
                     </div>
+                    <div class="total delivered">
+                        <div class="total-value">${(totals.delivered || 0).toLocaleString()}</div>
+                        <div class="total-label">Delivered</div>
+                    </div>
                     <div class="total opens">
                         <div class="total-value">${(totals.opens || 0).toLocaleString()}</div>
                         <div class="total-label">Opens</div>
@@ -1887,10 +1891,6 @@ def _get_dashboard_widget() -> str:
                     <div class="total clicks">
                         <div class="total-value">${(totals.clicks || 0).toLocaleString()}</div>
                         <div class="total-label">Clicks</div>
-                    </div>
-                    <div class="total replies">
-                        <div class="total-value">${(totals.replies || 0).toLocaleString()}</div>
-                        <div class="total-label">Replies</div>
                     </div>
                 </div>
                 <div class="chart-container">
@@ -1905,9 +1905,9 @@ def _get_dashboard_widget() -> str:
                     </div>
                     <div class="legend">
                         <div class="legend-item"><div class="legend-dot" style="background:#059669"></div>Sends</div>
+                        <div class="legend-item"><div class="legend-dot" style="background:#10b981"></div>Delivered</div>
                         <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div>Opens</div>
                         <div class="legend-item"><div class="legend-dot" style="background:#7c3aed"></div>Clicks</div>
-                        <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>Replies</div>
                     </div>
                 </div>
             `;
