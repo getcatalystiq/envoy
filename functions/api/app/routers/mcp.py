@@ -1029,7 +1029,7 @@ def _get_analytics_widget() -> str:
 <body>
     <div id="root"><div class="loading">Loading...</div></div>
     <script type="module">
-        import { App } from 'https://esm.sh/@modelcontextprotocol/ext-apps';
+        import { App } from 'https://esm.sh/@modelcontextprotocol/ext-apps@1.0.1';
 
         const root = document.getElementById('root');
 
