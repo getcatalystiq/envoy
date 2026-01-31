@@ -367,6 +367,7 @@ async def mcp_handler(
     claims: TokenClaims,
 ) -> MCPResponse:
     """Handle MCP JSON-RPC requests."""
+    print(f"[MCP] method={mcp_request.method} params={mcp_request.params}")
     try:
         result = await _dispatch_method(
             method=mcp_request.method,
