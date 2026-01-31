@@ -57,7 +57,7 @@ async def check_exit_conditions(target: dict) -> Optional[tuple[str, str]]:
 async def process_enrollment(
     pool: Any,
     enrollment: dict,
-    maven: MavenClient,
+    maven: Optional[MavenClient],
     ses: SESClient,
 ) -> dict[str, Any]:
     """Process a single enrollment."""
@@ -155,7 +155,8 @@ async def process_enrollment(
                     print("  [DEBUG] BUG: Template replacement lost personalization data!")
 
                 # Process block-level personalization if any blocks have it enabled
-                if has_personalized_blocks(builder_content):
+                # Skip if Maven is not configured for this organization
+                if has_personalized_blocks(builder_content) and maven is not None:
                     target_data = {
                         "email": enrollment.get("target_email"),
                         "first_name": enrollment.get("target_first_name"),
@@ -289,10 +290,13 @@ async def process_due_enrollments() -> dict[str, Any]:
         maven_tenant_id = first_enrollment.get("maven_tenant_id") or org_id
         maven_service_runtime_arn = first_enrollment.get("maven_service_runtime_arn")
 
-        maven = MavenClient(
-            tenant_id=maven_tenant_id,
-            service_runtime_arn=maven_service_runtime_arn,
-        )
+        # Maven is optional - only create client if configured
+        maven = None
+        if maven_service_runtime_arn:
+            maven = MavenClient(
+                tenant_id=maven_tenant_id,
+                service_runtime_arn=maven_service_runtime_arn,
+            )
 
         org_results = await asyncio.gather(
             *[process_with_semaphore(e, maven) for e in org_enrollments_list]

@@ -637,7 +637,6 @@ class SequenceQueries:
                 WHERE e.status = 'active'
                   AND e.next_evaluation_at <= NOW()
                   AND s.status = 'active'
-                  AND o.maven_service_runtime_arn IS NOT NULL
                 ORDER BY e.next_evaluation_at
                 FOR UPDATE OF e SKIP LOCKED
                 LIMIT $1
