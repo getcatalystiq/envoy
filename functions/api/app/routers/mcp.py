@@ -1911,6 +1911,14 @@ def _get_dashboard_widget() -> str:
             `;
         }
 
+        app.ontoolinput = (params) => {
+            console.log('[Dashboard] Tool input received:', params);
+        };
+
+        app.ontoolinputpartial = (params) => {
+            console.log('[Dashboard] Tool input partial:', params);
+        };
+
         app.ontoolresult = (params) => {
             console.log('[Dashboard] Tool result received:', params);
             try {
@@ -1924,6 +1932,11 @@ def _get_dashboard_widget() -> str:
         app.onerror = (error) => {
             console.error('[Dashboard] MCP error:', error);
             root.innerHTML = '<div class="loading">Error: ' + (error.message || 'Unknown error') + '</div>';
+        };
+
+        app.ontoolcancelled = (params) => {
+            console.log('[Dashboard] Tool cancelled:', params);
+            root.innerHTML = '<div class="loading">Tool was cancelled</div>';
         };
 
         app.onhostcontextchanged = (ctx) => {
