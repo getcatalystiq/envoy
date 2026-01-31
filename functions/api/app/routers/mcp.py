@@ -448,10 +448,10 @@ async def _handle_read_resource(params: dict[str, Any]) -> dict[str, Any]:
     """Handle resources/read request - serve widget HTML."""
     uri = params.get("uri", "")
 
-    # CSP config for widgets that load MCP Apps SDK from esm.sh
+    # CSP config for widgets that load MCP Apps SDK from unpkg
     csp_config = {
-        "resourceDomains": ["https://esm.sh"],
-        "connectDomains": ["https://esm.sh"],
+        "resourceDomains": ["https://unpkg.com"],
+        "connectDomains": ["https://unpkg.com"],
     }
 
     if uri == "ui://widget/target-list.html":
@@ -1029,7 +1029,7 @@ def _get_analytics_widget() -> str:
 <body>
     <div id="root"><div class="loading">Loading...</div></div>
     <script type="module">
-        import { App } from 'https://esm.sh/@modelcontextprotocol/ext-apps@1.0.1';
+        import { App } from 'https://unpkg.com/@modelcontextprotocol/ext-apps@1.0.1/dist/index.js';
 
         const root = document.getElementById('root');
 
