@@ -891,7 +891,7 @@ def _get_target_list_widget() -> str:
 <body>
     <div id="root"></div>
     <script type="module">
-        import { App, applyDocumentTheme } from 'https://esm.sh/@modelcontextprotocol/ext-apps';
+        import { App, applyDocumentTheme } from 'https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps@1.0.1/+esm';
 
         const root = document.getElementById('root');
         let targets = [];
