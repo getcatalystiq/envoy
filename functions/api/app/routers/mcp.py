@@ -1858,17 +1858,17 @@ def _get_dashboard_widget() -> str:
 </head>
 <body>
     <div id="root"><div class="loading">Loading...</div></div>
-    <script type="module">
-        // Debug: capture all postMessage events at transport level
-        window.addEventListener('message', (event) => {
-            try {
-                const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-                if (data.method && data.method.includes('tool')) {
-                    console.log('[Dashboard RAW]', data.method, data.params);
-                }
-            } catch (e) {}
+    <script>
+        // Debug: raw postMessage listener - runs BEFORE module loads
+        console.log('[Dashboard] Script starting');
+        window.addEventListener('message', function(event) {
+            console.log('[Dashboard RAW MSG]', typeof event.data, event.data);
         });
-
+        window.onerror = function(msg, url, line) {
+            console.error('[Dashboard ERROR]', msg, url, line);
+        };
+    </script>
+    <script type="module">
         import { App } from 'https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps@1.0.1/+esm';
 
         const root = document.getElementById('root');
