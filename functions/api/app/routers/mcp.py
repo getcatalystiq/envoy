@@ -1056,6 +1056,9 @@ async def _tool_get_dashboard(
     db: Any,
 ) -> dict[str, Any]:
     """Get dashboard with daily stats for charts."""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[Dashboard] Tool called with args={args}, org_id={org_id}")
     days = args.get("days", 30)
     end_date = datetime.utcnow()
     start_date = end_date - timedelta(days=days)
@@ -1097,7 +1100,7 @@ async def _tool_get_dashboard(
 
     summary = f"Last {days} days: {totals['sends']} sends, {totals['opens']} opens, {totals['clicks']} clicks, {totals['replies']} replies"
 
-    return {
+    result = {
         "content": [{"type": "text", "text": summary}],
         "structuredContent": {
             "daily_stats": daily_stats,
@@ -1111,6 +1114,8 @@ async def _tool_get_dashboard(
             },
         },
     }
+    logger.info(f"[Dashboard] Returning result: {len(daily_stats)} days of data, totals={totals}")
+    return result
 
 
 async def _tool_get_outbox(
