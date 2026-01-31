@@ -322,23 +322,22 @@ TOOLS = [
     },
 ]
 
-# Widget resources for OpenAI Apps SDK
+# MCP Apps SDK resource MIME type
+MCP_APP_MIME_TYPE = "text/html;profile=mcp-app"
+
+# Widget resources for MCP Apps SDK
 WIDGET_RESOURCES = [
     {
         "uri": "ui://widget/target-list.html",
         "name": "Target List Widget",
-        "mimeType": "text/html",
-        "_meta": {
-            "openai/widgetDescription": "Interactive list of leads with lifecycle stages",
-        },
+        "mimeType": MCP_APP_MIME_TYPE,
+        "description": "Interactive list of leads with lifecycle stages",
     },
     {
         "uri": "ui://widget/analytics-summary.html",
         "name": "Analytics Summary Widget",
-        "mimeType": "text/html",
-        "_meta": {
-            "openai/widgetDescription": "Visual summary of email engagement metrics",
-        },
+        "mimeType": MCP_APP_MIME_TYPE,
+        "description": "Visual summary of email engagement metrics",
     },
 ]
 
@@ -438,13 +437,24 @@ async def _handle_read_resource(params: dict[str, Any]) -> dict[str, Any]:
     """Handle resources/read request - serve widget HTML."""
     uri = params.get("uri", "")
 
+    # CSP config for widgets that load MCP Apps SDK from esm.sh
+    csp_config = {
+        "resourceDomains": ["https://esm.sh"],
+        "connectDomains": ["https://esm.sh"],
+    }
+
     if uri == "ui://widget/target-list.html":
         return {
             "contents": [
                 {
                     "uri": uri,
-                    "mimeType": "text/html",
+                    "mimeType": MCP_APP_MIME_TYPE,
                     "text": _get_target_list_widget(),
+                    "_meta": {
+                        "ui": {
+                            "csp": csp_config,
+                        },
+                    },
                 }
             ]
         }
@@ -453,8 +463,13 @@ async def _handle_read_resource(params: dict[str, Any]) -> dict[str, Any]:
             "contents": [
                 {
                     "uri": uri,
-                    "mimeType": "text/html",
+                    "mimeType": MCP_APP_MIME_TYPE,
                     "text": _get_analytics_widget(),
+                    "_meta": {
+                        "ui": {
+                            "csp": csp_config,
+                        },
+                    },
                 }
             ]
         }
@@ -536,8 +551,10 @@ async def _tool_search_targets(
             "summary": {"total": len(formatted)},
         },
         "_meta": {
-            "openai/outputTemplate": "ui://widget/target-list.html",
-            "openai/widgetAccessible": True,
+            "ui": {
+                "resourceUri": "ui://widget/target-list.html",
+                "visibility": ["app", "model"],
+            },
         },
     }
 
@@ -796,8 +813,10 @@ async def _tool_get_analytics(
         "content": [{"type": "text", "text": summary}],
         "structuredContent": {"metrics": metrics, "period_days": days},
         "_meta": {
-            "openai/outputTemplate": "ui://widget/analytics-summary.html",
-            "openai/widgetAccessible": True,
+            "ui": {
+                "resourceUri": "ui://widget/analytics-summary.html",
+                "visibility": ["app", "model"],
+            },
         },
     }
 
@@ -807,7 +826,7 @@ async def _tool_get_analytics(
 # --------------------------------------------------------------------------
 
 def _get_target_list_widget() -> str:
-    """Return target list widget HTML."""
+    """Return target list widget HTML using MCP Apps SDK."""
     return """<!DOCTYPE html>
 <html>
 <head>
@@ -860,62 +879,81 @@ def _get_target_list_widget() -> str:
 </head>
 <body>
     <div id="root"></div>
-    <script>
-        (function() {
-            const root = document.getElementById('root');
-            const isDark = window.openai?.theme === 'dark';
-            if (isDark) document.body.classList.add('dark');
+    <script type="module">
+        import { App, applyDocumentTheme } from 'https://esm.sh/@modelcontextprotocol/ext-apps';
 
-            const data = window.openai?.toolOutput;
-            const targets = data?.structuredContent?.targets || data?.targets || [];
+        const root = document.getElementById('root');
+        let targets = [];
+        let pendingId = null;
 
+        // Create MCP App instance
+        const app = new App({ name: 'Target List', version: '1.0.0' });
+
+        function applyTheme(theme) {
+            if (theme === 'dark') {
+                document.body.classList.add('dark');
+            } else {
+                document.body.classList.remove('dark');
+            }
+        }
+
+        function render() {
             if (!targets.length) {
                 root.innerHTML = '<div class="empty">No leads found</div>';
                 return;
             }
 
-            let pendingId = null;
-
-            function render() {
-                root.innerHTML = '<div class="target-list">' + targets.map(t => `
-                    <div class="target ${pendingId === t.id ? 'loading' : ''}" data-id="${t.id}">
-                        <div class="target-info">
-                            <div class="target-name">${t.name || 'Unknown'}</div>
-                            <div class="target-email">${t.email}</div>
-                        </div>
-                        <span class="stage stage-${t.lifecycle_stage}">${t.lifecycle_stage_name || 'Stage ' + t.lifecycle_stage}</span>
+            root.innerHTML = '<div class="target-list">' + targets.map(t => `
+                <div class="target ${pendingId === t.id ? 'loading' : ''}" data-id="${t.id}">
+                    <div class="target-info">
+                        <div class="target-name">${t.name || 'Unknown'}</div>
+                        <div class="target-email">${t.email}</div>
                     </div>
-                `).join('') + '</div>';
+                    <span class="stage stage-${t.lifecycle_stage}">${t.lifecycle_stage_name || 'Stage ' + t.lifecycle_stage}</span>
+                </div>
+            `).join('') + '</div>';
 
-                root.querySelectorAll('.target').forEach(el => {
-                    el.addEventListener('click', async () => {
-                        if (pendingId) return;
-                        const id = el.dataset.id;
-                        pendingId = id;
+            root.querySelectorAll('.target').forEach(el => {
+                el.addEventListener('click', async () => {
+                    if (pendingId) return;
+                    const id = el.dataset.id;
+                    pendingId = id;
+                    render();
+                    try {
+                        await app.callServerTool({ name: 'get_target', arguments: { target_id: id } });
+                    } catch (e) {
+                        console.error(e);
+                    } finally {
+                        pendingId = null;
                         render();
-                        try {
-                            if (window.openai?.callTool) {
-                                await window.openai.callTool('get_target', { target_id: id });
-                            }
-                        } catch (e) {
-                            console.error(e);
-                        } finally {
-                            pendingId = null;
-                            render();
-                        }
-                    });
+                    }
                 });
-            }
+            });
+        }
 
+        // Register handlers BEFORE connect
+        app.ontoolresult = (params) => {
+            const data = params.structuredContent || params;
+            targets = data?.targets || [];
             render();
-        })();
+        };
+
+        app.onhostcontextchanged = (ctx) => {
+            if (ctx.theme) applyTheme(ctx.theme);
+        };
+
+        // Connect and apply initial state
+        app.connect().then(() => {
+            const ctx = app.getHostContext();
+            if (ctx?.theme) applyTheme(ctx.theme);
+        });
     </script>
 </body>
 </html>"""
 
 
 def _get_analytics_widget() -> str:
-    """Return analytics summary widget HTML."""
+    """Return analytics summary widget HTML using MCP Apps SDK."""
     return """<!DOCTYPE html>
 <html>
 <head>
@@ -974,20 +1012,28 @@ def _get_analytics_widget() -> str:
         .bar-fill.green { background: #059669; }
         .bar-fill.blue { background: #3b82f6; }
         .bar-fill.purple { background: #7c3aed; }
+        .loading { padding: 24px; text-align: center; color: #666; }
     </style>
 </head>
 <body>
-    <div id="root"></div>
-    <script>
-        (function() {
-            const root = document.getElementById('root');
-            const isDark = window.openai?.theme === 'dark';
-            if (isDark) document.body.classList.add('dark');
+    <div id="root"><div class="loading">Loading...</div></div>
+    <script type="module">
+        import { App } from 'https://esm.sh/@modelcontextprotocol/ext-apps';
 
-            const data = window.openai?.toolOutput;
-            const metrics = data?.structuredContent?.metrics || data?.metrics || {};
-            const days = data?.structuredContent?.period_days || 30;
+        const root = document.getElementById('root');
 
+        // Create MCP App instance
+        const app = new App({ name: 'Analytics Summary', version: '1.0.0' });
+
+        function applyTheme(theme) {
+            if (theme === 'dark') {
+                document.body.classList.add('dark');
+            } else {
+                document.body.classList.remove('dark');
+            }
+        }
+
+        function render(metrics, days) {
             root.innerHTML = `
                 <div class="stats-grid">
                     <div class="stat primary">
@@ -1026,7 +1072,25 @@ def _get_analytics_widget() -> str:
                     </div>
                 </div>
             `;
-        })();
+        }
+
+        // Register handlers BEFORE connect
+        app.ontoolresult = (params) => {
+            const data = params.structuredContent || params;
+            const metrics = data?.metrics || {};
+            const days = data?.period_days || 30;
+            render(metrics, days);
+        };
+
+        app.onhostcontextchanged = (ctx) => {
+            if (ctx.theme) applyTheme(ctx.theme);
+        };
+
+        // Connect and apply initial state
+        app.connect().then(() => {
+            const ctx = app.getHostContext();
+            if (ctx?.theme) applyTheme(ctx.theme);
+        });
     </script>
 </body>
 </html>"""
