@@ -422,7 +422,7 @@ async def _dispatch_method(
 def _handle_initialize() -> dict[str, Any]:
     """Handle MCP initialize request."""
     return {
-        "protocolVersion": "2024-11-05",
+        "protocolVersion": "2025-06-18",
         "capabilities": {
             "tools": {},
             "resources": {},
