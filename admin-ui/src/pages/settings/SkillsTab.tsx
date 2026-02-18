@@ -30,7 +30,7 @@ interface Skill {
   enabled: boolean;
 }
 
-export function MavenSkillsTab() {
+export function SkillsTab() {
   const navigate = useNavigate();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [isLoading, setIsLoading] = useState(true);

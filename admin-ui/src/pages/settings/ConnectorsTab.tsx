@@ -27,7 +27,7 @@ interface Connector {
   requires_oauth: boolean;
 }
 
-export function MavenConnectorsTab() {
+export function ConnectorsTab() {
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [connectingId, setConnectingId] = useState<string | null>(null);

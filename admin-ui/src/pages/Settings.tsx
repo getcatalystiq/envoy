@@ -5,9 +5,9 @@ import { MenuButton } from '@/components/Layout';
 import { TargetTypesList } from './TargetTypes';
 import { SegmentsList } from './Segments';
 import { EmailSettings } from './EmailSettings';
-import { MavenSkillsTab } from './settings/MavenSkillsTab';
-import { MavenConnectorsTab } from './settings/MavenConnectorsTab';
-import { MavenInvocationsTab } from './settings/MavenInvocationsTab';
+import { SkillsTab } from './settings/SkillsTab';
+import { ConnectorsTab } from './settings/ConnectorsTab';
+import { ActivityTab } from './settings/ActivityTab';
 import { GraduationRulesTab } from './settings/GraduationRulesTab';
 
 export function Settings() {
@@ -78,15 +78,15 @@ export function Settings() {
         </TabsContent>
 
         <TabsContent value="ai-skills" className="mt-6">
-          <MavenSkillsTab />
+          <SkillsTab />
         </TabsContent>
 
         <TabsContent value="mcp-servers" className="mt-6">
-          <MavenConnectorsTab />
+          <ConnectorsTab />
         </TabsContent>
 
         <TabsContent value="ai-activity" className="mt-6">
-          <MavenInvocationsTab />
+          <ActivityTab />
         </TabsContent>
       </Tabs>
     </div>

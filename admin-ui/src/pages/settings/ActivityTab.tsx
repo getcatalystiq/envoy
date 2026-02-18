@@ -92,7 +92,7 @@ function ToolCallDisplay({ tool }: { tool: ToolCall }) {
   );
 }
 
-export function MavenInvocationsTab() {
+export function ActivityTab() {
   const [invocations, setInvocations] = useState<Invocation[]>([]);
   const [selectedDetail, setSelectedDetail] = useState<InvocationDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
