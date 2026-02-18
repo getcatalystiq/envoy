@@ -1,6 +1,6 @@
 /**
  * AI Skills management - list, create, edit, delete skills.
- * Uses AgentPlane folder-based skill model.
+ * Skills are stored as a JSONB array on the agent via AgentPlane.
  */
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -16,16 +16,16 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { api } from '@/api/client';
-import { Plus, Edit, Trash2, Sparkles, Loader2, Code } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Plus, Edit, Trash2, Sparkles, Loader2 } from 'lucide-react';
 
 interface Skill {
-  folder: string;
-  files?: Array<{ path: string; content: string }>;
+  name: string;
+  slug: string;
+  description: string | null;
+  prompt: string;
 }
 
 export function SkillsTab() {
-  const navigate = useNavigate();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -39,10 +39,6 @@ export function SkillsTab() {
   const [formSlug, setFormSlug] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [formPrompt, setFormPrompt] = useState('');
-
-  const openSkillEditor = (folder: string) => {
-    navigate(`/settings/skills/${encodeURIComponent(folder)}`);
-  };
 
   useEffect(() => {
     loadSkills();
@@ -75,26 +71,10 @@ export function SkillsTab() {
 
   const openEditDialog = (skill: Skill) => {
     setEditingSkill(skill);
-    setFormName(skill.folder);
-    setFormSlug(skill.folder);
-    // Try to extract description and prompt from SKILL.md
-    const skillMd = skill.files?.find(f => f.path === 'SKILL.md');
-    if (skillMd?.content) {
-      const content = skillMd.content;
-      if (content.startsWith('---')) {
-        const end = content.indexOf('---', 3);
-        if (end > 0) {
-          const frontmatter = content.substring(3, end);
-          const nameMatch = frontmatter.match(/name:\s*(.+)/);
-          const descMatch = frontmatter.match(/description:\s*(.+)/);
-          if (nameMatch) setFormName(nameMatch[1].trim());
-          if (descMatch) setFormDescription(descMatch[1].trim());
-          setFormPrompt(content.substring(end + 3).trim());
-        }
-      } else {
-        setFormPrompt(content);
-      }
-    }
+    setFormName(skill.name);
+    setFormSlug(skill.slug);
+    setFormDescription(skill.description || '');
+    setFormPrompt(skill.prompt || '');
   };
 
   const handleCreate = async () => {
@@ -122,7 +102,7 @@ export function SkillsTab() {
     setIsSaving(true);
     setError(null);
     try {
-      await api.patch(`/agentplane/skills/${encodeURIComponent(editingSkill.folder)}`, {
+      await api.patch(`/agentplane/skills/${encodeURIComponent(editingSkill.slug)}`, {
         name: formName,
         description: formDescription || null,
         prompt: formPrompt,
@@ -137,10 +117,10 @@ export function SkillsTab() {
     }
   };
 
-  const handleDelete = async (folder: string) => {
+  const handleDelete = async (slug: string) => {
     setError(null);
     try {
-      await api.delete(`/agentplane/skills/${encodeURIComponent(folder)}`);
+      await api.delete(`/agentplane/skills/${encodeURIComponent(slug)}`);
       setDeleteConfirm(null);
       await loadSkills();
     } catch (err) {
@@ -209,15 +189,18 @@ export function SkillsTab() {
           <div className="space-y-3">
             {skills.map((skill) => (
               <div
-                key={skill.folder}
+                key={skill.slug}
                 className="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
               >
                 <div className="flex items-center gap-4 flex-1 min-w-0">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="font-medium truncate">{skill.folder}</p>
+                      <p className="font-medium truncate">{skill.name}</p>
                     </div>
-                    <p className="text-xs text-gray-400 font-mono">{skill.folder}</p>
+                    {skill.description && (
+                      <p className="text-sm text-gray-500 truncate">{skill.description}</p>
+                    )}
+                    <p className="text-xs text-gray-400 font-mono">{skill.slug}</p>
                   </div>
                 </div>
 
@@ -226,22 +209,14 @@ export function SkillsTab() {
                     variant="ghost"
                     size="sm"
                     onClick={() => openEditDialog(skill)}
-                    title="Edit details"
+                    title="Edit skill"
                   >
                     <Edit className="w-4 h-4" />
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => openSkillEditor(skill.folder)}
-                    title="Open in editor"
-                  >
-                    <Code className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setDeleteConfirm(skill.folder)}
+                    onClick={() => setDeleteConfirm(skill.slug)}
                     title="Delete skill"
                   >
                     <Trash2 className="w-4 h-4 text-red-500" />
@@ -271,7 +246,7 @@ export function SkillsTab() {
                 />
               </div>
               <div>
-                <Label htmlFor="slug">Folder</Label>
+                <Label htmlFor="slug">Slug</Label>
                 <Input
                   id="slug"
                   value={formSlug}
@@ -324,7 +299,7 @@ export function SkillsTab() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingSkill} onOpenChange={() => setEditingSkill(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit Skill</DialogTitle>
           </DialogHeader>
@@ -339,7 +314,7 @@ export function SkillsTab() {
                 />
               </div>
               <div>
-                <Label htmlFor="edit-slug">Folder</Label>
+                <Label htmlFor="edit-slug">Slug</Label>
                 <Input
                   id="edit-slug"
                   value={formSlug}
@@ -354,6 +329,16 @@ export function SkillsTab() {
                 id="edit-description"
                 value={formDescription}
                 onChange={(e) => setFormDescription(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-prompt">Prompt</Label>
+              <Textarea
+                id="edit-prompt"
+                value={formPrompt}
+                onChange={(e) => setFormPrompt(e.target.value)}
+                placeholder="Enter the skill prompt instructions..."
+                className="min-h-[200px] font-mono text-sm"
               />
             </div>
           </div>

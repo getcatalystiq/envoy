@@ -153,10 +153,12 @@ class AgentPlaneClient:
         url = f"{self.base_url}/api/runs"
         headers = self._headers()
 
-        async with httpx.AsyncClient(timeout=STREAMING_TIMEOUT) as client:
-            async with client.stream("POST", url, headers=headers, json=body) as response:
-                response.raise_for_status()
-                return await self._consume_ndjson_stream(response)
+        async with (
+            httpx.AsyncClient(timeout=STREAMING_TIMEOUT) as client,
+            client.stream("POST", url, headers=headers, json=body) as response,
+        ):
+            response.raise_for_status()
+            return await self._consume_ndjson_stream(response)
 
     async def _consume_ndjson_stream(self, response: httpx.Response) -> RunResult:
         """Parse NDJSON stream and return the final result."""
@@ -198,6 +200,59 @@ class AgentPlaneClient:
         if result is None:
             raise AgentPlaneError("Stream ended without result event")
         return result
+
+    # ─── Agent / Skills (tenant API) ────────────────────────────────────
+
+    async def get_agent(self) -> dict:
+        """Get agent details including skills."""
+        url = f"{self.base_url}/api/agents/{self.agent_id}"
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            response = await client.get(url, headers=self._headers())
+            response.raise_for_status()
+            return response.json()
+
+    async def update_agent(self, data: dict) -> dict:
+        """Update agent (e.g. skills array)."""
+        url = f"{self.base_url}/api/agents/{self.agent_id}"
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            response = await client.put(url, headers=self._headers(), json=data)
+            response.raise_for_status()
+            return response.json()
+
+    # ─── Connectors (tenant API) ─────────────────────────────────────
+
+    async def list_connectors(self) -> dict:
+        """List connector statuses for agent's toolkits."""
+        url = f"{self.base_url}/api/agents/{self.agent_id}/connectors"
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            response = await client.get(url, headers=self._headers())
+            response.raise_for_status()
+            return response.json()
+
+    async def save_connector_api_key(self, toolkit: str, api_key: str) -> dict:
+        """Save API key for a connector."""
+        url = f"{self.base_url}/api/agents/{self.agent_id}/connectors"
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            response = await client.post(
+                url, headers=self._headers(), json={"toolkit": toolkit, "api_key": api_key}
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def initiate_connector_oauth(self, toolkit: str) -> dict:
+        """Start OAuth flow, returns redirect_url."""
+        url = f"{self.base_url}/api/agents/{self.agent_id}/connectors/{toolkit}/initiate-oauth"
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            response = await client.post(url, headers=self._headers())
+            response.raise_for_status()
+            return response.json()
+
+    async def delete_connector(self, toolkit: str) -> None:
+        """Remove a connector connection."""
+        url = f"{self.base_url}/api/agents/{self.agent_id}/connectors/{toolkit}"
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            response = await client.delete(url, headers=self._headers())
+            response.raise_for_status()
 
     # ─── Convenience methods ────────────────────────────────────────────
 
