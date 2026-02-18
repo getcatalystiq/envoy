@@ -1,10 +1,14 @@
 """Campaign executor Lambda handler for processing scheduled campaigns."""
 
 import asyncio
+import logging
 from typing import Any
 
 from shared.agentplane_client import AgentPlaneClient
 from shared.database import get_pool
+
+logging.getLogger().setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 50
 MAX_CONCURRENT_CALLS = 10
@@ -17,6 +21,8 @@ async def execute_campaign(
     client = AgentPlaneClient(tenant_id=tenant_id, agent_id=agent_id)
     pool = await get_pool()
 
+    logger.info("Executing campaign %s (org=%s, agent=%s)", campaign_id, org_id, agent_id)
+
     # Fetch campaign and targets
     async with pool.acquire() as conn:
         await conn.execute(f"SET app.current_org_id = '{org_id}'")
@@ -25,6 +31,7 @@ async def execute_campaign(
             "SELECT * FROM campaigns WHERE id = $1", campaign_id
         )
         if not campaign:
+            logger.error("Campaign %s not found", campaign_id)
             return {"error": "Campaign not found"}
 
         # Fetch active targets
@@ -39,10 +46,14 @@ async def execute_campaign(
 
         await conn.execute("RESET app.current_org_id")
 
+    logger.info("Campaign %s: %d active target(s) to process", campaign_id, len(targets))
+
     # Process targets with bounded concurrency
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_CALLS)
+    failed_count = 0
 
     async def process_target(target: dict) -> dict | None:
+        nonlocal failed_count
         async with semaphore:
             try:
                 content = await client.invoke_skill(
@@ -65,6 +76,8 @@ async def execute_campaign(
                     "content": content,
                 }
             except Exception:
+                failed_count += 1
+                logger.exception("AI content generation failed for target %s (%s)", target["id"], target.get("email", ""))
                 return None
 
     # Process in batches
@@ -101,7 +114,8 @@ async def execute_campaign(
 
         await conn.execute("RESET app.current_org_id")
 
-    return {"queued": len(results)}
+    logger.info("Campaign %s: queued %d email(s), %d failed", campaign_id, len(results), failed_count)
+    return {"queued": len(results), "failed": failed_count}
 
 
 async def process_scheduled_campaigns() -> dict[str, Any]:
@@ -122,6 +136,11 @@ async def process_scheduled_campaigns() -> dict[str, Any]:
             LIMIT 10
             """
         )
+
+    if not campaigns:
+        logger.info("No scheduled campaigns to process")
+    else:
+        logger.info("Found %d scheduled campaign(s)", len(campaigns))
 
     results = []
     for campaign in campaigns:
@@ -153,7 +172,9 @@ async def process_scheduled_campaigns() -> dict[str, Any]:
 
 async def main() -> dict[str, Any]:
     """Main executor entry point."""
-    return await process_scheduled_campaigns()
+    result = await process_scheduled_campaigns()
+    logger.info("Campaign executor result: %s", result)
+    return result
 
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:

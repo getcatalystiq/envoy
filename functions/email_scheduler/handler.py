@@ -1,7 +1,7 @@
 """Email scheduler Lambda handler for batch campaign execution."""
 
 import asyncio
-import json
+import logging
 import os
 from typing import Any
 
@@ -9,6 +9,9 @@ from shared.agentplane_client import AgentPlaneClient
 from shared.database import get_pool, get_transaction
 from shared.queries import OutboxQueries
 from shared.ses_client import SESClient
+
+logging.getLogger().setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 50
 MAX_CONCURRENT_CALLS = 10
@@ -23,6 +26,8 @@ async def execute_campaign(
 
     pool = await get_pool()
 
+    logger.info("Executing campaign %s (org=%s, agent=%s)", campaign_id, org_id, agent_id)
+
     # Fetch campaign and targets
     async with pool.acquire() as conn:
         await conn.execute(f"SET app.current_org_id = '{org_id}'")
@@ -31,6 +36,7 @@ async def execute_campaign(
             "SELECT * FROM campaigns WHERE id = $1", campaign_id
         )
         if not campaign:
+            logger.error("Campaign %s not found", campaign_id)
             return {"error": "Campaign not found"}
 
         # Fetch targets
@@ -45,10 +51,14 @@ async def execute_campaign(
 
         await conn.execute("RESET app.current_org_id")
 
+    logger.info("Campaign %s: %d active target(s) to process", campaign_id, len(targets))
+
     # Process targets with bounded concurrency
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_CALLS)
+    failed_count = 0
 
     async def process_target(target: dict) -> dict | None:
+        nonlocal failed_count
         async with semaphore:
             try:
                 content = await client.generate_content(
@@ -62,6 +72,8 @@ async def execute_campaign(
                     "content": content,
                 }
             except Exception:
+                failed_count += 1
+                logger.exception("AI content generation failed for target %s (%s)", target["id"], target.get("email", ""))
                 return None
 
     # Process in batches
@@ -98,7 +110,8 @@ async def execute_campaign(
 
         await conn.execute("RESET app.current_org_id")
 
-    return {"processed": len(results)}
+    logger.info("Campaign %s: queued %d email(s), %d failed", campaign_id, len(results), failed_count)
+    return {"processed": len(results), "failed": failed_count}
 
 
 async def process_scheduled_campaigns() -> dict[str, Any]:
@@ -119,6 +132,11 @@ async def process_scheduled_campaigns() -> dict[str, Any]:
             LIMIT 10
             """
         )
+
+    if not campaigns:
+        logger.info("No scheduled campaigns to process")
+    else:
+        logger.info("Found %d scheduled campaign(s)", len(campaigns))
 
     results = []
     for campaign in campaigns:
@@ -168,6 +186,11 @@ async def send_queued_emails() -> dict[str, Any]:
             """
         )
 
+    if not sends:
+        logger.info("No queued emails to send")
+    else:
+        logger.info("Found %d queued email(s) to send", len(sends))
+
     sent_count = 0
     failed_count = 0
 
@@ -207,9 +230,10 @@ async def send_queued_emails() -> dict[str, Any]:
                         {"message_id": result["message_id"]},
                     )
                 sent_count += 1
+                logger.info("Sent email %s to %s (ses_id=%s)", send["id"], send["email"], result["message_id"])
             else:
                 error_msg = f"{result.get('error_code')}: {result.get('error_message')}"
-                print(f"    Email failed: {send['email']} - {error_msg}")
+                logger.error("Email send failed: %s to %s - %s", send["id"], send["email"], error_msg)
                 await conn.execute(
                     """
                     UPDATE email_sends SET status = 'failed' WHERE id = $1
@@ -232,10 +256,12 @@ async def main() -> dict[str, Any]:
     # Send queued emails
     email_result = await send_queued_emails()
 
-    return {
+    result = {
         "campaigns": campaign_result,
         "emails": email_result,
     }
+    logger.info("Email scheduler result: %s", result)
+    return result
 
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:

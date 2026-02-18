@@ -4,11 +4,8 @@ import asyncio
 import logging
 from typing import Any, Optional
 
-# Configure logging for local dev visibility
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(levelname)s:%(name)s:%(message)s",
-)
+# Lambda logging setup - force root logger to INFO so all loggers emit
+logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 from shared.agentplane_client import AgentPlaneClient
@@ -50,6 +47,9 @@ async def process_enrollment(
     """Process a single enrollment."""
     org_id = str(enrollment["organization_id"])
     enrollment_id = enrollment["id"]
+    target_email = enrollment.get("target_email", "unknown")
+
+    logger.info("Processing enrollment %s for target %s (org=%s)", enrollment_id, target_email, org_id)
 
     async with pool.acquire() as conn:
         await conn.execute(f"SET app.current_org_id = '{org_id}'")
@@ -62,6 +62,7 @@ async def process_enrollment(
                 await SequenceQueries.complete_enrollment(
                     conn, enrollment_id, status=status, exit_reason=reason
                 )
+                logger.info("Enrollment %s exited: %s", enrollment_id, reason)
                 return {"enrollment_id": str(enrollment_id), "action": "exited", "reason": reason}
 
             # Get current step
@@ -76,6 +77,7 @@ async def process_enrollment(
                 await SequenceQueries.complete_enrollment(
                     conn, enrollment_id, status="completed"
                 )
+                logger.info("Enrollment %s completed: no more steps", enrollment_id)
                 return {"enrollment_id": str(enrollment_id), "action": "completed", "reason": "no_more_steps"}
 
             # Select content (priority-based)
@@ -102,11 +104,13 @@ async def process_enrollment(
                     await SequenceQueries.advance_enrollment(
                         conn, enrollment_id, next_step["default_delay_hours"]
                     )
+                    logger.info("Enrollment %s skipped step %d: no content", enrollment_id, enrollment["current_step_position"])
                     return {"enrollment_id": str(enrollment_id), "action": "skipped", "reason": "no_content"}
                 else:
                     await SequenceQueries.complete_enrollment(
                         conn, enrollment_id, status="completed"
                     )
+                    logger.info("Enrollment %s completed (no content on last step)", enrollment_id)
                     return {"enrollment_id": str(enrollment_id), "action": "completed"}
 
             # Get subject from content
@@ -131,7 +135,9 @@ async def process_enrollment(
 
                 # Process block-level personalization if any blocks have it enabled
                 # Skip if AgentPlane is not configured for this organization
-                if has_personalized_blocks(builder_content) and agentplane is not None:
+                has_personalized = has_personalized_blocks(builder_content)
+                if has_personalized and agentplane is not None:
+                    logger.info("Starting AI personalization for enrollment %s (%s)", enrollment_id, target_email)
                     target_data = {
                         "email": enrollment.get("target_email"),
                         "first_name": enrollment.get("target_first_name"),
@@ -145,12 +151,30 @@ async def process_enrollment(
                         target_data=target_data,
                         ai_client=agentplane,
                     )
+                    if errors:
+                        logger.warning(
+                            "Personalization had %d error(s) for enrollment %s: %s",
+                            len(errors),
+                            enrollment_id,
+                            "; ".join(f"{e.block_id}: {e.error}" for e in errors),
+                        )
+                    else:
+                        logger.info("Personalization succeeded for enrollment %s", enrollment_id)
+                elif has_personalized and agentplane is None:
+                    logger.warning(
+                        "Enrollment %s has personalized blocks but AgentPlane is not configured for org %s",
+                        enrollment_id,
+                        org_id,
+                    )
+                else:
+                    logger.info("Enrollment %s: no personalized blocks, skipping AI", enrollment_id)
 
                 # Compile builder_content to HTML and wrap in document structure
                 body = compile_builder_content(builder_content)
                 body = wrap_email_body(body)
             else:
                 # Fallback to legacy content_body
+                logger.info("Enrollment %s: using legacy content_body", enrollment_id)
                 body = content.get("content_body", "")
 
             # Determine if auto-approval is enabled for this step
@@ -169,6 +193,14 @@ async def process_enrollment(
                 status=outbox_status,
             )
 
+            logger.info(
+                "Created outbox item %s for enrollment %s (status=%s, subject=%s)",
+                outbox_item["id"],
+                enrollment_id,
+                outbox_status,
+                subject[:80] if subject else "(empty)",
+            )
+
             # If auto-approved, create email_sends record immediately
             if not approval_required:
                 await conn.execute(
@@ -184,7 +216,7 @@ async def process_enrollment(
                     body,
                     outbox_item["id"],
                 )
-                logger.info(f"Auto-approved outbox item {outbox_item['id']} for enrollment {enrollment_id}")
+                logger.info("Auto-approved and queued email for enrollment %s (outbox=%s)", enrollment_id, outbox_item["id"])
 
             # Record execution (outbox item created)
             await SequenceQueries.record_execution(
@@ -233,7 +265,10 @@ async def process_due_enrollments() -> dict[str, Any]:
         enrollments = await SequenceQueries.get_due_enrollments(conn, limit=BATCH_SIZE)
 
     if not enrollments:
+        logger.info("No due enrollments found")
         return {"processed": 0, "results": []}
+
+    logger.info("Found %d due enrollment(s)", len(enrollments))
 
     # Group by organization for client reuse
     org_enrollments: dict[str, list[dict]] = {}
@@ -250,11 +285,12 @@ async def process_due_enrollments() -> dict[str, Any]:
         async with semaphore:
             try:
                 return await process_enrollment(pool, enrollment, client, ses)
-            except Exception as e:
+            except Exception:
+                logger.exception("Error processing enrollment %s", enrollment["id"])
                 return {
                     "enrollment_id": str(enrollment["id"]),
                     "action": "error",
-                    "error": str(e),
+                    "error": str(enrollment["id"]),
                 }
 
     # Process each organization's enrollments
@@ -271,11 +307,17 @@ async def process_due_enrollments() -> dict[str, Any]:
                 tenant_id=agentplane_tenant_id,
                 agent_id=agentplane_agent_id,
             )
+            logger.info("AgentPlane configured for org %s (agent=%s)", org_id, agentplane_agent_id)
+        else:
+            logger.warning("AgentPlane NOT configured for org %s - AI personalization disabled", org_id)
 
         org_results = await asyncio.gather(
             *[process_with_semaphore(e, client) for e in org_enrollments_list]
         )
         results.extend(org_results)
+
+    error_count = sum(1 for r in results if r.get("action") == "error")
+    logger.info("Processed %d enrollment(s), %d error(s)", len(results), error_count)
 
     return {
         "processed": len(results),
@@ -285,7 +327,9 @@ async def process_due_enrollments() -> dict[str, Any]:
 
 async def main() -> dict[str, Any]:
     """Main scheduler entry point."""
-    return await process_due_enrollments()
+    result = await process_due_enrollments()
+    logger.info("Sequence scheduler result: %s", result)
+    return result
 
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
