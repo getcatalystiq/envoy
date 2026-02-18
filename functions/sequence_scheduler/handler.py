@@ -156,7 +156,7 @@ async def process_enrollment(
                     builder_content, errors = await process_personalization(
                         builder_content=builder_content,
                         target_data=target_data,
-                        maven_client=agentplane,
+                        ai_client=agentplane,
                     )
 
                 # Compile builder_content to HTML and wrap in document structure

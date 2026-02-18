@@ -268,7 +268,7 @@ class AgentPlaneClient:
         result = await self._admin_request("GET", f"/api/admin/runs/{run_id}")
         return result if result else {}
 
-    # ─── Runtime invocation (replaces maven.invoke_skill) ────────────────
+    # ─── Runtime invocation ─────────────────────────────────────────────
 
     @retry(
         retry=retry_if_exception(_is_retryable),
@@ -336,10 +336,10 @@ class AgentPlaneClient:
             raise AgentPlaneError("Stream ended without result event")
         return result
 
-    # ─── Convenience methods (matching MavenClient interface) ────────────
+    # ─── Convenience methods ────────────────────────────────────────────
 
     async def invoke_skill(self, skill_name: str, context: dict[str, Any]) -> dict[str, Any]:
-        """Invoke a skill via run_agent. Compatible with MavenClient Protocol."""
+        """Invoke a skill via run_agent."""
         prompt = f"use skill {skill_name}\n\nContext:\n{json.dumps(context, indent=2, default=str)}"
         result = await self.run_agent(prompt)
         return self._parse_skill_response(result.output)

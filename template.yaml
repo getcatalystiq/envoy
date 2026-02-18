@@ -64,16 +64,6 @@ Parameters:
     Description: JWT issuer URL
     Default: "https://envoy.app"
 
-  MavenServiceAPIURL:
-    Type: String
-    Description: Maven Service API URL for skill management
-    Default: "https://maven.app/api"
-
-  MavenAdminAPIURL:
-    Type: String
-    Description: Maven Admin API URL for admin operations
-    Default: "https://admin.maven.app"
-
   AgentPlaneAPIURL:
     Type: String
     Description: AgentPlane API base URL
@@ -222,8 +212,8 @@ Resources:
           JWT_PUBLIC_KEY: !Ref JWTPublicKey
           JWT_ISSUER: !Ref JWTIssuer
           JWT_SECRET_ARN: !Ref OAuthJWTSecret
-          MAVEN_SERVICE_API_URL: !Ref MavenServiceAPIURL
-          MAVEN_ADMIN_API_URL: !Ref MavenAdminAPIURL
+
+
           AGENTPLANE_API_URL: !Ref AgentPlaneAPIURL
           AGENTPLANE_API_KEY: !Ref AgentPlaneAPIKey
           API_BASE_URL: !Ref ApiBaseURL
@@ -378,7 +368,7 @@ Resources:
           AURORA_CLUSTER_ARN: !GetAtt AuroraCluster.DBClusterArn
           AURORA_DATABASE: envoy
           AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
-          MAVEN_SERVICE_API_URL: !Ref MavenServiceAPIURL
+
           AGENTPLANE_API_URL: !Ref AgentPlaneAPIURL
           AGENTPLANE_API_KEY: !Ref AgentPlaneAPIKey
           API_BASE_URL: !Ref ApiBaseURL

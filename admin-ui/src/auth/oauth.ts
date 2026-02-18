@@ -559,7 +559,7 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * Set token from external source (e.g., Maven widget embedding)
+ * Set token from external source (e.g., widget embedding)
  * Used when Envoy is embedded in another app that provides auth
  */
 export function setExternalToken(token: string, expiresIn: number = 3600): void {

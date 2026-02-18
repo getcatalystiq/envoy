@@ -811,7 +811,7 @@ async def userinfo(
     """Return user information for the authenticated user.
 
     Accepts only Envoy OAuth tokens (JWTs signed by Envoy with HS256).
-    Users must connect their Envoy account via OAuth in Maven's Connectors.
+    Users must connect their Envoy account via OAuth in AgentPlane's Connectors.
     """
     # Extract bearer token
     if not authorization.lower().startswith("bearer "):

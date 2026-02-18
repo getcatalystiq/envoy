@@ -25,7 +25,7 @@ export function EmbeddedApp() {
       return;
     }
 
-    // Handle messages from parent Maven widget
+    // Handle messages from parent widget
     const handleMessage = async (event: MessageEvent) => {
       const { data } = event;
 
@@ -35,7 +35,7 @@ export function EmbeddedApp() {
         console.log('[Envoy] Has token:', !!data.token);
         console.log('[Envoy] Has connectorToken:', !!data.connectorToken);
 
-        // Receive auth context from Maven widget
+        // Receive auth context from parent widget
         if (data.token || data.connectorToken) {
           const token = data.connectorToken || data.token;
           console.log('[Envoy] Using token type:', data.connectorToken ? 'connectorToken' : 'token');

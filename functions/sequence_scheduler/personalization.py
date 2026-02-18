@@ -9,8 +9,8 @@ from typing import Any, Protocol
 logger = logging.getLogger(__name__)
 
 
-class MavenClient(Protocol):
-    """Protocol for Maven client dependency."""
+class AIClient(Protocol):
+    """Protocol for AI client dependency."""
 
     async def invoke_skill(
         self, skill_name: str, payload: dict[str, Any]
@@ -66,7 +66,7 @@ def _parse_metadata(metadata: Any) -> dict[str, Any] | None:
 
 
 def sanitize_target_data(target: dict[str, Any]) -> dict[str, Any]:
-    """Strict allowlist for target data passed to Maven, including metadata."""
+    """Strict allowlist for target data passed to AI, including metadata."""
     result: dict[str, Any] = {
         field: str(target[field])[:100]
         for field in ALLOWED_TARGET_FIELDS
@@ -127,7 +127,7 @@ async def _personalize_block(
     block_id: str,
     block: dict[str, Any],
     target_data: dict[str, Any],
-    maven_client: MavenClient,
+    ai_client: AIClient,
     semaphore: asyncio.Semaphore,
     timeout_seconds: float = 300.0,
 ) -> tuple[str, dict[str, Any] | None, PersonalizationError | None]:
@@ -147,7 +147,7 @@ async def _personalize_block(
     async with semaphore:
         try:
             result = await asyncio.wait_for(
-                maven_client.invoke_skill(
+                ai_client.invoke_skill(
                     "envoy-content-generation",
                     {
                         "mode": "block_personalization",
@@ -160,7 +160,7 @@ async def _personalize_block(
                 timeout=timeout_seconds,
             )
 
-            # Extract personalized content from Maven response
+            # Extract personalized content from AI response
             personalized = result.get("body") or result.get("content") or original_content
             updated_block = apply_personalized_content(block, personalized)
             return block_id, updated_block, None
@@ -177,20 +177,20 @@ async def _personalize_block(
 async def process_personalization(
     builder_content: dict[str, dict[str, Any]],
     target_data: dict[str, Any],
-    maven_client: MavenClient,
+    ai_client: AIClient,
     max_concurrent: int = 5,
     timeout_seconds: float = 300.0,
 ) -> tuple[dict[str, dict[str, Any]], list[PersonalizationError]]:
     """
-    Process blocks with personalization enabled through Maven.
+    Process blocks with personalization enabled through AI.
     Uses parallel processing with bounded concurrency.
 
     Args:
         builder_content: The document's block dictionary from builder_content
         target_data: Target/recipient data for personalization
-        maven_client: Maven client instance
-        max_concurrent: Maximum concurrent Maven calls (default: 5)
-        timeout_seconds: Timeout per Maven call (default: 300.0)
+        ai_client: AI client instance
+        max_concurrent: Maximum concurrent AI calls (default: 5)
+        timeout_seconds: Timeout per AI call (default: 300.0)
 
     Returns:
         Tuple of (modified_content, errors) where errors contains
@@ -204,7 +204,7 @@ async def process_personalization(
 
     tasks = [
         _personalize_block(
-            block_id, block, target_data, maven_client, semaphore, timeout_seconds
+            block_id, block, target_data, ai_client, semaphore, timeout_seconds
         )
         for block_id, block in modified_content.items()
     ]
