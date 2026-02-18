@@ -15,7 +15,7 @@ from shared.queries import (
     TargetQueries,
 )
 
-from app.dependencies import CurrentOrg, DBConnection, MavenDep, TokenClaims
+from app.dependencies import AgentPlaneDep, CurrentOrg, DBConnection, TokenClaims
 
 router = APIRouter()
 
@@ -168,7 +168,7 @@ TOOLS = [
     {
         "name": "generate_email_content",
         "description": "Generate personalized AI email content for a specific lead. "
-                      "Uses Maven AI to create contextual, engaging emails.",
+                      "Uses AI to create contextual, engaging emails.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -190,7 +190,7 @@ TOOLS = [
             "title": "Generate Email",
             "readOnlyHint": False,
             "destructiveHint": False,
-            "openWorldHint": True,  # Calls external Maven AI
+            "openWorldHint": True,  # Calls external AI service
         },
     },
     {
@@ -438,7 +438,7 @@ TOOLS = [
                 "prompt": {
                     "type": "string",
                     "maxLength": 1000,
-                    "description": "Personalization instructions for Maven AI",
+                    "description": "Personalization instructions for AI",
                 },
             },
             "required": ["step_id", "block_id", "enabled"],
@@ -452,7 +452,7 @@ TOOLS = [
     },
     {
         "name": "preview_block_personalization",
-        "description": "Preview what Maven AI would generate for a personalized block without scheduling. "
+        "description": "Preview what AI would generate for a personalized block without scheduling. "
                       "Useful for testing personalization prompts before enabling them.",
         "inputSchema": {
             "type": "object",
@@ -532,7 +532,7 @@ async def mcp_handler(
     mcp_request: MCPRequest,
     org_id: CurrentOrg,
     db: DBConnection,
-    maven: MavenDep,
+    agentplane: AgentPlaneDep,
     claims: TokenClaims,
 ) -> MCPResponse:
     """Handle MCP JSON-RPC requests."""
@@ -542,7 +542,7 @@ async def mcp_handler(
             params=mcp_request.params,
             org_id=org_id,
             db=db,
-            maven=maven,
+            agentplane=agentplane,
             claims=claims,
         )
         return MCPResponse(id=mcp_request.id, result=result)
@@ -568,7 +568,7 @@ async def _dispatch_method(
     params: dict[str, Any],
     org_id: str,
     db: Any,
-    maven: Any,
+    agentplane: Any,
     claims: dict[str, Any],
 ) -> dict[str, Any]:
     """Dispatch MCP method to handler."""
@@ -578,7 +578,7 @@ async def _dispatch_method(
         case "tools/list":
             return _handle_list_tools()
         case "tools/call":
-            return await _handle_call_tool(params, org_id, db, maven)
+            return await _handle_call_tool(params, org_id, db, agentplane)
         case "resources/list":
             return _handle_list_resources()
         case "resources/read":
@@ -655,7 +655,7 @@ async def _handle_call_tool(
     params: dict[str, Any],
     org_id: str,
     db: Any,
-    maven: Any,
+    agentplane: Any,
 ) -> dict[str, Any]:
     """Handle tools/call request."""
     tool_name = params.get("name")
@@ -669,7 +669,7 @@ async def _handle_call_tool(
         case "get_target":
             return await _tool_get_target(args, org_id, db)
         case "generate_email_content":
-            return await _tool_generate_email_content(args, org_id, db, maven)
+            return await _tool_generate_email_content(args, org_id, db, agentplane)
         case "list_campaigns":
             return await _tool_list_campaigns(args, org_id, db)
         case "start_campaign":
@@ -691,7 +691,7 @@ async def _handle_call_tool(
         case "set_block_personalization":
             return await _tool_set_block_personalization(args, org_id, db)
         case "preview_block_personalization":
-            return await _tool_preview_block_personalization(args, org_id, db, maven)
+            return await _tool_preview_block_personalization(args, org_id, db, agentplane)
         case _:
             raise ValueError(f"Unknown tool: {tool_name}")
 
@@ -840,7 +840,7 @@ async def _tool_generate_email_content(
     args: dict[str, Any],
     org_id: str,
     db: Any,
-    maven: Any,
+    agentplane: Any,
 ) -> dict[str, Any]:
     """Generate email content tool implementation."""
     target_id = args.get("target_id")
@@ -856,8 +856,8 @@ async def _tool_generate_email_content(
 
     content_type = args.get("content_type", "educational")
 
-    # Generate via Maven AI
-    result = await maven.generate_content(
+    # Generate via AgentPlane AI
+    result = await agentplane.generate_content(
         target=target,
         content_type=content_type,
     )
@@ -2412,7 +2412,7 @@ async def _tool_preview_block_personalization(
     args: dict[str, Any],
     org_id: str,
     db: Any,
-    maven: Any,
+    agentplane: Any,
 ) -> dict[str, Any]:
     """Preview personalization output for a block without scheduling."""
     step_id = args.get("step_id")
@@ -2476,7 +2476,7 @@ async def _tool_preview_block_personalization(
             "isError": True,
         }
 
-    # Generate preview via Maven
+    # Generate preview via AgentPlane
     try:
         target_data = {
             "email": target.get("email"),
@@ -2488,7 +2488,7 @@ async def _tool_preview_block_personalization(
         if target.get("metadata"):
             target_data["metadata"] = target["metadata"]
 
-        result = await maven.invoke_skill(
+        result = await agentplane.invoke_skill(
             "envoy-content-generation",
             {
                 "mode": "block_personalization",

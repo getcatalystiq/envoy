@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from app.dependencies import CurrentOrg, DBConnection, MavenDep
+from app.dependencies import AgentPlaneDep, CurrentOrg, DBConnection
 from app.schemas import (
     ContentCreate,
     ContentGenerate,
@@ -123,7 +123,7 @@ async def generate_content(
     data: ContentGenerate,
     org_id: CurrentOrg,
     db: DBConnection,
-    maven: MavenDep,
+    agentplane: AgentPlaneDep,
 ) -> ContentResponse:
     """Generate content using AI for a specific target."""
     # Rate limit: 10/minute (configured in main.py via decorator would need slowapi)
@@ -134,8 +134,8 @@ async def generate_content(
     if not target:
         raise HTTPException(status_code=404, detail="Target not found")
 
-    # Generate content via Maven
-    result = await maven.generate_content(
+    # Generate content via AgentPlane
+    result = await agentplane.generate_content(
         target=target,
         content_type=data.content_type,
     )
@@ -164,7 +164,7 @@ async def generate_content_to_outbox(
     data: ContentGenerateToOutbox,
     org_id: CurrentOrg,
     db: DBConnection,
-    maven: MavenDep,
+    agentplane: AgentPlaneDep,
 ) -> OutboxResponse:
     """Generate content using AI and send to outbox for human review."""
     # Get target
@@ -172,13 +172,13 @@ async def generate_content_to_outbox(
     if not target:
         raise HTTPException(status_code=404, detail="Target not found")
 
-    # Generate content via Maven
-    result = await maven.generate_content(
+    # Generate content via AgentPlane
+    result = await agentplane.generate_content(
         target=target,
         content_type=data.content_type,
     )
 
-    # Extract confidence score from Maven result if available
+    # Extract confidence score if available
     confidence_score = result.get("confidence_score")
 
     # Create outbox item for human review (raw - will be added to email layout later)

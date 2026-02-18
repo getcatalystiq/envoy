@@ -11,9 +11,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+from shared.agentplane_client import AgentPlaneClient
 from shared.database import get_pool
 from shared.email_wrapper import wrap_email_body
-from shared.maven_client import MavenClient
 from shared.queries import OutboxQueries, SequenceQueries
 from shared.ses_client import SESClient
 
@@ -57,7 +57,7 @@ async def check_exit_conditions(target: dict) -> Optional[tuple[str, str]]:
 async def process_enrollment(
     pool: Any,
     enrollment: dict,
-    maven: Optional[MavenClient],
+    agentplane: Optional[AgentPlaneClient],
     ses: SESClient,
 ) -> dict[str, Any]:
     """Process a single enrollment."""
@@ -127,12 +127,7 @@ async def process_enrollment(
 
             # Check for builder_content (new block-based email builder)
             builder_content = step.get("builder_content")
-            print(f"  [DEBUG] Step {step['id']} - builder_content type: {type(builder_content).__name__}, blocks: {len(builder_content) if builder_content else 0}")
             if builder_content:
-                # Log personalization BEFORE template replacement
-                before_count = _count_personalized(builder_content)
-                print(f"  [DEBUG] BEFORE template replacement: {before_count} personalized blocks")
-
                 # Replace template variables ({{first_name}}, etc.) in all blocks first
                 target_data_for_templates = {
                     "email": enrollment.get("target_email"),
@@ -147,16 +142,9 @@ async def process_enrollment(
                     target_id=str(enrollment["target_id"]),
                 )
 
-                # Log personalization AFTER template replacement
-                after_count = _count_personalized(builder_content)
-                print(f"  [DEBUG] AFTER template replacement: {after_count} personalized blocks")
-
-                if before_count > 0 and after_count == 0:
-                    print("  [DEBUG] BUG: Template replacement lost personalization data!")
-
                 # Process block-level personalization if any blocks have it enabled
-                # Skip if Maven is not configured for this organization
-                if has_personalized_blocks(builder_content) and maven is not None:
+                # Skip if AgentPlane is not configured for this organization
+                if has_personalized_blocks(builder_content) and agentplane is not None:
                     target_data = {
                         "email": enrollment.get("target_email"),
                         "first_name": enrollment.get("target_first_name"),
@@ -168,7 +156,7 @@ async def process_enrollment(
                     builder_content, errors = await process_personalization(
                         builder_content=builder_content,
                         target_data=target_data,
-                        maven_client=maven,
+                        maven_client=agentplane,
                     )
 
                 # Compile builder_content to HTML and wrap in document structure
@@ -212,7 +200,6 @@ async def process_enrollment(
                 logger.info(f"Auto-approved outbox item {outbox_item['id']} for enrollment {enrollment_id}")
 
             # Record execution (outbox item created)
-            # Note: content_id is omitted since content is stored directly on the step
             await SequenceQueries.record_execution(
                 conn,
                 org_id=org_id,
@@ -261,7 +248,7 @@ async def process_due_enrollments() -> dict[str, Any]:
     if not enrollments:
         return {"processed": 0, "results": []}
 
-    # Group by organization for Maven client reuse
+    # Group by organization for client reuse
     org_enrollments: dict[str, list[dict]] = {}
     for e in enrollments:
         org_id = str(e["organization_id"])
@@ -272,10 +259,10 @@ async def process_due_enrollments() -> dict[str, Any]:
     results = []
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_PROCESSING)
 
-    async def process_with_semaphore(enrollment: dict, maven: MavenClient) -> dict:
+    async def process_with_semaphore(enrollment: dict, client: AgentPlaneClient) -> dict:
         async with semaphore:
             try:
-                return await process_enrollment(pool, enrollment, maven, ses)
+                return await process_enrollment(pool, enrollment, client, ses)
             except Exception as e:
                 return {
                     "enrollment_id": str(enrollment["id"]),
@@ -285,21 +272,21 @@ async def process_due_enrollments() -> dict[str, Any]:
 
     # Process each organization's enrollments
     for org_id, org_enrollments_list in org_enrollments.items():
-        # Get Maven config from first enrollment (same for all in org)
+        # Get AgentPlane config from first enrollment (same for all in org)
         first_enrollment = org_enrollments_list[0]
-        maven_tenant_id = first_enrollment.get("maven_tenant_id") or org_id
-        maven_service_runtime_arn = first_enrollment.get("maven_service_runtime_arn")
+        agentplane_tenant_id = first_enrollment.get("agentplane_tenant_id") or org_id
+        agentplane_agent_id = first_enrollment.get("agentplane_agent_id")
 
-        # Maven is optional - only create client if configured
-        maven = None
-        if maven_service_runtime_arn:
-            maven = MavenClient(
-                tenant_id=maven_tenant_id,
-                service_runtime_arn=maven_service_runtime_arn,
+        # AgentPlane is optional - only create client if configured
+        client = None
+        if agentplane_agent_id:
+            client = AgentPlaneClient(
+                tenant_id=agentplane_tenant_id,
+                agent_id=agentplane_agent_id,
             )
 
         org_results = await asyncio.gather(
-            *[process_with_semaphore(e, maven) for e in org_enrollments_list]
+            *[process_with_semaphore(e, client) for e in org_enrollments_list]
         )
         results.extend(org_results)
 

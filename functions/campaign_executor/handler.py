@@ -3,18 +3,18 @@
 import asyncio
 from typing import Any
 
+from shared.agentplane_client import AgentPlaneClient
 from shared.database import get_pool
-from shared.maven_client import MavenClient
 
 BATCH_SIZE = 50
-MAX_CONCURRENT_MAVEN_CALLS = 10
+MAX_CONCURRENT_CALLS = 10
 
 
 async def execute_campaign(
-    campaign_id: str, org_id: str, maven_tenant_id: str, service_runtime_arn: str
+    campaign_id: str, org_id: str, tenant_id: str, agent_id: str
 ) -> dict[str, Any]:
     """Execute a campaign - generate content and queue emails for sending."""
-    maven = MavenClient(tenant_id=maven_tenant_id, service_runtime_arn=service_runtime_arn)
+    client = AgentPlaneClient(tenant_id=tenant_id, agent_id=agent_id)
     pool = await get_pool()
 
     # Fetch campaign and targets
@@ -40,12 +40,12 @@ async def execute_campaign(
         await conn.execute("RESET app.current_org_id")
 
     # Process targets with bounded concurrency
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_MAVEN_CALLS)
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_CALLS)
 
     async def process_target(target: dict) -> dict | None:
         async with semaphore:
             try:
-                content = await maven.invoke_skill(
+                content = await client.invoke_skill(
                     "envoy-content-generation",
                     {
                         "target": {
@@ -112,12 +112,12 @@ async def process_scheduled_campaigns() -> dict[str, Any]:
         # Get scheduled campaigns
         campaigns = await conn.fetch(
             """
-            SELECT c.*, o.maven_tenant_id, o.maven_service_runtime_arn
+            SELECT c.*, o.agentplane_tenant_id, o.agentplane_agent_id
             FROM campaigns c
             JOIN organizations o ON o.id = c.organization_id
             WHERE c.status = 'scheduled'
               AND c.scheduled_at <= NOW()
-              AND o.maven_service_runtime_arn IS NOT NULL
+              AND o.agentplane_agent_id IS NOT NULL
             ORDER BY c.scheduled_at ASC
             LIMIT 10
             """
@@ -140,8 +140,8 @@ async def process_scheduled_campaigns() -> dict[str, Any]:
         result = await execute_campaign(
             str(campaign["id"]),
             str(campaign["organization_id"]),
-            str(campaign["maven_tenant_id"]) if campaign["maven_tenant_id"] else str(campaign["organization_id"]),
-            campaign["maven_service_runtime_arn"],
+            str(campaign["agentplane_tenant_id"]) if campaign["agentplane_tenant_id"] else str(campaign["organization_id"]),
+            campaign["agentplane_agent_id"],
         )
         results.append({
             "campaign_id": str(campaign["id"]),

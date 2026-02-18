@@ -5,20 +5,20 @@ import json
 import os
 from typing import Any
 
+from shared.agentplane_client import AgentPlaneClient
 from shared.database import get_pool, get_transaction
-from shared.maven_client import MavenClient
 from shared.queries import OutboxQueries
 from shared.ses_client import SESClient
 
 BATCH_SIZE = 50
-MAX_CONCURRENT_MAVEN_CALLS = 10
+MAX_CONCURRENT_CALLS = 10
 
 
 async def execute_campaign(
-    campaign_id: str, org_id: str, maven_tenant_id: str, maven_service_runtime_arn: str
+    campaign_id: str, org_id: str, tenant_id: str, agent_id: str
 ) -> dict[str, Any]:
     """Execute a campaign with batch processing and parallelization."""
-    maven = MavenClient(tenant_id=maven_tenant_id, service_runtime_arn=maven_service_runtime_arn)
+    client = AgentPlaneClient(tenant_id=tenant_id, agent_id=agent_id)
     ses = SESClient()
 
     pool = await get_pool()
@@ -33,37 +33,11 @@ async def execute_campaign(
         if not campaign:
             return {"error": "Campaign not found"}
 
-        skills = json.loads(campaign["skills"]) if isinstance(campaign["skills"], str) else campaign["skills"]
-
-        # Fetch targets with engagement history
+        # Fetch targets
         targets = await conn.fetch(
             """
-            WITH target_engagements AS (
-                SELECT
-                    t.id as target_id,
-                    COALESCE(json_agg(json_build_object(
-                        'event_type', ee.event_type,
-                        'occurred_at', ee.occurred_at
-                    )) FILTER (WHERE ee.id IS NOT NULL), '[]') as engagements
-                FROM targets t
-                LEFT JOIN email_sends es ON es.target_id = t.id
-                LEFT JOIN engagement_events ee ON ee.send_id = es.id
-                WHERE t.organization_id = $1 AND t.status = 'active'
-                GROUP BY t.id
-            ),
-            target_sends AS (
-                SELECT target_id,
-                    COALESCE(json_agg(json_build_object(
-                        'sent_at', sent_at,
-                        'opened_at', opened_at
-                    ) ORDER BY sent_at DESC) FILTER (WHERE id IS NOT NULL), '[]') as past_sends
-                FROM email_sends
-                GROUP BY target_id
-            )
-            SELECT t.*, te.engagements, COALESCE(ts.past_sends, '[]') as past_sends
+            SELECT t.*
             FROM targets t
-            LEFT JOIN target_engagements te ON te.target_id = t.id
-            LEFT JOIN target_sends ts ON ts.target_id = t.id
             WHERE t.organization_id = $1 AND t.status = 'active'
             """,
             org_id,
@@ -72,44 +46,20 @@ async def execute_campaign(
         await conn.execute("RESET app.current_org_id")
 
     # Process targets with bounded concurrency
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_MAVEN_CALLS)
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_CALLS)
 
     async def process_target(target: dict) -> dict | None:
         async with semaphore:
             try:
-                # Parallel Maven calls
-                stage_task = maven.assess_stage(
-                    dict(target),
-                    json.loads(target["engagements"]) if isinstance(target["engagements"], str) else target["engagements"],
-                )
-                content_task = maven.generate_content(
+                content = await client.generate_content(
                     dict(target),
                     "educational",
                 )
-                timing_task = maven.get_optimal_timing(
-                    dict(target),
-                    json.loads(target["past_sends"]) if isinstance(target["past_sends"], str) else target["past_sends"],
-                )
-
-                stage, content, timing = await asyncio.gather(
-                    stage_task, content_task, timing_task,
-                    return_exceptions=True,
-                )
-
-                # Handle partial failures
-                if isinstance(stage, Exception):
-                    stage = {"stage": target["lifecycle_stage"]}
-                if isinstance(content, Exception):
-                    return None
-                if isinstance(timing, Exception):
-                    timing = {"recommended_time": None}
 
                 return {
                     "target_id": str(target["id"]),
                     "email": target["email"],
-                    "stage": stage,
                     "content": content,
-                    "timing": timing,
                 }
             except Exception:
                 return None
@@ -132,8 +82,8 @@ async def execute_campaign(
             await conn.execute(
                 """
                 INSERT INTO email_sends
-                    (organization_id, campaign_id, target_id, email, subject, body, status, scheduled_at)
-                VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7)
+                    (organization_id, campaign_id, target_id, email, subject, body, status)
+                VALUES ($1, $2, $3, $4, $5, $6, 'queued')
                 ON CONFLICT (campaign_id, target_id)
                 WHERE campaign_id IS NOT NULL AND target_id IS NOT NULL AND status NOT IN ('failed', 'bounced')
                 DO NOTHING
@@ -144,7 +94,6 @@ async def execute_campaign(
                 r["email"],
                 r["content"].get("subject", ""),
                 r["content"].get("body", ""),
-                r["timing"].get("recommended_time"),
             )
 
         await conn.execute("RESET app.current_org_id")
@@ -160,12 +109,12 @@ async def process_scheduled_campaigns() -> dict[str, Any]:
         # Get scheduled campaigns (no RLS for this admin query)
         campaigns = await conn.fetch(
             """
-            SELECT c.*, o.maven_tenant_id, o.maven_service_runtime_arn
+            SELECT c.*, o.agentplane_tenant_id, o.agentplane_agent_id
             FROM campaigns c
             JOIN organizations o ON o.id = c.organization_id
             WHERE c.status = 'scheduled'
               AND c.scheduled_at <= NOW()
-              AND o.maven_service_runtime_arn IS NOT NULL
+              AND o.agentplane_agent_id IS NOT NULL
             ORDER BY c.scheduled_at ASC
             LIMIT 10
             """
@@ -188,8 +137,8 @@ async def process_scheduled_campaigns() -> dict[str, Any]:
         result = await execute_campaign(
             str(campaign["id"]),
             str(campaign["organization_id"]),
-            str(campaign["maven_tenant_id"]) if campaign["maven_tenant_id"] else str(campaign["organization_id"]),
-            str(campaign["maven_service_runtime_arn"]),
+            str(campaign["agentplane_tenant_id"]) if campaign["agentplane_tenant_id"] else str(campaign["organization_id"]),
+            campaign["agentplane_agent_id"],
         )
         results.append({
             "campaign_id": str(campaign["id"]),
