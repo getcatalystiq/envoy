@@ -32,6 +32,19 @@ class SkillUpdate(BaseModel):
     prompt: str | None = None
 
 
+class FileCreate(BaseModel):
+    path: str = Field(..., min_length=1)
+    file_type: str = "file"
+
+
+class FileSave(BaseModel):
+    content: str
+
+
+class SkillPublish(BaseModel):
+    skill_slug: str
+
+
 class ApiKeyBody(BaseModel):
     api_key: str = Field(..., min_length=1)
 
@@ -76,6 +89,14 @@ def _build_skill_md(name: str, description: str | None, prompt: str) -> str:
     lines.append("")
     lines.append(prompt)
     return "\n".join(lines)
+
+
+def _find_raw_skill(agent: dict[str, Any], folder: str) -> tuple[int, dict[str, Any]]:
+    """Find a raw skill by folder name. Returns (index, skill) or raises 404."""
+    for i, skill in enumerate(agent.get("skills", [])):
+        if skill.get("folder") == folder:
+            return i, skill
+    raise HTTPException(status_code=404, detail="Skill not found")
 
 
 def _normalize_connector(raw: dict[str, Any]) -> dict[str, Any]:
@@ -190,13 +211,20 @@ async def create_skill(body: SkillCreate, client: AgentPlaneDep):
 
 @router.get("/skills/{skill_slug}")
 async def get_skill(skill_slug: str, client: AgentPlaneDep):
-    """Get a single skill by slug."""
+    """Get a single skill by slug (SkillBuilder format: prompt=null for file mode)."""
     try:
         agent = await client.get_agent()
-        for skill in agent.get("skills", []):
-            if skill.get("folder") == skill_slug:
-                return _parse_skill(skill)
-        raise HTTPException(status_code=404, detail="Skill not found")
+        _, raw = _find_raw_skill(agent, skill_slug)
+        parsed = _parse_skill(raw)
+        # Return SkillBuilder-compatible shape: prompt=null triggers file-based editor
+        return {
+            "id": parsed["slug"],
+            "name": parsed["name"],
+            "slug": parsed["slug"],
+            "description": parsed["description"],
+            "prompt": None,
+            "enabled": True,
+        }
     except HTTPException:
         raise
     except HTTPStatusError as e:
@@ -219,10 +247,18 @@ async def update_skill(skill_slug: str, body: SkillUpdate, client: AgentPlaneDep
                 name = updates.get("name", parsed["name"])
                 desc = updates.get("description", parsed["description"])
                 prompt = updates.get("prompt", parsed["prompt"])
-                skills[i] = {
-                    "folder": skill_slug,
-                    "files": [{"path": "SKILL.md", "content": _build_skill_md(name, desc, prompt)}],
-                }
+                # Update SKILL.md but preserve other files
+                new_md = _build_skill_md(name, desc, prompt)
+                files = skill.get("files", [])
+                updated = False
+                for f in files:
+                    if f.get("path") == "SKILL.md":
+                        f["content"] = new_md
+                        updated = True
+                        break
+                if not updated:
+                    files.append({"path": "SKILL.md", "content": new_md})
+                skills[i] = {"folder": skill_slug, "files": files}
                 await client.update_agent({"skills": skills})
                 return _parse_skill(skills[i])
 
@@ -247,6 +283,142 @@ async def delete_skill(skill_slug: str, client: AgentPlaneDep):
             raise HTTPException(status_code=404, detail="Skill not found")
 
         await client.update_agent({"skills": new_skills})
+    except HTTPException:
+        raise
+    except HTTPStatusError as e:
+        _raise_for_upstream_error(e)
+    except (ConnectError, TimeoutException) as e:
+        raise HTTPException(status_code=503, detail="AgentPlane service unavailable") from e
+
+
+# ─── Skill Files ────────────────────────────────────────────────────────────
+
+
+@router.get("/skills/{skill_slug}/files")
+async def list_skill_files(skill_slug: str, client: AgentPlaneDep):
+    """List files in a skill folder."""
+    try:
+        agent = await client.get_agent()
+        _, raw = _find_raw_skill(agent, skill_slug)
+        files = [
+            {
+                "name": f["path"].rsplit("/", 1)[-1],
+                "path": f["path"],
+                "type": "file",
+                "size": len(f.get("content", "")),
+            }
+            for f in raw.get("files", [])
+        ]
+        return {"files": files}
+    except HTTPException:
+        raise
+    except HTTPStatusError as e:
+        _raise_for_upstream_error(e)
+    except (ConnectError, TimeoutException) as e:
+        raise HTTPException(status_code=503, detail="AgentPlane service unavailable") from e
+
+
+@router.get("/skills/{skill_slug}/files/{file_path:path}")
+async def get_skill_file(skill_slug: str, file_path: str, client: AgentPlaneDep):
+    """Get content of a file in a skill folder."""
+    try:
+        agent = await client.get_agent()
+        _, raw = _find_raw_skill(agent, skill_slug)
+        for f in raw.get("files", []):
+            if f.get("path") == file_path:
+                return {"content": f.get("content", "")}
+        raise HTTPException(status_code=404, detail="File not found")
+    except HTTPException:
+        raise
+    except HTTPStatusError as e:
+        _raise_for_upstream_error(e)
+    except (ConnectError, TimeoutException) as e:
+        raise HTTPException(status_code=503, detail="AgentPlane service unavailable") from e
+
+
+@router.put("/skills/{skill_slug}/files/{file_path:path}")
+async def save_skill_file(
+    skill_slug: str, file_path: str, body: FileSave, client: AgentPlaneDep
+):
+    """Save content to a file in a skill folder."""
+    try:
+        agent = await client.get_agent()
+        idx, raw = _find_raw_skill(agent, skill_slug)
+        skills = agent["skills"]
+
+        files = raw.get("files", [])
+        for f in files:
+            if f.get("path") == file_path:
+                f["content"] = body.content
+                break
+        else:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        skills[idx] = {**raw, "files": files}
+        await client.update_agent({"skills": skills})
+    except HTTPException:
+        raise
+    except HTTPStatusError as e:
+        _raise_for_upstream_error(e)
+    except (ConnectError, TimeoutException) as e:
+        raise HTTPException(status_code=503, detail="AgentPlane service unavailable") from e
+
+
+@router.post("/skills/{skill_slug}/files")
+async def create_skill_file(skill_slug: str, body: FileCreate, client: AgentPlaneDep):
+    """Create a new file in a skill folder."""
+    try:
+        agent = await client.get_agent()
+        idx, raw = _find_raw_skill(agent, skill_slug)
+        skills = agent["skills"]
+
+        files = raw.get("files", [])
+        if any(f.get("path") == body.path for f in files):
+            raise HTTPException(status_code=409, detail="File already exists")
+
+        files.append({"path": body.path, "content": ""})
+        skills[idx] = {**raw, "files": files}
+        await client.update_agent({"skills": skills})
+        return {"path": body.path}
+    except HTTPException:
+        raise
+    except HTTPStatusError as e:
+        _raise_for_upstream_error(e)
+    except (ConnectError, TimeoutException) as e:
+        raise HTTPException(status_code=503, detail="AgentPlane service unavailable") from e
+
+
+@router.delete("/skills/{skill_slug}/files/{file_path:path}")
+async def delete_skill_file(skill_slug: str, file_path: str, client: AgentPlaneDep):
+    """Delete a file from a skill folder."""
+    try:
+        agent = await client.get_agent()
+        idx, raw = _find_raw_skill(agent, skill_slug)
+        skills = agent["skills"]
+
+        files = raw.get("files", [])
+        new_files = [f for f in files if f.get("path") != file_path]
+        if len(new_files) == len(files):
+            raise HTTPException(status_code=404, detail="File not found")
+
+        skills[idx] = {**raw, "files": new_files}
+        await client.update_agent({"skills": skills})
+    except HTTPException:
+        raise
+    except HTTPStatusError as e:
+        _raise_for_upstream_error(e)
+    except (ConnectError, TimeoutException) as e:
+        raise HTTPException(status_code=503, detail="AgentPlane service unavailable") from e
+
+
+@router.post("/skills/{skill_slug}/publish")
+async def publish_skill(skill_slug: str, client: AgentPlaneDep):
+    """Publish a skill (saves current state as published)."""
+    try:
+        agent = await client.get_agent()
+        _find_raw_skill(agent, skill_slug)
+        # Skills are live on save via agent update; publish is a no-op confirmation.
+        return {"status": "published"}
     except HTTPException:
         raise
     except HTTPStatusError as e:

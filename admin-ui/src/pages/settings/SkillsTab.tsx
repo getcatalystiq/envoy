@@ -16,7 +16,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { api } from '@/api/client';
-import { Plus, Edit, Trash2, Sparkles, Loader2 } from 'lucide-react';
+import { Plus, Edit, Trash2, Sparkles, Loader2, Code } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface Skill {
   name: string;
@@ -26,6 +27,7 @@ interface Skill {
 }
 
 export function SkillsTab() {
+  const navigate = useNavigate();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -209,9 +211,17 @@ export function SkillsTab() {
                     variant="ghost"
                     size="sm"
                     onClick={() => openEditDialog(skill)}
-                    title="Edit skill"
+                    title="Edit details"
                   >
                     <Edit className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => navigate(`/settings/skills/${encodeURIComponent(skill.slug)}`)}
+                    title="Open in editor"
+                  >
+                    <Code className="w-4 h-4" />
                   </Button>
                   <Button
                     variant="ghost"
