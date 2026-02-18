@@ -1,5 +1,6 @@
 /**
- * AI Activity - view recent invocations and transcripts.
+ * AI Activity - view recent agent runs and transcripts.
+ * Uses AgentPlane runs model with NDJSON transcript events.
  */
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -12,57 +13,52 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { api } from '@/api/client';
-import { Activity, MessageSquare, Clock, Loader2, ChevronRight, RefreshCw, Wrench, ChevronDown, ChevronUp } from 'lucide-react';
+import { Activity, MessageSquare, Clock, Loader2, ChevronRight, RefreshCw, Wrench, ChevronDown, ChevronUp, DollarSign, RotateCw } from 'lucide-react';
 
-interface Invocation {
-  session_id: string;
-  last_modified: string;
-  size: number;
-}
-
-interface ToolCall {
-  type: string;
-  name: string;
-  input?: Record<string, unknown>;
-}
-
-interface Message {
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: string;
-  context?: unknown;
-  tools?: ToolCall[];
-  cache_metrics?: unknown;
-}
-
-interface InvocationDetail {
-  sessionId: string;
-  tenantId: string;
-  userId: string;
+interface Run {
+  id: string;
+  status: string;
   created_at: string;
-  updated_at: string;
-  messages: Message[];
-  metadata?: unknown;
+  cost_usd?: number;
+  turns?: number;
+  duration_ms?: number;
 }
 
-function ToolCallDisplay({ tool }: { tool: ToolCall }) {
+interface TranscriptEvent {
+  type: string;
+  data?: Record<string, unknown>;
+  timestamp?: string;
+}
+
+interface RunDetail {
+  id: string;
+  status: string;
+  created_at: string;
+  cost_usd?: number;
+  turns?: number;
+  duration_ms?: number;
+  transcript?: TranscriptEvent[];
+}
+
+function TranscriptEventCard({ event }: { event: TranscriptEvent }) {
   const [expanded, setExpanded] = useState(false);
 
-  const getToolBadgeColor = (type: string) => {
+  const getEventColor = (type: string) => {
     switch (type) {
-      case 'builtin':
-        return 'bg-blue-100 text-blue-800';
-      case 'mcp':
+      case 'tool_use':
         return 'bg-purple-100 text-purple-800';
+      case 'tool_result':
+        return 'bg-blue-100 text-blue-800';
+      case 'text':
+        return 'bg-gray-100 text-gray-800';
+      case 'error':
+        return 'bg-red-100 text-red-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
   };
 
-  const formatToolName = (name: string) => {
-    // Remove mcp__ prefix and format nicely
-    return name.replace(/^mcp__/, '').replace(/__/g, ' → ');
-  };
+  const isToolEvent = event.type === 'tool_use' || event.type === 'tool_result';
 
   return (
     <div className="border border-gray-200 rounded-md bg-white">
@@ -71,20 +67,27 @@ function ToolCallDisplay({ tool }: { tool: ToolCall }) {
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-2">
-          <Wrench className="w-3 h-3 text-gray-400" />
-          <Badge variant="outline" className={`text-xs ${getToolBadgeColor(tool.type)}`}>
-            {tool.type}
+          {isToolEvent && <Wrench className="w-3 h-3 text-gray-400" />}
+          <Badge variant="outline" className={`text-xs ${getEventColor(event.type)}`}>
+            {event.type}
           </Badge>
-          <span className="text-sm font-mono">{formatToolName(tool.name)}</span>
+          {event.data?.name && (
+            <span className="text-sm font-mono">{String(event.data.name)}</span>
+          )}
+          {event.data?.text && (
+            <span className="text-sm text-gray-600 truncate max-w-xs">
+              {String(event.data.text).slice(0, 80)}
+            </span>
+          )}
         </div>
-        {tool.input && (
+        {event.data && (
           expanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />
         )}
       </button>
-      {expanded && tool.input && (
+      {expanded && event.data && (
         <div className="p-2 border-t border-gray-200 bg-gray-50">
           <pre className="text-xs font-mono whitespace-pre-wrap overflow-x-auto">
-            {JSON.stringify(tool.input, null, 2)}
+            {JSON.stringify(event.data, null, 2)}
           </pre>
         </div>
       )}
@@ -92,23 +95,37 @@ function ToolCallDisplay({ tool }: { tool: ToolCall }) {
   );
 }
 
+function StatusBadge({ status }: { status: string }) {
+  const variants: Record<string, string> = {
+    completed: 'bg-green-100 text-green-800',
+    running: 'bg-blue-100 text-blue-800',
+    failed: 'bg-red-100 text-red-800',
+    cancelled: 'bg-gray-100 text-gray-800',
+  };
+  return (
+    <Badge variant="outline" className={variants[status] || 'bg-gray-100 text-gray-800'}>
+      {status}
+    </Badge>
+  );
+}
+
 export function ActivityTab() {
-  const [invocations, setInvocations] = useState<Invocation[]>([]);
-  const [selectedDetail, setSelectedDetail] = useState<InvocationDetail | null>(null);
+  const [runs, setRuns] = useState<Run[]>([]);
+  const [selectedDetail, setSelectedDetail] = useState<RunDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadInvocations();
+    loadRuns();
   }, []);
 
-  const loadInvocations = async () => {
+  const loadRuns = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.get<{ invocations: Invocation[] }>('/maven/invocations');
-      setInvocations(data?.invocations || []);
+      const data = await api.get<{ runs: Run[] }>('/agentplane/runs');
+      setRuns(data?.runs || []);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -116,11 +133,11 @@ export function ActivityTab() {
     }
   };
 
-  const loadDetail = async (sessionId: string) => {
+  const loadDetail = async (runId: string) => {
     setIsLoadingDetail(true);
     setError(null);
     try {
-      const data = await api.get<InvocationDetail>(`/maven/invocations/${sessionId}`);
+      const data = await api.get<RunDetail>(`/agentplane/runs/${runId}`);
       setSelectedDetail(data);
     } catch (err) {
       setError((err as Error).message);
@@ -148,10 +165,14 @@ export function ActivityTab() {
     return new Date(dateStr).toLocaleString();
   };
 
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  const formatDuration = (ms: number) => {
+    if (ms < 1000) return `${ms}ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+    return `${(ms / 60000).toFixed(1)}m`;
+  };
+
+  const formatCost = (usd: number) => {
+    return `$${usd.toFixed(4)}`;
   };
 
   if (isLoading) {
@@ -174,10 +195,10 @@ export function ActivityTab() {
               AI Activity
             </CardTitle>
             <CardDescription>
-              Recent AI invocations and conversation transcripts
+              Recent AI agent runs and conversation transcripts
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={loadInvocations}>
+          <Button variant="outline" size="sm" onClick={loadRuns}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
           </Button>
@@ -190,31 +211,46 @@ export function ActivityTab() {
           </div>
         )}
 
-        {invocations.length === 0 ? (
+        {runs.length === 0 ? (
           <div className="text-center py-8">
             <Activity className="w-12 h-12 mx-auto text-gray-300 mb-4" />
             <p className="text-gray-500">No AI activity recorded yet.</p>
           </div>
         ) : (
           <div className="space-y-2">
-            {invocations.map((inv) => (
+            {runs.map((run) => (
               <button
-                key={inv.session_id}
+                key={run.id}
                 className="w-full flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-left"
-                onClick={() => loadDetail(inv.session_id)}
+                onClick={() => loadDetail(run.id)}
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <MessageSquare className="w-5 h-5 text-gray-400 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm font-mono truncate">
-                      {inv.session_id}
+                      {run.id}
                     </p>
                     <div className="flex items-center gap-3 text-sm text-gray-500">
+                      <StatusBadge status={run.status} />
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        {formatDate(inv.last_modified)}
+                        {formatDate(run.created_at)}
                       </span>
-                      <span>{formatSize(inv.size)}</span>
+                      {run.turns !== undefined && (
+                        <span className="flex items-center gap-1">
+                          <RotateCw className="w-3 h-3" />
+                          {run.turns} turns
+                        </span>
+                      )}
+                      {run.cost_usd !== undefined && (
+                        <span className="flex items-center gap-1">
+                          <DollarSign className="w-3 h-3" />
+                          {formatCost(run.cost_usd)}
+                        </span>
+                      )}
+                      {run.duration_ms !== undefined && (
+                        <span>{formatDuration(run.duration_ms)}</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -231,7 +267,7 @@ export function ActivityTab() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <MessageSquare className="w-5 h-5" />
-              Conversation Transcript
+              Run Transcript
             </DialogTitle>
           </DialogHeader>
           {isLoadingDetail ? (
@@ -241,50 +277,25 @@ export function ActivityTab() {
           ) : selectedDetail ? (
             <div className="flex-1 overflow-y-auto space-y-4 pr-2">
               <div className="text-sm text-gray-500 mb-4 p-3 bg-gray-50 rounded-lg">
-                <p><strong>Session:</strong> {selectedDetail.sessionId}</p>
-                <p><strong>Started:</strong> {formatFullDate(selectedDetail.created_at)}</p>
-                <p><strong>Messages:</strong> {selectedDetail.messages?.length || 0}</p>
-              </div>
-              {selectedDetail.messages?.map((msg, idx) => (
-                <div key={idx} className="space-y-2">
-                  <div
-                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div
-                      className={`max-w-[85%] rounded-lg p-3 ${
-                        msg.role === 'user'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-gray-100 text-gray-900'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-medium opacity-70">
-                          {msg.role === 'user' ? 'User' : 'Assistant'}
-                        </span>
-                        <span className="text-xs opacity-50">
-                          {formatFullDate(msg.timestamp)}
-                        </span>
-                      </div>
-                      <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                    </div>
-                  </div>
-
-                  {/* Tool Calls */}
-                  {msg.tools && msg.tools.length > 0 && (
-                    <div className="ml-4 space-y-1">
-                      <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
-                        <Wrench className="w-3 h-3" />
-                        <span>{msg.tools.length} tool call{msg.tools.length > 1 ? 's' : ''}</span>
-                      </div>
-                      <div className="space-y-1">
-                        {msg.tools.map((tool, toolIdx) => (
-                          <ToolCallDisplay key={toolIdx} tool={tool} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                <div className="grid grid-cols-2 gap-2">
+                  <p><strong>Run:</strong> {selectedDetail.id}</p>
+                  <p><strong>Status:</strong> <StatusBadge status={selectedDetail.status} /></p>
+                  <p><strong>Started:</strong> {formatFullDate(selectedDetail.created_at)}</p>
+                  {selectedDetail.turns !== undefined && <p><strong>Turns:</strong> {selectedDetail.turns}</p>}
+                  {selectedDetail.cost_usd !== undefined && <p><strong>Cost:</strong> {formatCost(selectedDetail.cost_usd)}</p>}
+                  {selectedDetail.duration_ms !== undefined && <p><strong>Duration:</strong> {formatDuration(selectedDetail.duration_ms)}</p>}
                 </div>
-              ))}
+              </div>
+
+              {selectedDetail.transcript && selectedDetail.transcript.length > 0 ? (
+                <div className="space-y-1">
+                  {selectedDetail.transcript.map((event, idx) => (
+                    <TranscriptEventCard key={idx} event={event} />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500 text-center py-4">No transcript events</p>
+              )}
             </div>
           ) : null}
         </DialogContent>

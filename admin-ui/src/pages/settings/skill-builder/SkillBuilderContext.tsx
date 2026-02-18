@@ -151,7 +151,7 @@ export function SkillBuilderProvider({ children, skill }: SkillBuilderProviderPr
         skill_name: state.skillName,
       });
       const response = await api.get<{ files: SkillFile[] }>(
-        `/maven/skills/${state.skillId}/files?${params}`
+        `/agentplane/skills/${state.skillId}/files?${params}`
       );
       dispatch({ type: 'SET_FILES', payload: response.files || [] });
     } catch (error) {
@@ -165,7 +165,7 @@ export function SkillBuilderProvider({ children, skill }: SkillBuilderProviderPr
 
     try {
       const response = await api.get<{ content: string }>(
-        `/maven/skills/${state.skillId}/files/${encodeURIComponent(path)}`
+        `/agentplane/skills/${state.skillId}/files/${encodeURIComponent(path)}`
       );
       dispatch({ type: 'SET_FILE_CONTENT', payload: { path, content: response.content } });
       dispatch({ type: 'INCREMENT_RELOAD_VERSION' });
@@ -179,7 +179,7 @@ export function SkillBuilderProvider({ children, skill }: SkillBuilderProviderPr
 
     try {
       const response = await api.get<{ content: string }>(
-        `/maven/skills/${state.skillId}/files/${encodeURIComponent(path)}`
+        `/agentplane/skills/${state.skillId}/files/${encodeURIComponent(path)}`
       );
       dispatch({ type: 'SET_FILE_CONTENT', payload: { path, content: response.content } });
       dispatch({ type: 'OPEN_TAB', payload: path });
@@ -194,7 +194,7 @@ export function SkillBuilderProvider({ children, skill }: SkillBuilderProviderPr
 
     dispatch({ type: 'SET_SAVING', payload: true });
     try {
-      await api.put(`/maven/skills/${state.skillId}/files/${encodeURIComponent(path)}`, {
+      await api.put(`/agentplane/skills/${state.skillId}/files/${encodeURIComponent(path)}`, {
         content: state.fileContents[path],
       });
       dispatch({ type: 'MARK_SAVED', payload: path });
@@ -220,7 +220,7 @@ export function SkillBuilderProvider({ children, skill }: SkillBuilderProviderPr
     if (!state.skillId) return;
 
     try {
-      await api.post(`/maven/skills/${state.skillId}/files`, {
+      await api.post(`/agentplane/skills/${state.skillId}/files`, {
         path,
         file_type: type,
       });
@@ -239,7 +239,7 @@ export function SkillBuilderProvider({ children, skill }: SkillBuilderProviderPr
     if (!state.skillId) return;
 
     try {
-      await api.delete(`/maven/skills/${state.skillId}/files/${encodeURIComponent(path)}`);
+      await api.delete(`/agentplane/skills/${state.skillId}/files/${encodeURIComponent(path)}`);
 
       // Close tab if open
       if (state.openTabs.includes(path)) {
@@ -263,7 +263,7 @@ export function SkillBuilderProvider({ children, skill }: SkillBuilderProviderPr
       await saveAllFiles();
 
       const response = await api.post<{ error?: string }>(
-        `/maven/skills/${state.skillId}/publish`,
+        `/agentplane/skills/${state.skillId}/publish`,
         { skill_slug: state.skillSlug }
       );
 

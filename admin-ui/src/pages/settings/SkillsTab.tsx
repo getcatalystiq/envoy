@@ -1,6 +1,6 @@
 /**
  * AI Skills management - list, create, edit, delete skills.
- * Simple prompt editor (no complex builder).
+ * Uses AgentPlane folder-based skill model.
  */
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -22,12 +21,8 @@ import { Plus, Edit, Trash2, Sparkles, Loader2, Code } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface Skill {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  prompt: string;
-  enabled: boolean;
+  folder: string;
+  files?: Array<{ path: string; content: string }>;
 }
 
 export function SkillsTab() {
@@ -46,8 +41,8 @@ export function SkillsTab() {
   const [formDescription, setFormDescription] = useState('');
   const [formPrompt, setFormPrompt] = useState('');
 
-  const openSkillEditor = (skillId: string) => {
-    navigate(`/settings/skills/${skillId}`);
+  const openSkillEditor = (folder: string) => {
+    navigate(`/settings/skills/${encodeURIComponent(folder)}`);
   };
 
   useEffect(() => {
@@ -58,7 +53,7 @@ export function SkillsTab() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.get<{ skills: Skill[] }>('/maven/skills');
+      const data = await api.get<{ skills: Skill[] }>('/agentplane/skills');
       setSkills(data?.skills || []);
     } catch (err) {
       setError((err as Error).message);
@@ -81,17 +76,33 @@ export function SkillsTab() {
 
   const openEditDialog = (skill: Skill) => {
     setEditingSkill(skill);
-    setFormName(skill.name);
-    setFormSlug(skill.slug);
-    setFormDescription(skill.description || '');
-    setFormPrompt(skill.prompt);
+    setFormName(skill.folder);
+    setFormSlug(skill.folder);
+    // Try to extract description and prompt from SKILL.md
+    const skillMd = skill.files?.find(f => f.path === 'SKILL.md');
+    if (skillMd?.content) {
+      const content = skillMd.content;
+      if (content.startsWith('---')) {
+        const end = content.indexOf('---', 3);
+        if (end > 0) {
+          const frontmatter = content.substring(3, end);
+          const nameMatch = frontmatter.match(/name:\s*(.+)/);
+          const descMatch = frontmatter.match(/description:\s*(.+)/);
+          if (nameMatch) setFormName(nameMatch[1].trim());
+          if (descMatch) setFormDescription(descMatch[1].trim());
+          setFormPrompt(content.substring(end + 3).trim());
+        }
+      } else {
+        setFormPrompt(content);
+      }
+    }
   };
 
   const handleCreate = async () => {
     setIsSaving(true);
     setError(null);
     try {
-      await api.post('/maven/skills', {
+      await api.post('/agentplane/skills', {
         name: formName,
         slug: formSlug,
         description: formDescription || null,
@@ -112,9 +123,10 @@ export function SkillsTab() {
     setIsSaving(true);
     setError(null);
     try {
-      await api.patch(`/maven/skills/${editingSkill.id}`, {
+      await api.patch(`/agentplane/skills/${encodeURIComponent(editingSkill.folder)}`, {
         name: formName,
         description: formDescription || null,
+        prompt: formPrompt,
       });
       setEditingSkill(null);
       resetForm();
@@ -126,22 +138,10 @@ export function SkillsTab() {
     }
   };
 
-  const handleToggleEnabled = async (skill: Skill) => {
+  const handleDelete = async (folder: string) => {
     setError(null);
     try {
-      await api.patch(`/maven/skills/${skill.id}`, {
-        enabled: !skill.enabled,
-      });
-      await loadSkills();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
-  const handleDelete = async (skillId: string) => {
-    setError(null);
-    try {
-      await api.delete(`/maven/skills/${skillId}`);
+      await api.delete(`/agentplane/skills/${encodeURIComponent(folder)}`);
       setDeleteConfirm(null);
       await loadSkills();
     } catch (err) {
@@ -210,31 +210,19 @@ export function SkillsTab() {
           <div className="space-y-3">
             {skills.map((skill) => (
               <div
-                key={skill.id}
+                key={skill.folder}
                 className="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
               >
                 <div className="flex items-center gap-4 flex-1 min-w-0">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="font-medium truncate">{skill.name}</p>
-                      <Badge variant={skill.enabled ? 'default' : 'secondary'}>
-                        {skill.enabled ? 'Enabled' : 'Disabled'}
-                      </Badge>
+                      <p className="font-medium truncate">{skill.folder}</p>
                     </div>
-                    {skill.description && (
-                      <p className="text-sm text-gray-500 truncate">
-                        {skill.description}
-                      </p>
-                    )}
-                    <p className="text-xs text-gray-400 font-mono">{skill.slug}</p>
+                    <p className="text-xs text-gray-400 font-mono">{skill.folder}</p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 ml-4">
-                  <Switch
-                    checked={skill.enabled}
-                    onCheckedChange={() => handleToggleEnabled(skill)}
-                  />
                   <Button
                     variant="ghost"
                     size="sm"
@@ -246,7 +234,7 @@ export function SkillsTab() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => openSkillEditor(skill.id)}
+                    onClick={() => openSkillEditor(skill.folder)}
                     title="Open in editor"
                   >
                     <Code className="w-4 h-4" />
@@ -254,7 +242,7 @@ export function SkillsTab() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setDeleteConfirm(skill.id)}
+                    onClick={() => setDeleteConfirm(skill.folder)}
                     title="Delete skill"
                   >
                     <Trash2 className="w-4 h-4 text-red-500" />
@@ -284,7 +272,7 @@ export function SkillsTab() {
                 />
               </div>
               <div>
-                <Label htmlFor="slug">Slug</Label>
+                <Label htmlFor="slug">Folder</Label>
                 <Input
                   id="slug"
                   value={formSlug}
@@ -352,7 +340,7 @@ export function SkillsTab() {
                 />
               </div>
               <div>
-                <Label htmlFor="edit-slug">Slug</Label>
+                <Label htmlFor="edit-slug">Folder</Label>
                 <Input
                   id="edit-slug"
                   value={formSlug}

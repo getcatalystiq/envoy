@@ -128,7 +128,7 @@ function SimplePromptEditor({ skill, onSkillUpdate }: { skill: Skill; onSkillUpd
     setIsSaving(true);
     setError(null);
     try {
-      await api.patch(`/maven/skills/${skill.id}`, { prompt });
+      await api.patch(`/agentplane/skills/${skill.id}`, { prompt });
       onSkillUpdate({ ...skill, prompt });
     } catch (err) {
       setError((err as Error).message);
@@ -238,7 +238,7 @@ export function SkillBuilder() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.get<Skill>(`/maven/skills/${id}`);
+      const data = await api.get<Skill>(`/agentplane/skills/${id}`);
       setSkill(data);
     } catch (err) {
       setError((err as Error).message);
