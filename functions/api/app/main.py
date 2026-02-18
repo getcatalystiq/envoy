@@ -7,7 +7,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.routers import auth, targets, content, campaigns, send, analytics, setup, mcp, webhook_targets, outbox, sequences, design_templates, organization, oauth, target_types, segments, unsubscribe, maven, graduation_rules
+from app.routers import agentplane, auth, targets, content, campaigns, send, analytics, setup, mcp, webhook_targets, outbox, sequences, design_templates, organization, oauth, target_types, segments, unsubscribe, maven, graduation_rules
 
 # Rate limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -88,4 +88,5 @@ app.include_router(target_types.router, prefix="/api/v1/target-types", tags=["ta
 app.include_router(segments.router, prefix="/api/v1/segments", tags=["segments"])
 app.include_router(unsubscribe.router, prefix="/unsubscribe", tags=["unsubscribe"])
 app.include_router(maven.router, prefix="/api/v1/maven", tags=["maven"])
+app.include_router(agentplane.router, prefix="/api/v1/agentplane", tags=["agentplane"])
 app.include_router(graduation_rules.router, prefix="/api/v1/graduation-rules", tags=["graduation-rules"])
