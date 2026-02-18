@@ -74,6 +74,17 @@ Parameters:
     Description: Maven Admin API URL for admin operations
     Default: "https://admin.maven.app"
 
+  AgentPlaneAPIURL:
+    Type: String
+    Description: AgentPlane API base URL
+    Default: ""
+
+  AgentPlaneAPIKey:
+    Type: String
+    Description: AgentPlane admin API key
+    NoEcho: true
+    Default: ""
+
   ApiBaseURL:
     Type: String
     Description: Base URL for the API (used for unsubscribe links)
@@ -213,6 +224,8 @@ Resources:
           JWT_SECRET_ARN: !Ref OAuthJWTSecret
           MAVEN_SERVICE_API_URL: !Ref MavenServiceAPIURL
           MAVEN_ADMIN_API_URL: !Ref MavenAdminAPIURL
+          AGENTPLANE_API_URL: !Ref AgentPlaneAPIURL
+          AGENTPLANE_API_KEY: !Ref AgentPlaneAPIKey
           API_BASE_URL: !Ref ApiBaseURL
           SES_NOTIFICATION_TOPIC_ARN: !Ref SESNotificationTopic
       Events:
@@ -311,6 +324,8 @@ Resources:
           AURORA_CLUSTER_ARN: !GetAtt AuroraCluster.DBClusterArn
           AURORA_DATABASE: envoy
           AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
+          AGENTPLANE_API_URL: !Ref AgentPlaneAPIURL
+          AGENTPLANE_API_KEY: !Ref AgentPlaneAPIKey
           API_BASE_URL: !Ref ApiBaseURL
       Events:
         ScheduleRule:
@@ -364,6 +379,8 @@ Resources:
           AURORA_DATABASE: envoy
           AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
           MAVEN_SERVICE_API_URL: !Ref MavenServiceAPIURL
+          AGENTPLANE_API_URL: !Ref AgentPlaneAPIURL
+          AGENTPLANE_API_KEY: !Ref AgentPlaneAPIKey
           API_BASE_URL: !Ref ApiBaseURL
       Events:
         ScheduleRule:
@@ -423,6 +440,8 @@ Resources:
           AURORA_CLUSTER_ARN: !GetAtt AuroraCluster.DBClusterArn
           AURORA_DATABASE: envoy
           AURORA_HOST: !GetAtt AuroraCluster.Endpoint.Address
+          AGENTPLANE_API_URL: !Ref AgentPlaneAPIURL
+          AGENTPLANE_API_KEY: !Ref AgentPlaneAPIKey
       Events:
         ScheduleRule:
           Type: Schedule

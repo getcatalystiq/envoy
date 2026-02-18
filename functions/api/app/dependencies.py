@@ -3,8 +3,9 @@
 from typing import Annotated, Any, AsyncGenerator
 
 import asyncpg
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 
+from shared.agentplane_client import AgentPlaneClient
 from shared.auth import get_current_org, get_current_user, verify_jwt
 from shared.database import get_connection
 from shared.maven_client import MavenClient
@@ -39,3 +40,20 @@ async def get_maven_client(org_id: CurrentOrg, db: DBConnection) -> MavenClient:
 
 
 MavenDep = Annotated[MavenClient, Depends(get_maven_client)]
+
+
+async def get_agentplane_client(org_id: CurrentOrg, db: DBConnection) -> AgentPlaneClient:
+    """Get AgentPlane client for the current organization."""
+    org = await db.fetchrow(
+        "SELECT agentplane_tenant_id, agentplane_agent_id FROM organizations WHERE id = $1",
+        org_id,
+    )
+    if not org or not org["agentplane_agent_id"]:
+        raise HTTPException(status_code=503, detail="Organization not configured for AgentPlane")
+    return AgentPlaneClient(
+        tenant_id=org["agentplane_tenant_id"] or org_id,
+        agent_id=org["agentplane_agent_id"],
+    )
+
+
+AgentPlaneDep = Annotated[AgentPlaneClient, Depends(get_agentplane_client)]
