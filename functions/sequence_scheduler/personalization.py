@@ -161,7 +161,21 @@ async def _personalize_block(
             )
 
             # Extract personalized content from AI response
-            personalized = result.get("body") or result.get("content") or original_content
+            # Check structured keys first, then fall back to raw text response
+            personalized = (
+                result.get("body")
+                or result.get("content")
+                or result.get("raw")
+                or original_content
+            )
+            if personalized == original_content:
+                logger.warning(
+                    "Block %s: AI returned no usable content, keeping original. Keys: %s",
+                    block_id,
+                    list(result.keys()),
+                )
+            else:
+                logger.info("Block %s: personalized (%d chars -> %d chars)", block_id, len(original_content), len(personalized))
             updated_block = apply_personalized_content(block, personalized)
             return block_id, updated_block, None
 
