@@ -36,6 +36,62 @@ class ApiKeyBody(BaseModel):
     api_key: str = Field(..., min_length=1)
 
 
+# ─── Transformers ───────────────────────────────────────────────────────────
+
+
+def _parse_skill(raw: dict[str, Any]) -> dict[str, Any]:
+    """Parse a folder-based skill into {name, slug, description, prompt}."""
+    folder = raw.get("folder", "")
+    result: dict[str, Any] = {"slug": folder, "name": folder, "description": None, "prompt": ""}
+
+    skill_md = next((f for f in raw.get("files", []) if f.get("path") == "SKILL.md"), None)
+    if not skill_md or not skill_md.get("content"):
+        return result
+
+    content: str = skill_md["content"]
+    if content.startswith("---"):
+        marker = content.find("---", 3)
+        if marker > 0:
+            frontmatter = content[3:marker]
+            for line in frontmatter.strip().splitlines():
+                if line.startswith("name:"):
+                    result["name"] = line[5:].strip()
+                elif line.startswith("description:"):
+                    result["description"] = line[12:].strip()
+            result["prompt"] = content[marker + 3:].strip()
+        else:
+            result["prompt"] = content
+    else:
+        result["prompt"] = content
+
+    return result
+
+
+def _build_skill_md(name: str, description: str | None, prompt: str) -> str:
+    """Build SKILL.md content from structured fields."""
+    lines = ["---", f"name: {name}"]
+    if description:
+        lines.append(f"description: {description}")
+    lines.append("---")
+    lines.append("")
+    lines.append(prompt)
+    return "\n".join(lines)
+
+
+def _normalize_connector(raw: dict[str, Any]) -> dict[str, Any]:
+    """Normalize AgentPlane connector to frontend format."""
+    connected = raw.get("connected", False)
+    return {
+        "slug": raw.get("slug", ""),
+        "name": raw.get("name", ""),
+        "logo": raw.get("logo", ""),
+        "authScheme": raw.get("auth_scheme", "OTHER"),
+        "authConfigId": None,
+        "connectedAccountId": None,
+        "connectionStatus": "ACTIVE" if connected else None,
+    }
+
+
 # ─── Error handling ──────────────────────────────────────────────────────────
 
 
@@ -99,7 +155,8 @@ async def list_skills(client: AgentPlaneDep):
     """List skills from the agent's skills array."""
     try:
         agent = await client.get_agent()
-        return {"skills": agent.get("skills", [])}
+        parsed = [_parse_skill(s) for s in agent.get("skills", [])]
+        return {"skills": parsed}
     except HTTPStatusError as e:
         _raise_for_upstream_error(e)
     except (ConnectError, TimeoutException) as e:
@@ -113,14 +170,16 @@ async def create_skill(body: SkillCreate, client: AgentPlaneDep):
         agent = await client.get_agent()
         skills: list[dict[str, Any]] = agent.get("skills", [])
 
-        # Check for duplicate slug
-        if any(s.get("slug") == body.slug for s in skills):
+        if any(s.get("folder") == body.slug for s in skills):
             raise HTTPException(status_code=409, detail="Skill with this slug already exists")
 
-        new_skill = body.model_dump()
+        new_skill = {
+            "folder": body.slug,
+            "files": [{"path": "SKILL.md", "content": _build_skill_md(body.name, body.description, body.prompt)}],
+        }
         skills.append(new_skill)
         await client.update_agent({"skills": skills})
-        return new_skill
+        return _parse_skill(new_skill)
     except HTTPException:
         raise
     except HTTPStatusError as e:
@@ -135,8 +194,8 @@ async def get_skill(skill_slug: str, client: AgentPlaneDep):
     try:
         agent = await client.get_agent()
         for skill in agent.get("skills", []):
-            if skill.get("slug") == skill_slug:
-                return skill
+            if skill.get("folder") == skill_slug:
+                return _parse_skill(skill)
         raise HTTPException(status_code=404, detail="Skill not found")
     except HTTPException:
         raise
@@ -154,11 +213,18 @@ async def update_skill(skill_slug: str, body: SkillUpdate, client: AgentPlaneDep
         skills: list[dict[str, Any]] = agent.get("skills", [])
 
         for i, skill in enumerate(skills):
-            if skill.get("slug") == skill_slug:
+            if skill.get("folder") == skill_slug:
+                parsed = _parse_skill(skill)
                 updates = body.model_dump(exclude_unset=True)
-                skills[i] = {**skill, **updates}
+                name = updates.get("name", parsed["name"])
+                desc = updates.get("description", parsed["description"])
+                prompt = updates.get("prompt", parsed["prompt"])
+                skills[i] = {
+                    "folder": skill_slug,
+                    "files": [{"path": "SKILL.md", "content": _build_skill_md(name, desc, prompt)}],
+                }
                 await client.update_agent({"skills": skills})
-                return skills[i]
+                return _parse_skill(skills[i])
 
         raise HTTPException(status_code=404, detail="Skill not found")
     except HTTPException:
@@ -175,7 +241,7 @@ async def delete_skill(skill_slug: str, client: AgentPlaneDep):
     try:
         agent = await client.get_agent()
         skills: list[dict[str, Any]] = agent.get("skills", [])
-        new_skills = [s for s in skills if s.get("slug") != skill_slug]
+        new_skills = [s for s in skills if s.get("folder") != skill_slug]
 
         if len(new_skills) == len(skills):
             raise HTTPException(status_code=404, detail="Skill not found")
@@ -196,7 +262,9 @@ async def delete_skill(skill_slug: str, client: AgentPlaneDep):
 async def list_connectors(client: AgentPlaneDep):
     """List connector statuses for the agent's toolkits."""
     try:
-        return await client.list_connectors()
+        result = await client.list_connectors()
+        connectors = [_normalize_connector(c) for c in result.get("data", [])]
+        return {"connectors": connectors}
     except HTTPStatusError as e:
         _raise_for_upstream_error(e)
     except (ConnectError, TimeoutException) as e:
