@@ -6,7 +6,6 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-import boto3
 import httpx
 from tenacity import (
     before_sleep_log,
@@ -18,32 +17,37 @@ from tenacity import (
 
 logger = logging.getLogger(__name__)
 
-# Module-level API key cache (cold-start optimization)
+# Module-level key caches (cold-start optimization)
 _agentplane_key: str | None = None
+_agentplane_admin_key: str | None = None
 
 
 def _get_api_key() -> str:
-    """Get AgentPlane API key from Secrets Manager with env var fallback."""
+    """Get AgentPlane tenant API key (for runtime invocations)."""
     global _agentplane_key
     if _agentplane_key is not None:
         return _agentplane_key
 
-    # Try Secrets Manager first
-    try:
-        client = boto3.client("secretsmanager")
-        response = client.get_secret_value(SecretId="envoy-agentplane-api-key")
-        _agentplane_key = response["SecretString"]
-        return _agentplane_key
-    except Exception:
-        pass
-
-    # Fallback to env var (local dev)
     key = os.environ.get("AGENTPLANE_API_KEY", "")
     if key:
         _agentplane_key = key
         return _agentplane_key
 
     raise ValueError("AgentPlane API key not configured")
+
+
+def _get_admin_key() -> str:
+    """Get AgentPlane admin key (for skills/connectors management)."""
+    global _agentplane_admin_key
+    if _agentplane_admin_key is not None:
+        return _agentplane_admin_key
+
+    key = os.environ.get("AGENTPLANE_ADMIN_KEY", "")
+    if key:
+        _agentplane_admin_key = key
+        return _agentplane_admin_key
+
+    raise ValueError("AgentPlane admin key not configured")
 
 
 # Timeout configurations
@@ -109,15 +113,22 @@ class AgentPlaneClient:
     async def _admin_request(
         self, method: str, path: str, body: dict | None = None, timeout: httpx.Timeout | None = None
     ) -> dict | list | None:
-        """Make admin API request with Bearer auth."""
+        """Make admin API request with cookie auth (login first, then use session cookie)."""
         url = f"{self.base_url}{path}"
         timeout = timeout or ADMIN_TIMEOUT
 
         async with httpx.AsyncClient(timeout=timeout) as client:
+            # Login to get session cookie
+            login_resp = await client.post(
+                f"{self.base_url}/api/admin/login",
+                json={"password": _get_admin_key()},
+            )
+            login_resp.raise_for_status()
+
+            # Use the session cookie for the actual request
             response = await client.request(
                 method,
                 url,
-                headers=self._headers(),
                 json=body if body else None,
             )
             if response.status_code == 204:
@@ -259,15 +270,34 @@ class AgentPlaneClient:
         params = f"?limit={limit}&offset={offset}"
         if status:
             params += f"&status={status}"
-        result = await self._admin_request(
-            "GET", f"/api/admin/agents/{self.agent_id}/runs{params}"
-        )
-        return result if result else {"runs": [], "total": 0}
+        result = await self._admin_request("GET", f"/api/admin/runs{params}")
+        if not result:
+            return {"runs": [], "total": 0}
+        # AgentPlane returns {data: [...], limit, offset}; normalize to {runs: [...]}
+        return {"runs": result.get("data", []), "total": len(result.get("data", []))}
 
     async def get_run(self, run_id: str) -> dict:
-        """Get run details including transcript."""
-        result = await self._admin_request("GET", f"/api/admin/runs/{run_id}")
-        return result if result else {}
+        """Get run details including transcript.
+
+        The upstream endpoint returns NDJSON: first line is {run, transcript}.
+        We parse the first line and return it directly.
+        """
+        url = f"{self.base_url}/api/admin/runs/{run_id}"
+        async with httpx.AsyncClient(timeout=ADMIN_TIMEOUT) as client:
+            login_resp = await client.post(
+                f"{self.base_url}/api/admin/login",
+                json={"password": _get_admin_key()},
+            )
+            login_resp.raise_for_status()
+
+            response = await client.get(url)
+            response.raise_for_status()
+            # Parse first line of NDJSON
+            first_line = response.text.split("\n", 1)[0]
+            data = json.loads(first_line)
+            run = data.get("run", {})
+            run["transcript"] = data.get("transcript", [])
+            return run
 
     # ─── Runtime invocation ─────────────────────────────────────────────
 
@@ -280,7 +310,7 @@ class AgentPlaneClient:
     )
     async def run_agent(self, prompt: str, max_turns: int | None = None, max_budget_usd: float | None = None) -> RunResult:
         """Run the agent with a prompt. Consumes NDJSON stream and returns result."""
-        body: dict[str, Any] = {"prompt": prompt}
+        body: dict[str, Any] = {"prompt": prompt, "agent_id": self.agent_id}
         if max_turns is not None:
             body["max_turns"] = max_turns
         if max_budget_usd is not None:
@@ -288,8 +318,6 @@ class AgentPlaneClient:
 
         url = f"{self.base_url}/api/runs"
         headers = self._headers()
-        headers["X-Tenant-Id"] = self.tenant_id
-        headers["X-Agent-Id"] = self.agent_id
 
         async with httpx.AsyncClient(timeout=STREAMING_TIMEOUT) as client:
             async with client.stream("POST", url, headers=headers, json=body) as response:

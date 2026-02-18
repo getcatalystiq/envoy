@@ -25,8 +25,8 @@ Parameters:
 
   AuroraMinCapacity:
     Type: Number
-    Default: 0.5
-    Description: Minimum ACUs for Aurora Serverless v2
+    Default: 0
+    Description: Minimum ACUs for Aurora Serverless v2 (0 = pause when idle)
 
   AuroraMaxCapacity:
     Type: Number
@@ -71,7 +71,13 @@ Parameters:
 
   AgentPlaneAPIKey:
     Type: String
-    Description: AgentPlane admin API key
+    Description: AgentPlane tenant API key (for runtime invocations)
+    NoEcho: true
+    Default: ""
+
+  AgentPlaneAdminKey:
+    Type: String
+    Description: AgentPlane admin API key (for skills/connectors management)
     NoEcho: true
     Default: ""
 
@@ -174,7 +180,7 @@ Resources:
     Type: AWS::Serverless::LayerVersion
     Properties:
       LayerName: !Sub envoy-shared-${Environment}
-      Description: Shared utilities for Envoy functions
+      Description: Shared utilities for Envoy functions (v3 - runtime fix)
       ContentUri: layers/shared/
       CompatibleRuntimes:
         - python3.12
@@ -216,6 +222,7 @@ Resources:
 
           AGENTPLANE_API_URL: !Ref AgentPlaneAPIURL
           AGENTPLANE_API_KEY: !Ref AgentPlaneAPIKey
+          AGENTPLANE_ADMIN_KEY: !Ref AgentPlaneAdminKey
           API_BASE_URL: !Ref ApiBaseURL
           SES_NOTIFICATION_TOPIC_ARN: !Ref SESNotificationTopic
       Events:
@@ -376,7 +383,7 @@ Resources:
         ScheduleRule:
           Type: Schedule
           Properties:
-            Schedule: rate(1 minute)
+            Schedule: rate(5 minutes)
             Enabled: true
       Policies:
         - Version: '2012-10-17'

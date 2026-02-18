@@ -46,18 +46,38 @@ fi
 echo "==> Building SAM application"
 sam build --parallel
 
+# Resolve secrets from SSM Parameter Store for non-dev environments
+SECRET_OVERRIDES=""
+if [[ "$ENV" != "dev" ]]; then
+    echo "==> Resolving secrets from SSM Parameter Store"
+    AP_API_KEY=$(aws ssm get-parameter --name "/envoy/${ENV}/agentplane-api-key" --with-decryption --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+    AP_ADMIN_KEY=$(aws ssm get-parameter --name "/envoy/${ENV}/agentplane-admin-key" --with-decryption --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+
+    if [[ -z "$AP_API_KEY" || -z "$AP_ADMIN_KEY" ]]; then
+        echo "Error: Could not resolve AgentPlane secrets from SSM."
+        echo "Store them with:"
+        echo "  aws ssm put-parameter --name /envoy/${ENV}/agentplane-api-key --type SecureString --value <key>"
+        echo "  aws ssm put-parameter --name /envoy/${ENV}/agentplane-admin-key --type SecureString --value <key>"
+        exit 1
+    fi
+
+    SECRET_OVERRIDES="AgentPlaneAPIKey=${AP_API_KEY} AgentPlaneAdminKey=${AP_ADMIN_KEY}"
+fi
+
 # Deploy based on environment
 echo "==> Deploying to AWS ($ENV)"
 if [[ "$ENV" == "prod" ]]; then
     sam deploy \
         --config-env prod \
         --no-fail-on-empty-changeset \
-        --no-confirm-changeset
+        --no-confirm-changeset \
+        --parameter-overrides ${SECRET_OVERRIDES}
 elif [[ "$ENV" == "staging" ]]; then
     sam deploy \
         --config-env staging \
         --no-fail-on-empty-changeset \
-        --no-confirm-changeset
+        --no-confirm-changeset \
+        --parameter-overrides ${SECRET_OVERRIDES}
 else
     # Dev environment - fastest iteration
     sam deploy \

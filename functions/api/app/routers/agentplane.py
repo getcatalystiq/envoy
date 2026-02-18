@@ -32,7 +32,12 @@ def _raise_for_upstream_error(exc: HTTPStatusError) -> None:
     except Exception:
         detail = exc.response.text
 
-    if 400 <= status < 500:
+    if status in (401, 403):
+        # Upstream auth failures are a backend config issue, not a client session
+        # problem. Return 502 to avoid triggering the frontend's logout logic.
+        logger.error("AgentPlane auth error: %d: %s", status, detail)
+        raise HTTPException(status_code=502, detail="AgentPlane authentication failed")
+    elif 400 <= status < 500:
         raise HTTPException(status_code=status, detail=detail)
     else:
         logger.error("AgentPlane upstream error: %d: %s", status, detail)
