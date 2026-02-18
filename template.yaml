@@ -75,12 +75,6 @@ Parameters:
     NoEcho: true
     Default: ""
 
-  AgentPlaneAdminKey:
-    Type: String
-    Description: AgentPlane admin API key (for skills/connectors management)
-    NoEcho: true
-    Default: ""
-
   ApiBaseURL:
     Type: String
     Description: Base URL for the API (used for unsubscribe links)
@@ -222,7 +216,6 @@ Resources:
 
           AGENTPLANE_API_URL: !Ref AgentPlaneAPIURL
           AGENTPLANE_API_KEY: !Ref AgentPlaneAPIKey
-          AGENTPLANE_ADMIN_KEY: !Ref AgentPlaneAdminKey
           API_BASE_URL: !Ref ApiBaseURL
           SES_NOTIFICATION_TOPIC_ARN: !Ref SESNotificationTopic
       Events:

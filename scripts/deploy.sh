@@ -51,17 +51,15 @@ SECRET_OVERRIDES=""
 if [[ "$ENV" != "dev" ]]; then
     echo "==> Resolving secrets from SSM Parameter Store"
     AP_API_KEY=$(aws ssm get-parameter --name "/envoy/${ENV}/agentplane-api-key" --with-decryption --query 'Parameter.Value' --output text 2>/dev/null || echo "")
-    AP_ADMIN_KEY=$(aws ssm get-parameter --name "/envoy/${ENV}/agentplane-admin-key" --with-decryption --query 'Parameter.Value' --output text 2>/dev/null || echo "")
 
-    if [[ -z "$AP_API_KEY" || -z "$AP_ADMIN_KEY" ]]; then
-        echo "Error: Could not resolve AgentPlane secrets from SSM."
-        echo "Store them with:"
+    if [[ -z "$AP_API_KEY" ]]; then
+        echo "Error: Could not resolve AgentPlane API key from SSM."
+        echo "Store it with:"
         echo "  aws ssm put-parameter --name /envoy/${ENV}/agentplane-api-key --type SecureString --value <key>"
-        echo "  aws ssm put-parameter --name /envoy/${ENV}/agentplane-admin-key --type SecureString --value <key>"
         exit 1
     fi
 
-    SECRET_OVERRIDES="AgentPlaneAPIKey=${AP_API_KEY} AgentPlaneAdminKey=${AP_ADMIN_KEY}"
+    SECRET_OVERRIDES="AgentPlaneAPIKey=${AP_API_KEY}"
 fi
 
 # Deploy based on environment

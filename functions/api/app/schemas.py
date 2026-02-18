@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # Target schemas
@@ -761,40 +761,3 @@ class GraduationEventResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
-
-
-# AgentPlane schemas
-class SkillCreateRequest(BaseModel):
-    """Schema for creating an AgentPlane skill."""
-
-    name: str
-    slug: str
-    prompt: str
-    description: Optional[str] = None
-
-
-class SkillUpdateRequest(BaseModel):
-    """Schema for updating an AgentPlane skill."""
-
-    name: Optional[str] = None
-    prompt: Optional[str] = None
-    description: Optional[str] = None
-
-
-class SkillResponse(BaseModel):
-    """Schema for AgentPlane skill response."""
-
-    model_config = ConfigDict(extra="allow")
-    folder: str
-
-
-class AddToolkitsRequest(BaseModel):
-    """Schema for adding toolkits to an agent."""
-
-    slugs: list[str]
-
-
-class SaveApiKeyRequest(BaseModel):
-    """Schema for saving an API key for a connector."""
-
-    api_key: str

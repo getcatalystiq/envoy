@@ -1,6 +1,6 @@
 """AgentPlane API proxy routes.
 
-Skills, Connectors, and Runs management via AgentPlane admin API.
+Runs management via AgentPlane tenant API.
 """
 
 import logging
@@ -10,12 +10,6 @@ from fastapi import APIRouter, HTTPException, Query
 from httpx import ConnectError, HTTPStatusError, TimeoutException
 
 from app.dependencies import AgentPlaneDep
-from app.schemas import (
-    AddToolkitsRequest,
-    SaveApiKeyRequest,
-    SkillCreateRequest,
-    SkillUpdateRequest,
-)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -44,154 +38,6 @@ def _raise_for_upstream_error(exc: HTTPStatusError) -> None:
         raise HTTPException(status_code=502, detail="AgentPlane service error")
 
 
-# ─── Skills ──────────────────────────────────────────────────────────────────
-
-
-@router.get("/skills")
-async def list_skills(client: AgentPlaneDep):
-    """List all skills for the organization."""
-    try:
-        skills = await client.list_skills()
-        return {"skills": skills}
-    except HTTPStatusError as e:
-        _raise_for_upstream_error(e)
-    except (ConnectError, TimeoutException):
-        raise HTTPException(status_code=503, detail="AgentPlane service unavailable")
-
-
-@router.post("/skills", status_code=201)
-async def create_skill(body: SkillCreateRequest, client: AgentPlaneDep):
-    """Create a new skill."""
-    try:
-        files = [{"path": "SKILL.md", "content": f"---\nname: {body.name}\ndescription: {body.description or ''}\n---\n\n{body.prompt}"}]
-        skill = await client.create_skill(folder=body.slug, files=files)
-        return skill
-    except HTTPStatusError as e:
-        _raise_for_upstream_error(e)
-    except (ConnectError, TimeoutException):
-        raise HTTPException(status_code=503, detail="AgentPlane service unavailable")
-
-
-@router.get("/skills/{folder}")
-async def get_skill(folder: str, client: AgentPlaneDep):
-    """Get a specific skill by folder name."""
-    try:
-        skill = await client.get_skill(folder)
-        if not skill:
-            raise HTTPException(status_code=404, detail="Skill not found")
-        return skill
-    except HTTPStatusError as e:
-        _raise_for_upstream_error(e)
-    except (ConnectError, TimeoutException):
-        raise HTTPException(status_code=503, detail="AgentPlane service unavailable")
-
-
-@router.patch("/skills/{folder}")
-async def update_skill(folder: str, body: SkillUpdateRequest, client: AgentPlaneDep):
-    """Update a skill's files."""
-    try:
-        # Build updated SKILL.md content
-        parts = ["---"]
-        if body.name:
-            parts.append(f"name: {body.name}")
-        if body.description is not None:
-            parts.append(f"description: {body.description}")
-        parts.append("---\n")
-        if body.prompt:
-            parts.append(body.prompt)
-
-        files = [{"path": "SKILL.md", "content": "\n".join(parts)}]
-        return await client.update_skill(folder=folder, files=files)
-    except HTTPStatusError as e:
-        _raise_for_upstream_error(e)
-    except (ConnectError, TimeoutException):
-        raise HTTPException(status_code=503, detail="AgentPlane service unavailable")
-
-
-@router.delete("/skills/{folder}")
-async def delete_skill(folder: str, client: AgentPlaneDep):
-    """Delete a skill."""
-    try:
-        await client.delete_skill(folder)
-        return {"status": "deleted"}
-    except HTTPStatusError as e:
-        _raise_for_upstream_error(e)
-    except (ConnectError, TimeoutException):
-        raise HTTPException(status_code=503, detail="AgentPlane service unavailable")
-
-
-# ─── Connectors ──────────────────────────────────────────────────────────────
-
-
-@router.get("/connectors")
-async def list_connectors(client: AgentPlaneDep):
-    """List connector statuses for the agent."""
-    try:
-        connectors = await client.list_connectors()
-        return {"connectors": connectors}
-    except HTTPStatusError as e:
-        _raise_for_upstream_error(e)
-    except (ConnectError, TimeoutException):
-        raise HTTPException(status_code=503, detail="AgentPlane service unavailable")
-
-
-@router.get("/toolkits")
-async def list_toolkits(client: AgentPlaneDep):
-    """List available Composio toolkits."""
-    try:
-        toolkits = await client.list_toolkits()
-        return {"toolkits": toolkits}
-    except HTTPStatusError as e:
-        _raise_for_upstream_error(e)
-    except (ConnectError, TimeoutException):
-        raise HTTPException(status_code=503, detail="AgentPlane service unavailable")
-
-
-@router.post("/connectors/add")
-async def add_toolkits(body: AddToolkitsRequest, client: AgentPlaneDep):
-    """Add toolkit(s) to the agent."""
-    try:
-        return await client.add_toolkits(body.slugs)
-    except HTTPStatusError as e:
-        _raise_for_upstream_error(e)
-    except (ConnectError, TimeoutException):
-        raise HTTPException(status_code=503, detail="AgentPlane service unavailable")
-
-
-@router.delete("/connectors/{slug}")
-async def remove_toolkit(slug: str, client: AgentPlaneDep):
-    """Remove a toolkit from the agent."""
-    try:
-        await client.remove_toolkit(slug)
-        return {"status": "removed"}
-    except HTTPStatusError as e:
-        _raise_for_upstream_error(e)
-    except (ConnectError, TimeoutException):
-        raise HTTPException(status_code=503, detail="AgentPlane service unavailable")
-
-
-@router.post("/connectors/{slug}/api-key")
-async def save_connector_api_key(slug: str, body: SaveApiKeyRequest, client: AgentPlaneDep):
-    """Save API key for a toolkit connector."""
-    try:
-        return await client.save_api_key(slug, body.api_key)
-    except HTTPStatusError as e:
-        _raise_for_upstream_error(e)
-    except (ConnectError, TimeoutException):
-        raise HTTPException(status_code=503, detail="AgentPlane service unavailable")
-
-
-@router.post("/connectors/{slug}/oauth")
-async def initiate_connector_oauth(slug: str, client: AgentPlaneDep):
-    """Initiate OAuth flow for a connector. Returns { redirect_url }."""
-    try:
-        return await client.initiate_oauth(slug)
-    except HTTPStatusError as e:
-        _raise_for_upstream_error(e)
-    except (ConnectError, TimeoutException):
-        raise HTTPException(status_code=503, detail="AgentPlane service unavailable")
-
-
 # ─── Runs / Activity ────────────────────────────────────────────────────────
 
 
@@ -213,9 +59,11 @@ async def list_runs(
 
 @router.get("/runs/{run_id}")
 async def get_run(run_id: str, client: AgentPlaneDep):
-    """Get run details including transcript."""
+    """Get run details."""
     try:
-        return await client.get_run(run_id)
+        run = await client.get_run(run_id)
+        run["transcript"] = await client.get_run_transcript(run_id)
+        return run
     except HTTPStatusError as e:
         _raise_for_upstream_error(e)
     except (ConnectError, TimeoutException):
