@@ -1,7 +1,5 @@
 """Setup router for organization configuration status."""
 
-import json
-
 from fastapi import APIRouter
 
 from app.dependencies import CurrentOrg, DBConnection

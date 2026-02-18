@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from httpx import ConnectError, HTTPStatusError, TimeoutException
 from pydantic import BaseModel, ConfigDict
 
-from app.dependencies import AgentPlaneDep, CurrentUser
+from app.dependencies import AgentPlaneDep
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -35,11 +35,6 @@ def _raise_for_upstream_error(exc: HTTPStatusError) -> None:
 
 
 # ─── Schemas ─────────────────────────────────────────────────────────────────
-
-
-class SkillFileInput(BaseModel):
-    path: str
-    content: str
 
 
 class SkillCreateRequest(BaseModel):

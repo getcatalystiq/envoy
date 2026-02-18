@@ -24,13 +24,11 @@ def mock_db_connection():
 
 
 @pytest.fixture
-def mock_maven_client():
-    """Mock Maven client."""
+def mock_agentplane_client():
+    """Mock AgentPlane client."""
     client = MagicMock()
     client.invoke_skill = AsyncMock(return_value={"result": "success"})
     client.generate_content = AsyncMock(return_value={"subject": "Test", "body": "Test body"})
-    client.assess_stage = AsyncMock(return_value={"stage": 1})
-    client.get_optimal_timing = AsyncMock(return_value={"recommended_time": None})
     return client
 
 

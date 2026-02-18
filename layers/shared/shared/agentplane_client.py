@@ -162,14 +162,15 @@ class AgentPlaneClient:
         agent = result.get("agent", {}) if result else {}
         skills = agent.get("skills", [])
 
-        updated = False
+        updated_skill = {"folder": folder, "files": files}
+        found = False
         for i, skill in enumerate(skills):
             if skill.get("folder") == folder:
-                skills[i] = {"folder": folder, "files": files}
-                updated = True
+                skills[i] = updated_skill
+                found = True
                 break
 
-        if not updated:
+        if not found:
             raise AgentPlaneError(f"Skill '{folder}' not found")
 
         await self._admin_request(
@@ -177,7 +178,7 @@ class AgentPlaneClient:
             f"/api/admin/agents/{self.agent_id}",
             {"skills": skills},
         )
-        return skills[i]
+        return updated_skill
 
     async def delete_skill(self, folder: str) -> None:
         """Remove a skill from agent's skills array."""

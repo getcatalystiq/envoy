@@ -23,19 +23,6 @@ from template_engine import replace_templates_in_blocks
 
 BATCH_SIZE = 100
 
-
-def _count_personalized(content: dict | None) -> int:
-    """Helper to count blocks with personalization enabled."""
-    if not content:
-        return 0
-    count = 0
-    for block_id, block in content.items():
-        p = block.get("data", {}).get("personalization", {})
-        if p.get("enabled"):
-            count += 1
-    return count
-
-
 MAX_CONCURRENT_PROCESSING = 10
 
 

@@ -118,7 +118,7 @@ The deploy script handles the full deployment pipeline:
   - `organization` - Organization settings
   - `target-types` - Target type definitions
   - `segments` - Audience segments
-  - `maven` - Maven AI integration
+  - `agentplane` - AgentPlane AI agent integration
   - `graduation-rules` - Target graduation rules
 
 ### Database
@@ -132,7 +132,7 @@ PostgreSQL (Aurora Serverless v2) with asyncpg. Query classes in `layers/shared/
 - Custom `sequence-builder` component for drag-and-drop sequence editing
 
 ### External Integrations
-- **Maven** - AI personalization service (`layers/shared/shared/maven_client.py`)
+- **AgentPlane** - AI agent service (`layers/shared/shared/agentplane_client.py`)
 - **AWS SES** - Email delivery (`layers/shared/shared/ses_client.py`)
 - **AWS Secrets Manager** - Credentials storage
 
