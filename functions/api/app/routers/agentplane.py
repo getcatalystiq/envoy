@@ -8,9 +8,14 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from httpx import ConnectError, HTTPStatusError, TimeoutException
-from pydantic import BaseModel, ConfigDict
 
 from app.dependencies import AgentPlaneDep
+from app.schemas import (
+    AddToolkitsRequest,
+    SaveApiKeyRequest,
+    SkillCreateRequest,
+    SkillUpdateRequest,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -32,35 +37,6 @@ def _raise_for_upstream_error(exc: HTTPStatusError) -> None:
     else:
         logger.error("AgentPlane upstream error: %d: %s", status, detail)
         raise HTTPException(status_code=502, detail="AgentPlane service error")
-
-
-# ─── Schemas ─────────────────────────────────────────────────────────────────
-
-
-class SkillCreateRequest(BaseModel):
-    name: str
-    slug: str
-    prompt: str
-    description: Optional[str] = None
-
-
-class SkillUpdateRequest(BaseModel):
-    name: Optional[str] = None
-    prompt: Optional[str] = None
-    description: Optional[str] = None
-
-
-class SkillResponse(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    folder: str
-
-
-class AddToolkitsRequest(BaseModel):
-    slugs: list[str]
-
-
-class SaveApiKeyRequest(BaseModel):
-    api_key: str
 
 
 # ─── Skills ──────────────────────────────────────────────────────────────────

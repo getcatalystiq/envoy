@@ -401,10 +401,6 @@ Resources:
               Action:
                 - lambda:InvokeFunction
               Resource: '*'
-            - Effect: Allow
-              Action:
-                - bedrock-agentcore:InvokeAgentRuntime
-              Resource: !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/*
 
   # Campaign Executor Function
   CampaignExecutorFunction:
