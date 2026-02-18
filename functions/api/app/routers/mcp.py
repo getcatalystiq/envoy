@@ -1,6 +1,7 @@
 """MCP (Model Context Protocol) router for ChatGPT and other MCP clients."""
 
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -1326,76 +1327,82 @@ async def _tool_get_sequences(
     db: Any,
 ) -> dict[str, Any]:
     """Get all sequences with enrollment stats."""
-    status_filter = args.get("status", "all")
+    logger = logging.getLogger(__name__)
+    logger.info(f"[Sequences] Called with org_id={org_id}, args={args}")
 
-    status_condition = ""
-    if status_filter != "all":
-        status_condition = "AND s.status = $2"
+    try:
+        status_filter = args.get("status", "all")
 
-    params = [UUID(org_id)]
-    if status_filter != "all":
-        params.append(status_filter)
+        status_condition = ""
+        if status_filter != "all":
+            status_condition = "AND s.status = $2"
 
-    # Use LATERAL join instead of correlated subquery for step_count
-    rows = await db.fetch(
-        f"""
-        SELECT
-            s.id,
-            s.name,
-            s.description,
-            s.status,
-            s.created_at,
-            COALESCE(steps.cnt, 0) as step_count,
-            COUNT(e.id) FILTER (WHERE e.status = 'active') as active_enrollments,
-            COUNT(e.id) FILTER (WHERE e.status = 'completed') as completed_enrollments,
-            COUNT(e.id) FILTER (WHERE e.status IN ('exited', 'converted')) as exited_enrollments
-        FROM sequences s
-        LEFT JOIN LATERAL (
-            SELECT COUNT(*) as cnt FROM sequence_steps WHERE sequence_id = s.id
-        ) steps ON true
-        LEFT JOIN sequence_enrollments e ON e.sequence_id = s.id
-        WHERE s.organization_id = $1
-        {status_condition}
-        GROUP BY s.id, steps.cnt
-        ORDER BY s.created_at DESC
-        """,
-        *params,
-    )
+        params = [UUID(org_id)]
+        if status_filter != "all":
+            params.append(status_filter)
 
-    sequences = []
-    for row in rows:
-        sequences.append({
-            "id": str(row["id"]),
-            "name": row["name"],
-            "description": row.get("description"),
-            "status": row["status"],
-            "step_count": row["step_count"],
-            "enrollments": {
-                "active": row["active_enrollments"],
-                "completed": row["completed_enrollments"],
-                "exited": row["exited_enrollments"],
+        # Use LATERAL join instead of correlated subquery for step_count
+        rows = await db.fetch(
+            f"""
+            SELECT
+                s.id,
+                s.name,
+                s.status,
+                s.created_at,
+                COALESCE(steps.cnt, 0) as step_count,
+                COUNT(e.id) FILTER (WHERE e.status = 'active') as active_enrollments,
+                COUNT(e.id) FILTER (WHERE e.status = 'completed') as completed_enrollments,
+                COUNT(e.id) FILTER (WHERE e.status IN ('exited', 'converted')) as exited_enrollments
+            FROM sequences s
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) as cnt FROM sequence_steps WHERE sequence_id = s.id
+            ) steps ON true
+            LEFT JOIN sequence_enrollments e ON e.sequence_id = s.id
+            WHERE s.organization_id = $1
+            {status_condition}
+            GROUP BY s.id, steps.cnt
+            ORDER BY s.created_at DESC
+            """,
+            *params,
+        )
+
+        sequences = []
+        for row in rows:
+            sequences.append({
+                "id": str(row["id"]),
+                "name": row["name"],
+                "status": row["status"],
+                "step_count": row["step_count"],
+                "enrollments": {
+                    "active": row["active_enrollments"],
+                    "completed": row["completed_enrollments"],
+                    "exited": row["exited_enrollments"],
+                },
+                "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+            })
+
+        # Group by status
+        by_status = {}
+        for s in sequences:
+            by_status[s["status"]] = by_status.get(s["status"], 0) + 1
+
+        logger.info(f"[Sequences] Returning {len(sequences)} sequences, by_status={by_status}")
+        return {
+            "content": [{"type": "text", "text": f"Found {len(sequences)} sequences. " + ", ".join(f"{count} {status}" for status, count in by_status.items())}],
+            "structuredContent": {
+                "sequences": sequences,
+                "summary": {"total": len(sequences), "by_status": by_status},
             },
-            "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
-        })
-
-    # Group by status
-    by_status = {}
-    for s in sequences:
-        by_status[s["status"]] = by_status.get(s["status"], 0) + 1
-
-    return {
-        "content": [{"type": "text", "text": f"Found {len(sequences)} sequences. " + ", ".join(f"{count} {status}" for status, count in by_status.items())}],
-        "structuredContent": {
-            "sequences": sequences,
-            "summary": {"total": len(sequences), "by_status": by_status},
-        },
-        "_meta": {
-            "ui": {
-                "resourceUri": "ui://widget/sequences.html",
-                "visibility": ["app", "model"],
+            "_meta": {
+                "ui": {
+                    "resourceUri": "ui://widget/sequences.html",
+                    "visibility": ["app", "model"],
+                },
             },
-        },
-    }
+        }
+    except Exception as e:
+        logger.error(f"[Sequences] Error: {e}", exc_info=True)
+        raise
 
 
 # --------------------------------------------------------------------------
@@ -2252,7 +2259,6 @@ def _get_sequences_widget() -> str:
                                 <span class="steps-badge">${s.step_count} steps</span>
                                 <span class="sequence-status status-${escapeHtml(s.status)}">${escapeHtml(s.status)}</span>
                             </div>
-                            ${s.description ? `<div class="sequence-desc">${escapeHtml(s.description)}</div>` : ''}
                             <div class="sequence-stats">
                                 <div class="stat active">
                                     <span class="stat-value">${s.enrollments?.active || 0}</span>
