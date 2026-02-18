@@ -25,11 +25,8 @@ Envoy is an AI-powered sales and marketing agent platform. It enables organizati
 # Frontend (port 3000)
 cd admin-ui && npm run dev
 
-# Backend API (port 8000) - requires DB tunnel or local Postgres
+# Backend API (port 8000)
 ./scripts/local-dev.sh
-
-# DB tunnel to dev Aurora (port 5433)
-./scripts/db-tunnel.sh dev 5433
 ```
 
 ### Testing

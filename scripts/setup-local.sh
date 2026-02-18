@@ -2,11 +2,10 @@
 set -euo pipefail
 
 # Envoy Local Development Setup Script
-# Usage: ./scripts/setup-local.sh [--skip-deps] [--tunnel|--local-db] [--migrate] [--terminal] [--no-scheduler] [--no-email-scheduler]
+# Usage: ./scripts/setup-local.sh [--skip-deps] [--local-db] [--migrate] [--terminal] [--no-scheduler] [--no-email-scheduler]
 #
 # Options:
 #   --skip-deps           Skip dependency installation (faster restart)
-#   --tunnel              Use remote dev database via SSM tunnel (default)
 #   --local-db            Use local PostgreSQL database
 #   --migrate             Force run migrations (local-db only)
 #   --bg                  Run as background processes (default)
@@ -27,7 +26,7 @@ NC='\033[0m' # No Color
 
 # Default options
 SKIP_DEPS=false
-USE_TUNNEL=true
+LOCAL_DB=false
 FORCE_MIGRATE=false
 USE_WARP=false
 USE_BG=true
@@ -40,11 +39,8 @@ for arg in "$@"; do
         --skip-deps)
             SKIP_DEPS=true
             ;;
-        --tunnel)
-            USE_TUNNEL=true
-            ;;
         --local-db)
-            USE_TUNNEL=false
+            LOCAL_DB=true
             ;;
         --migrate)
             FORCE_MIGRATE=true
@@ -65,11 +61,10 @@ for arg in "$@"; do
             RUN_EMAIL_SCHEDULER=false
             ;;
         --help|-h)
-            echo "Usage: ./scripts/setup-local.sh [--skip-deps] [--tunnel|--local-db] [--migrate] [--terminal] [--no-scheduler] [--no-email-scheduler]"
+            echo "Usage: ./scripts/setup-local.sh [--skip-deps] [--local-db] [--migrate] [--terminal] [--no-scheduler] [--no-email-scheduler]"
             echo ""
             echo "Options:"
             echo "  --skip-deps           Skip dependency installation (faster restart)"
-            echo "  --tunnel              Use remote dev database via SSM tunnel (default)"
             echo "  --local-db            Use local PostgreSQL database"
             echo "  --migrate             Force run migrations (local-db only)"
             echo "  --bg                  Run as background processes (default)"
@@ -112,14 +107,13 @@ for port in "${PORTS[@]}"; do
 done
 
 # Also kill any existing tmp scripts that might be running
-pkill -f "\.tmp-db-tunnel\.sh" 2>/dev/null || true
 pkill -f "\.tmp-backend\.sh" 2>/dev/null || true
 pkill -f "\.tmp-frontend\.sh" 2>/dev/null || true
 pkill -f "\.tmp-scheduler\.sh" 2>/dev/null || true
 pkill -f "\.tmp-email-scheduler\.sh" 2>/dev/null || true
 
 # Clean up any leftover tmp files
-rm -f "$PROJECT_DIR/.tmp-db-tunnel.sh" "$PROJECT_DIR/.tmp-backend.sh" "$PROJECT_DIR/.tmp-frontend.sh" "$PROJECT_DIR/.tmp-scheduler.sh" "$PROJECT_DIR/.tmp-email-scheduler.sh" 2>/dev/null || true
+rm -f "$PROJECT_DIR/.tmp-backend.sh" "$PROJECT_DIR/.tmp-frontend.sh" "$PROJECT_DIR/.tmp-scheduler.sh" "$PROJECT_DIR/.tmp-email-scheduler.sh" 2>/dev/null || true
 
 echo -e "${GREEN}✓ Ports 3000, 8000, 5433 cleared${NC}"
 echo ""
@@ -146,9 +140,7 @@ check_command "python3" "brew install python@3.12" || MISSING_DEPS=true
 check_command "node" "brew install node" || MISSING_DEPS=true
 check_command "npm" "brew install node" || MISSING_DEPS=true
 
-if $USE_TUNNEL; then
-    check_command "aws" "brew install awscli" || MISSING_DEPS=true
-else
+if $LOCAL_DB; then
     check_command "psql" "brew install postgresql@16" || MISSING_DEPS=true
 fi
 
@@ -214,20 +206,7 @@ echo -e "${YELLOW}[4/7] Setting up database connection...${NC}"
 
 LOCAL_DB_URL="postgresql://envoy_app:localdev@localhost:5432/envoy"
 
-if $USE_TUNNEL; then
-    echo "Will open SSM tunnel to remote dev database"
-
-    # Check if AWS credentials are valid
-    echo "Checking AWS credentials..."
-    if ! aws sts get-caller-identity &>/dev/null; then
-        echo -e "${YELLOW}AWS session expired or not logged in. Logging in...${NC}"
-        aws sso login || {
-            echo -e "${RED}AWS login failed. Please run 'aws sso login' manually.${NC}"
-            exit 1
-        }
-    fi
-    echo -e "${GREEN}✓ AWS credentials valid${NC}"
-else
+if $LOCAL_DB; then
     echo "Using local PostgreSQL database"
 
     # Check if PostgreSQL is running
@@ -260,7 +239,7 @@ echo ""
 # =============================================================================
 # Run Migrations (local DB only)
 # =============================================================================
-if ! $USE_TUNNEL; then
+if $LOCAL_DB; then
     echo -e "${YELLOW}[5/7] Running database migrations...${NC}"
 
     if $NEEDS_MIGRATION || $FORCE_MIGRATE; then
@@ -288,7 +267,7 @@ if ! $USE_TUNNEL; then
     fi
     echo ""
 else
-    echo -e "${YELLOW}[5/7] Skipping migrations (using remote dev database)${NC}"
+    echo -e "${YELLOW}[5/7] Skipping migrations${NC}"
     echo ""
 fi
 
@@ -301,20 +280,6 @@ echo -e "${YELLOW}[6/7] Launching services...${NC}"
 TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
 
-if $USE_TUNNEL; then
-    # Database tunnel script
-    cat > "$PROJECT_DIR/.tmp-db-tunnel.sh" << TUNNEL_SCRIPT
-#!/bin/bash
-cd "$PROJECT_DIR"
-echo "═══════════════════════════════════════════════════════════"
-echo "  DATABASE TUNNEL - Connecting to dev Aurora..."
-echo "═══════════════════════════════════════════════════════════"
-echo ""
-./scripts/db-tunnel.sh dev 5433
-TUNNEL_SCRIPT
-    chmod +x "$PROJECT_DIR/.tmp-db-tunnel.sh"
-fi
-
 # Backend script
 cat > "$PROJECT_DIR/.tmp-backend.sh" << BACKEND_SCRIPT
 #!/bin/bash
@@ -325,7 +290,6 @@ echo "  BACKEND API - http://localhost:8000"
 echo "  API Docs:    http://localhost:8000/docs"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
-sleep 2  # Wait for tunnel if using remote DB
 ./scripts/local-dev.sh
 BACKEND_SCRIPT
 chmod +x "$PROJECT_DIR/.tmp-backend.sh"
@@ -433,16 +397,11 @@ if $USE_BG; then
     # Background mode - output commands for Claude Code to run as background tasks
     echo -e "${GREEN}✓ Setup complete${NC}"
     echo ""
-    echo -e "${YELLOW}IMPORTANT: Kill existing Claude Code background tasks first (DB Tunnel, Backend, Frontend)${NC}"
+    echo -e "${YELLOW}IMPORTANT: Kill existing Claude Code background tasks first (Backend, Frontend)${NC}"
     echo -e "${YELLOW}before starting new ones to avoid duplicate processes.${NC}"
     echo ""
     echo "Run these commands as Claude Code background tasks:"
     echo ""
-    if $USE_TUNNEL; then
-        echo "# DB Tunnel"
-        echo "$PROJECT_DIR/scripts/db-tunnel.sh dev 5433"
-        echo ""
-    fi
     echo "# Backend API"
     echo "source $PROJECT_DIR/.venv/bin/activate && PYTHONPATH=\"$PROJECT_DIR/layers/shared:$PROJECT_DIR/functions/api\" AURORA_SECRET_ARN=envoy-dev-aurora-credentials AURORA_HOST=localhost AURORA_PORT=5433 AURORA_DATABASE=envoy JWT_PUBLIC_KEY=\"\" JWT_ISSUER=\"http://localhost\" python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --app-dir \"$PROJECT_DIR/functions/api\""
     echo ""
@@ -462,9 +421,6 @@ if $USE_BG; then
 
     # Output in a parseable format for automation
     echo "---CLAUDE_CODE_COMMANDS---"
-    if $USE_TUNNEL; then
-        echo "DB Tunnel|$PROJECT_DIR/scripts/db-tunnel.sh dev 5433"
-    fi
     echo "Backend API|source $PROJECT_DIR/.venv/bin/activate && PYTHONPATH=\"$PROJECT_DIR/layers/shared:$PROJECT_DIR/functions/api\" AURORA_SECRET_ARN=envoy-dev-aurora-credentials AURORA_HOST=localhost AURORA_PORT=5433 AURORA_DATABASE=envoy JWT_PUBLIC_KEY=\"\" JWT_ISSUER=\"http://localhost\" python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --app-dir \"$PROJECT_DIR/functions/api\""
     echo "Frontend|cd $PROJECT_DIR/admin-ui && npm run dev"
     if $RUN_SCHEDULER; then
@@ -488,15 +444,6 @@ elif [[ "$OSTYPE" == "darwin"* ]]; then
 
         # Open new tabs using AppleScript GUI scripting
         # Use key code 36 for Return (more reliable than keystroke return)
-        if $USE_TUNNEL; then
-            osascript -e 'tell application "System Events" to keystroke "t" using command down' 2>/dev/null
-            sleep 0.5
-            osascript -e "tell application \"System Events\" to keystroke \"cd '$PROJECT_DIR' && ./.tmp-db-tunnel.sh; rm -f ./.tmp-db-tunnel.sh\"" 2>/dev/null
-            sleep 0.2
-            osascript -e 'tell application "System Events" to key code 36' 2>/dev/null
-            sleep 0.5
-        fi
-
         osascript -e 'tell application "System Events" to keystroke "t" using command down' 2>/dev/null
         sleep 0.5
         osascript -e "tell application \"System Events\" to keystroke \"cd '$PROJECT_DIR' && ./.tmp-backend.sh; rm -f ./.tmp-backend.sh\"" 2>/dev/null
@@ -530,55 +477,6 @@ elif [[ "$OSTYPE" == "darwin"* ]]; then
         echo -e "${GREEN}✓ Warp tabs opened${NC}"
     else
         # Use Terminal.app with windows
-        if $USE_TUNNEL; then
-            SCHEDULER_CMD=""
-            if $RUN_SCHEDULER; then
-                SCHEDULER_CMD="
-    delay 0.5
-
-    -- Scheduler window
-    do script \"cd '$PROJECT_DIR' && ./.tmp-scheduler.sh; rm -f ./.tmp-scheduler.sh\"
-    set schedulerWindow to front window
-    set custom title of schedulerWindow to \"Envoy: Scheduler\"
-"
-            fi
-            EMAIL_SCHEDULER_CMD=""
-            if $RUN_EMAIL_SCHEDULER; then
-                EMAIL_SCHEDULER_CMD="
-    delay 0.5
-
-    -- Email Scheduler window
-    do script \"cd '$PROJECT_DIR' && ./.tmp-email-scheduler.sh; rm -f ./.tmp-email-scheduler.sh\"
-    set emailSchedulerWindow to front window
-    set custom title of emailSchedulerWindow to \"Envoy: Email Scheduler\"
-"
-            fi
-            osascript << APPLESCRIPT
-tell application "Terminal"
-    activate
-
-    -- Database tunnel window
-    do script "cd '$PROJECT_DIR' && ./.tmp-db-tunnel.sh; rm -f ./.tmp-db-tunnel.sh"
-    set tunnelWindow to front window
-    set custom title of tunnelWindow to "Envoy: DB Tunnel"
-
-    delay 0.5
-
-    -- Backend window
-    do script "cd '$PROJECT_DIR' && ./.tmp-backend.sh; rm -f ./.tmp-backend.sh"
-    set backendWindow to front window
-    set custom title of backendWindow to "Envoy: Backend API"
-
-    delay 0.5
-
-    -- Frontend window
-    do script "cd '$PROJECT_DIR' && ./.tmp-frontend.sh; rm -f ./.tmp-frontend.sh"
-    set frontendWindow to front window
-    set custom title of frontendWindow to "Envoy: Frontend"
-$SCHEDULER_CMD$EMAIL_SCHEDULER_CMD
-end tell
-APPLESCRIPT
-        else
             SCHEDULER_CMD=""
             if $RUN_SCHEDULER; then
                 SCHEDULER_CMD="
@@ -619,16 +517,11 @@ tell application "Terminal"
 $SCHEDULER_CMD$EMAIL_SCHEDULER_CMD
 end tell
 APPLESCRIPT
-        fi
         echo -e "${GREEN}✓ Terminal windows opened${NC}"
     fi
 else
     echo -e "${YELLOW}Not on macOS - please start services manually:${NC}"
     TERM_NUM=1
-    if $USE_TUNNEL; then
-        echo "  Terminal $TERM_NUM: ./scripts/db-tunnel.sh dev 5433"
-        TERM_NUM=$((TERM_NUM + 1))
-    fi
     echo "  Terminal $TERM_NUM: ./scripts/local-dev.sh"
     TERM_NUM=$((TERM_NUM + 1))
     echo "  Terminal $TERM_NUM: cd admin-ui && npm run dev"
@@ -656,9 +549,6 @@ else
     echo "Services starting in separate terminal windows:"
 fi
 echo ""
-if $USE_TUNNEL; then
-    echo -e "  ${BLUE}DB Tunnel${NC}  → Connecting to dev Aurora on localhost:5433"
-fi
 echo -e "  ${BLUE}Backend${NC}    → http://localhost:8000 (API docs: /docs)"
 echo -e "  ${BLUE}Frontend${NC}   → http://localhost:3000"
 if $RUN_SCHEDULER; then

@@ -417,13 +417,12 @@ async def enroll_target(
             detail="Target already enrolled in this sequence",
         )
 
-    # Pass None when delay not specified (or is 0) to use step's configured delay
     enrollment = await SequenceQueries.enroll(
         db,
         org_id=org_id,
         target_id=data.target_id,
         sequence_id=sequence_id,
-        first_step_delay_hours=data.first_step_delay_hours if data.first_step_delay_hours else None,
+        first_step_delay_hours=data.first_step_delay_hours,
     )
     return EnrollmentResponse(**enrollment)
 

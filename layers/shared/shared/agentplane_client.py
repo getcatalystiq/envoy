@@ -190,10 +190,11 @@ class AgentPlaneClient:
                 )
 
             if event_type == "result":
+                # Result content is at event["result"], not event["data"]["output"]
                 result = RunResult(
-                    output=event.get("data", {}).get("output", ""),
-                    session_id=event.get("data", {}).get("session_id"),
-                    metadata=event.get("data", {}).get("metadata", {}),
+                    output=event.get("result", ""),
+                    session_id=event.get("session_id"),
+                    metadata={k: v for k, v in event.items() if k not in ("type", "subtype", "result", "session_id")},
                 )
                 # Continue draining to keep connection clean
 
