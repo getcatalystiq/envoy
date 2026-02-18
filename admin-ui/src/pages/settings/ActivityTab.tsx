@@ -71,10 +71,10 @@ function TranscriptEventCard({ event }: { event: TranscriptEvent }) {
           <Badge variant="outline" className={`text-xs ${getEventColor(event.type)}`}>
             {event.type}
           </Badge>
-          {event.data?.name && (
+          {!!event.data?.name && (
             <span className="text-sm font-mono">{String(event.data.name)}</span>
           )}
-          {event.data?.text && (
+          {!!event.data?.text && (
             <span className="text-sm text-gray-600 truncate max-w-xs">
               {String(event.data.text).slice(0, 80)}
             </span>
