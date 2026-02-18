@@ -107,7 +107,6 @@ export function SkillsTab() {
       await api.patch(`/agentplane/skills/${encodeURIComponent(editingSkill.slug)}`, {
         name: formName,
         description: formDescription || null,
-        prompt: formPrompt,
       });
       setEditingSkill(null);
       resetForm();
@@ -309,7 +308,7 @@ export function SkillsTab() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingSkill} onOpenChange={() => setEditingSkill(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Skill</DialogTitle>
           </DialogHeader>
@@ -339,16 +338,6 @@ export function SkillsTab() {
                 id="edit-description"
                 value={formDescription}
                 onChange={(e) => setFormDescription(e.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit-prompt">Prompt</Label>
-              <Textarea
-                id="edit-prompt"
-                value={formPrompt}
-                onChange={(e) => setFormPrompt(e.target.value)}
-                placeholder="Enter the skill prompt instructions..."
-                className="min-h-[200px] font-mono text-sm"
               />
             </div>
           </div>
