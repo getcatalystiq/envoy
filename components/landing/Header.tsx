@@ -1,0 +1,93 @@
+'use client';
+import { useState } from 'react';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Menu, X, Mail } from 'lucide-react';
+
+const navigation = [
+  { name: 'Features', href: '#features' },
+  { name: 'How It Works', href: '#how-it-works' },
+  { name: 'Pricing', href: '#pricing' },
+  { name: 'FAQ', href: '#faq' },
+];
+
+export function Header() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  return (
+    <header className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b">
+      <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="flex h-16 items-center justify-between">
+          {/* Logo */}
+          <Link href="/" className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+              <Mail className="w-5 h-5 text-white" />
+            </div>
+            <span className="font-semibold text-lg">Envoy</span>
+          </Link>
+
+          {/* Desktop navigation */}
+          <div className="hidden md:flex items-center gap-8">
+            {navigation.map((item) => (
+              <a
+                key={item.name}
+                href={item.href}
+                className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                {item.name}
+              </a>
+            ))}
+          </div>
+
+          {/* Desktop CTA */}
+          <div className="hidden md:flex items-center gap-4">
+            <Button variant="ghost" asChild>
+              <Link href="/login">Sign in</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/login">Get Started</Link>
+            </Button>
+          </div>
+
+          {/* Mobile menu button */}
+          <button
+            className="md:hidden"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          >
+            {mobileMenuOpen ? (
+              <X className="w-6 h-6" />
+            ) : (
+              <Menu className="w-6 h-6" />
+            )}
+          </button>
+        </div>
+
+        {/* Mobile menu */}
+        {mobileMenuOpen && (
+          <div className="md:hidden py-4 border-t">
+            <div className="flex flex-col gap-4">
+              {navigation.map((item) => (
+                <a
+                  key={item.name}
+                  href={item.href}
+                  className="text-sm font-medium text-gray-600 hover:text-gray-900"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  {item.name}
+                </a>
+              ))}
+              <div className="flex flex-col gap-2 pt-4 border-t">
+                <Button variant="outline" asChild>
+                  <Link href="/login">Sign in</Link>
+                </Button>
+                <Button asChild>
+                  <Link href="/login">Get Started</Link>
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </nav>
+    </header>
+  );
+}

@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/campaign-executor",
+      "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/email-sender",
+      "schedule": "*/1 * * * *"
+    },
+    {
+      "path": "/api/cron/sequence-scheduler",
+      "schedule": "*/2 * * * *"
+    }
+  ]
+}

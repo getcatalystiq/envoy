@@ -1,6 +1,14 @@
 # Plans
 .playwright-mcp/
 
+# Next.js
+.next/
+out/
+tsconfig.tsbuildinfo
+
+# Node
+node_modules/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -13,7 +21,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/

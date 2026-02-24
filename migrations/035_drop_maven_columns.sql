@@ -22,5 +22,6 @@ DROP INDEX IF EXISTS idx_sessions_maven;
 ALTER TABLE agent_sessions
 DROP COLUMN IF EXISTS maven_session_id;
 
-INSERT INTO _migrations (version, name)
-VALUES ('035', 'Drop Maven columns and indexes');
+INSERT INTO schema_migrations (version, description)
+VALUES ('035', 'Drop Maven columns and indexes')
+ON CONFLICT (version) DO NOTHING;
