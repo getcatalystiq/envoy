@@ -9,6 +9,7 @@ export async function GET() {
     token_endpoint: `${issuer}/api/oauth/token`,
     registration_endpoint: `${issuer}/api/oauth/register`,
     userinfo_endpoint: `${issuer}/api/oauth/userinfo`,
+    revocation_endpoint: `${issuer}/api/oauth/revoke`,
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     token_endpoint_auth_methods_supported: [

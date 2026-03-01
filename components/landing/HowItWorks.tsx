@@ -30,14 +30,14 @@ const steps = [
 
 export function HowItWorks() {
   return (
-    <section id="how-it-works" className="py-24 bg-gray-50">
+    <section id="how-it-works" className="py-24 bg-muted">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center mb-16">
-          <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
+          <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">
             How Envoy Works
           </h2>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
             From prospect list to AI-powered drip sequence in four steps.
           </p>
         </div>
@@ -48,10 +48,10 @@ export function HowItWorks() {
             <div key={step.step} className="relative">
               {/* Connector line */}
               {index < steps.length - 1 && (
-                <div className="hidden lg:block absolute top-12 left-1/2 w-full h-0.5 bg-gray-200" />
+                <div className="hidden lg:block absolute top-12 left-1/2 w-full h-0.5 bg-muted" />
               )}
 
-              <div className="relative bg-white rounded-2xl p-6 shadow-sm border hover:shadow-md transition-shadow">
+              <div className="relative bg-background rounded-2xl p-6 shadow-sm border hover:shadow-md transition-shadow">
                 {/* Step number */}
                 <div className="absolute -top-3 left-6 px-3 py-1 bg-primary text-white text-xs font-bold rounded-full">
                   {step.step}
@@ -62,10 +62,10 @@ export function HowItWorks() {
                   <step.icon className="w-6 h-6 text-primary" />
                 </div>
 
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                <h3 className="text-lg font-semibold text-foreground mb-2">
                   {step.title}
                 </h3>
-                <p className="text-gray-600 text-sm leading-relaxed">
+                <p className="text-muted-foreground text-sm leading-relaxed">
                   {step.description}
                 </p>
               </div>

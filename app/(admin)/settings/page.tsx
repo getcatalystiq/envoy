@@ -26,8 +26,8 @@ export default function SettingsPage() {
       <div className="flex items-center gap-3">
         <MenuButton />
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-          <p className="text-gray-600">Configure your organization settings</p>
+          <h1 className="text-2xl font-bold text-foreground">Settings</h1>
+          <p className="text-muted-foreground">Configure your organization settings</p>
         </div>
       </div>
 

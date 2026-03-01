@@ -474,11 +474,11 @@ export function GraduationRulesTab() {
     return (
       <Card>
         <CardContent className="py-12 text-center">
-          <GitBranch className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
+          <GitBranch className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-foreground mb-2">
             Need More Target Types
           </h3>
-          <p className="text-gray-600 mb-4">
+          <p className="text-muted-foreground mb-4">
             Graduation rules require at least two target types to define transitions.
             <br />
             Go to the Target Types tab to create more.
@@ -506,11 +506,11 @@ export function GraduationRulesTab() {
       {rules.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
-            <GitBranch className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
+            <GitBranch className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-foreground mb-2">
               No graduation rules yet
             </h3>
-            <p className="text-gray-600 mb-4">
+            <p className="text-muted-foreground mb-4">
               Create rules to automatically transition targets between types
             </p>
             <Button onClick={() => setCreateOpen(true)}>

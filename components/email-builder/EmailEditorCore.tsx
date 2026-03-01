@@ -124,7 +124,7 @@ export function EmailEditorCore({
       <div className="flex-1 flex flex-col min-w-0">
         {/* Editor Toolbar */}
         <TooltipProvider>
-          <div className="h-[49px] border-b border-border bg-white px-1 flex flex-row justify-between items-center shrink-0">
+          <div className="h-[49px] border-b border-border bg-background px-1 flex flex-row justify-between items-center shrink-0">
             <div className="px-2 flex flex-row gap-4 w-full justify-between items-center">
               <div className="flex flex-row gap-4">
                 <MainTabsGroup showCodeTabs={showCodeTabs} />
@@ -186,7 +186,7 @@ export function EmailEditorCore({
       {/* Inspector Panel */}
       {inspectorDrawerOpen && (
         <div
-          className="border-l bg-white flex flex-col shrink-0"
+          className="border-l bg-background flex flex-col shrink-0"
           style={{ width: INSPECTOR_WIDTH, minWidth: INSPECTOR_WIDTH }}
         >
           <Tabs

@@ -185,9 +185,9 @@ export function TargetTypesList() {
       {targetTypes.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
-            <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No target types yet</h3>
-            <p className="text-gray-600 mb-4">Create your first target type to categorize your contacts</p>
+            <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-foreground mb-2">No target types yet</h3>
+            <p className="text-muted-foreground mb-4">Create your first target type to categorize your contacts</p>
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Create Target Type

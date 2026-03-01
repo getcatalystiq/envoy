@@ -12,7 +12,7 @@ export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b">
+    <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b">
       <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
@@ -27,7 +27,7 @@ export function Header() {
               <a
                 key={item.name}
                 href={item.href}
-                className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
                 {item.name}
               </a>
@@ -40,7 +40,7 @@ export function Header() {
               href="https://github.com/getcatalystiq/envoy"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-gray-600 hover:text-gray-900 transition-colors"
+              className="text-muted-foreground hover:text-foreground transition-colors"
             >
               <Github className="w-5 h-5" />
             </a>
@@ -67,7 +67,7 @@ export function Header() {
                 <a
                   key={item.name}
                   href={item.href}
-                  className="text-sm font-medium text-gray-600 hover:text-gray-900"
+                  className="text-sm font-medium text-muted-foreground hover:text-foreground"
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   {item.name}
@@ -78,7 +78,7 @@ export function Header() {
                   href="https://github.com/getcatalystiq/envoy"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900"
+                  className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   <Github className="w-4 h-4" />

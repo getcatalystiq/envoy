@@ -43,14 +43,14 @@ const features = [
 
 export function Features() {
   return (
-    <section id="features" className="py-24 bg-white">
+    <section id="features" className="py-24 bg-background">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center mb-16">
-          <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
+          <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">
             Drip sequences, supercharged with AI
           </h2>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
             Every feature is built around multi-step email sequences where
             AI personalizes each message for each recipient.
           </p>
@@ -61,16 +61,16 @@ export function Features() {
           {features.map((feature, index) => (
             <div
               key={feature.title}
-              className="p-6 rounded-2xl border bg-gray-50/50 hover:bg-white hover:shadow-lg transition-all duration-300 animate-fade-in-up"
+              className="p-6 rounded-2xl border bg-muted/50 hover:bg-background hover:shadow-lg transition-all duration-300 animate-fade-in-up"
               style={{ animationDelay: `${index * 100}ms` }}
             >
               <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
                 <feature.icon className="w-6 h-6 text-primary" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              <h3 className="text-lg font-semibold text-foreground mb-2">
                 {feature.title}
               </h3>
-              <p className="text-gray-600 leading-relaxed">
+              <p className="text-muted-foreground leading-relaxed">
                 {feature.description}
               </p>
             </div>

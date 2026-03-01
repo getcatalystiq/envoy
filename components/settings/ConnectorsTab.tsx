@@ -123,11 +123,11 @@ export function ConnectorsTab() {
     switch (scheme) {
       case 'OAUTH2':
       case 'OAUTH1':
-        return <Badge variant="outline" className="text-blue-600 border-blue-200"><Shield className="w-3 h-3 mr-1" />OAuth</Badge>;
+        return <Badge variant="outline" className="text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800"><Shield className="w-3 h-3 mr-1" />OAuth</Badge>;
       case 'API_KEY':
-        return <Badge variant="outline" className="text-amber-600 border-amber-200"><Key className="w-3 h-3 mr-1" />API Key</Badge>;
+        return <Badge variant="outline" className="text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800"><Key className="w-3 h-3 mr-1" />API Key</Badge>;
       case 'NO_AUTH':
-        return <Badge variant="outline" className="text-green-600 border-green-200">No Auth</Badge>;
+        return <Badge variant="outline" className="text-green-600 dark:text-green-400 border-green-200 dark:border-green-800">No Auth</Badge>;
       default:
         return <Badge variant="outline">{scheme}</Badge>;
     }
@@ -146,21 +146,21 @@ export function ConnectorsTab() {
         <CardDescription>Connect external services to enhance AI capabilities</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
+        {error && <div className="p-3 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 rounded-lg text-sm">{error}</div>}
 
         {connectors.length === 0 ? (
-          <div className="text-center py-8"><Plug className="w-12 h-12 mx-auto text-gray-300 mb-4" /><p className="text-gray-500">No connectors configured for this organization.</p></div>
+          <div className="text-center py-8"><Plug className="w-12 h-12 mx-auto text-muted-foreground mb-4" /><p className="text-muted-foreground">No connectors configured for this organization.</p></div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {connectors.map((connector) => (
-              <div key={connector.slug} className="flex flex-col p-4 bg-gray-50 rounded-lg border">
+              <div key={connector.slug} className="flex flex-col p-4 bg-muted rounded-lg border">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border">
-                    {connector.logo ? (<img src={connector.logo} alt={connector.name} className="w-6 h-6" />) : (<Plug className="w-5 h-5 text-gray-400" />)}
+                  <div className="w-10 h-10 bg-background rounded-lg flex items-center justify-center border">
+                    {connector.logo ? (<img src={connector.logo} alt={connector.name} className="w-6 h-6" />) : (<Plug className="w-5 h-5 text-muted-foreground" />)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{connector.name}</p>
-                    <p className="text-xs text-gray-400 font-mono">{connector.slug}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{connector.slug}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 mb-3">
@@ -208,7 +208,7 @@ export function ConnectorsTab() {
       <Dialog open={!!disconnectConfirm} onOpenChange={() => setDisconnectConfirm(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Remove Connector</DialogTitle></DialogHeader>
-          <p className="text-gray-600">Are you sure you want to remove this connector? AI features that depend on it will stop working.</p>
+          <p className="text-muted-foreground">Are you sure you want to remove this connector? AI features that depend on it will stop working.</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDisconnectConfirm(null)}>Cancel</Button>
             <Button variant="destructive" onClick={() => disconnectConfirm && handleDisconnect(disconnectConfirm)}>Remove</Button>

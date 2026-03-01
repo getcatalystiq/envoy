@@ -137,8 +137,8 @@ export default function ContentPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Content Templates</h1>
-          <p className="text-gray-600">Manage your email templates</p>
+          <h1 className="text-2xl font-bold text-foreground">Content Templates</h1>
+          <p className="text-muted-foreground">Manage your email templates</p>
         </div>
         <Button onClick={openCreateModal}>
           <Plus className="w-4 h-4 mr-2" />
@@ -150,9 +150,9 @@ export default function ContentPage() {
       {templates.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
-            <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No templates yet</h3>
-            <p className="text-gray-600 mb-4">Create your first email template to use in campaigns</p>
+            <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-foreground mb-2">No templates yet</h3>
+            <p className="text-muted-foreground mb-4">Create your first email template to use in campaigns</p>
             <Button onClick={openCreateModal}>
               <Plus className="w-4 h-4 mr-2" />
               Create Template
@@ -178,13 +178,13 @@ export default function ContentPage() {
                 <div className="space-y-3">
                   {template.subject && (
                     <div>
-                      <p className="text-xs font-medium text-gray-500 mb-1">Subject</p>
-                      <p className="text-sm text-gray-700 truncate">{template.subject}</p>
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Subject</p>
+                      <p className="text-sm text-foreground truncate">{template.subject}</p>
                     </div>
                   )}
                   <div>
-                    <p className="text-xs font-medium text-gray-500 mb-1">Preview</p>
-                    <p className="text-sm text-gray-600 line-clamp-2">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">Preview</p>
+                    <p className="text-sm text-muted-foreground line-clamp-2">
                       {template.body.substring(0, 150)}...
                     </p>
                   </div>
@@ -214,7 +214,7 @@ export default function ContentPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
                         onClick={() => setDeleteConfirmId(template.id)}
                       >
                         <Trash2 className="w-3 h-3 mr-1" />
@@ -235,25 +235,25 @@ export default function ContentPage() {
           <CardTitle className="text-lg">Template Variables</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-gray-600 mb-4">
+          <p className="text-sm text-muted-foreground mb-4">
             Use these variables in your templates. AI will fill them with personalized content:
           </p>
           <div className="grid sm:grid-cols-2 gap-3 text-sm">
             <div className="flex items-center gap-2">
-              <code className="px-2 py-1 bg-gray-100 rounded text-primary">{'{{first_name}}'}</code>
-              <span className="text-gray-600">Recipient&apos;s first name</span>
+              <code className="px-2 py-1 bg-muted rounded text-primary">{'{{first_name}}'}</code>
+              <span className="text-muted-foreground">Recipient&apos;s first name</span>
             </div>
             <div className="flex items-center gap-2">
-              <code className="px-2 py-1 bg-gray-100 rounded text-primary">{'{{company}}'}</code>
-              <span className="text-gray-600">Company name</span>
+              <code className="px-2 py-1 bg-muted rounded text-primary">{'{{company}}'}</code>
+              <span className="text-muted-foreground">Company name</span>
             </div>
             <div className="flex items-center gap-2">
-              <code className="px-2 py-1 bg-gray-100 rounded text-primary">{'{{title}}'}</code>
-              <span className="text-gray-600">Job title</span>
+              <code className="px-2 py-1 bg-muted rounded text-primary">{'{{title}}'}</code>
+              <span className="text-muted-foreground">Job title</span>
             </div>
             <div className="flex items-center gap-2">
-              <code className="px-2 py-1 bg-gray-100 rounded text-primary">{'{{personalization}}'}</code>
-              <span className="text-gray-600">AI-generated personalization</span>
+              <code className="px-2 py-1 bg-muted rounded text-primary">{'{{personalization}}'}</code>
+              <span className="text-muted-foreground">AI-generated personalization</span>
             </div>
           </div>
         </CardContent>
@@ -263,7 +263,7 @@ export default function ContentPage() {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/50" onClick={closeModal} />
-          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="relative bg-background rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-4 border-b">
               <h2 className="text-lg font-semibold">
                 {editingTemplate ? 'Edit Content' : 'Create Content'}

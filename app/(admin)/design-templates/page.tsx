@@ -39,14 +39,14 @@ function TemplatePreview({ content }: { content: BuilderContent | null }) {
 
   if (!hasContent) {
     return (
-      <div className="w-full h-[160px] bg-gray-50 rounded-md flex items-center justify-center border border-gray-100">
-        <span className="text-xs text-gray-400">No preview</span>
+      <div className="w-full h-[160px] bg-muted rounded-md flex items-center justify-center border border-border">
+        <span className="text-xs text-muted-foreground">No preview</span>
       </div>
     );
   }
 
   return (
-    <div className="w-full h-[160px] overflow-hidden rounded-md border border-gray-100 bg-white relative">
+    <div className="w-full h-[160px] overflow-hidden rounded-md border border-border bg-background relative">
       <div
         className="absolute inset-0 origin-top-left pointer-events-none"
         style={{ transform: 'scale(0.3)', width: '333.3%', height: '333.3%' }}
@@ -148,8 +148,8 @@ export default function DesignTemplatesPage() {
         <div className="flex items-center gap-3">
           <MenuButton />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Design Templates</h1>
-            <p className="text-gray-600">Manage email designs and branding</p>
+            <h1 className="text-2xl font-bold text-foreground">Design Templates</h1>
+            <p className="text-muted-foreground">Manage email designs and branding</p>
           </div>
         </div>
         <Button onClick={() => setCreateOpen(true)}>
@@ -165,9 +165,9 @@ export default function DesignTemplatesPage() {
       {templates.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
-            <Palette className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No templates yet</h3>
-            <p className="text-gray-600 mb-4">Create your first email design template</p>
+            <Palette className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-foreground mb-2">No templates yet</h3>
+            <p className="text-muted-foreground mb-4">Create your first email design template</p>
             <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4 mr-2" />Create Template</Button>
           </CardContent>
         </Card>

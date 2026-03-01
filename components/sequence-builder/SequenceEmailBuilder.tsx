@@ -272,7 +272,7 @@ export function SequenceEmailBuilder({
         </div>
       )}
       {templates.length === 0 ? (
-        <p className="text-sm text-gray-500 text-center py-4">No templates available</p>
+        <p className="text-sm text-muted-foreground text-center py-4">No templates available</p>
       ) : (
         templates.map((template) => (
           <button
@@ -280,15 +280,15 @@ export function SequenceEmailBuilder({
             onClick={() => canEdit && handleTemplateClick(template)}
             disabled={!canEdit}
             className={`w-full p-3 text-left border rounded-lg transition-colors ${
-              canEdit ? 'hover:bg-gray-50 cursor-pointer' : 'opacity-50 cursor-not-allowed'
+              canEdit ? 'hover:bg-muted cursor-pointer' : 'opacity-50 cursor-not-allowed'
             }`}
           >
             <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
               <div className="min-w-0">
-                <div className="font-medium text-sm text-gray-900 truncate">{template.name}</div>
+                <div className="font-medium text-sm text-foreground truncate">{template.name}</div>
                 {template.description && (
-                  <div className="text-xs text-gray-500 truncate">{template.description}</div>
+                  <div className="text-xs text-muted-foreground truncate">{template.description}</div>
                 )}
               </div>
             </div>
@@ -317,11 +317,11 @@ export function SequenceEmailBuilder({
         {selectedStep ? (
           <>
             {/* Top Bar - Subject & Delay Controls */}
-            <div className="border-b bg-white px-6 py-4 shrink-0 space-y-3">
+            <div className="border-b bg-background px-6 py-4 shrink-0 space-y-3">
               <div className="flex items-center gap-6">
                 {/* Subject Line */}
                 <div className="flex-1">
-                  <Label htmlFor="subject" className="text-sm font-medium text-gray-700 mb-1.5 block">
+                  <Label htmlFor="subject" className="text-sm font-medium text-foreground mb-1.5 block">
                     Subject line
                   </Label>
                   <Input
@@ -336,18 +336,18 @@ export function SequenceEmailBuilder({
 
                 {/* Delay Selector */}
                 <div>
-                  <Label className="text-sm font-medium text-gray-700 mb-1.5 block">
+                  <Label className="text-sm font-medium text-foreground mb-1.5 block">
                     Send email
                   </Label>
                   {delayValue === 0 ? (
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-700 font-medium">Immediately</span>
+                      <span className="text-sm text-foreground font-medium">Immediately</span>
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => handleDelayValueChange(1)}
                         disabled={!canEdit}
-                        className="text-xs text-gray-500 h-7"
+                        className="text-xs text-muted-foreground h-7"
                       >
                         Add delay
                       </Button>
@@ -375,7 +375,7 @@ export function SequenceEmailBuilder({
                           <SelectItem value="days">day(s)</SelectItem>
                         </SelectContent>
                       </Select>
-                      <span className="text-sm text-gray-500">
+                      <span className="text-sm text-muted-foreground">
                         {selectedStep.position === 1 ? 'after sign up' : 'after last email'}
                       </span>
                     </div>
@@ -386,7 +386,7 @@ export function SequenceEmailBuilder({
                 <div className="border-l pl-6">
                   <div className="flex items-center gap-3">
                     <div className="space-y-0.5">
-                      <Label htmlFor="require-approval" className="text-sm font-medium text-gray-700">
+                      <Label htmlFor="require-approval" className="text-sm font-medium text-foreground">
                         Require approval
                       </Label>
                       <p className="text-xs text-muted-foreground">
@@ -444,9 +444,9 @@ export function SequenceEmailBuilder({
 
               {/* Warning when auto-send is enabled */}
               {!selectedStep.approval_required && (
-                <Alert className="bg-amber-50 border-amber-200">
-                  <AlertCircle className="h-4 w-4 text-amber-600" />
-                  <AlertDescription className="text-amber-800 text-sm">
+                <Alert className="bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800">
+                  <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                  <AlertDescription className="text-amber-800 dark:text-amber-200 text-sm">
                     Emails will send automatically without review. Make sure your content is ready.
                   </AlertDescription>
                 </Alert>
@@ -469,8 +469,8 @@ export function SequenceEmailBuilder({
             </div>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center bg-gray-50">
-            <div className="text-center text-gray-500">
+          <div className="flex-1 flex items-center justify-center bg-muted">
+            <div className="text-center text-muted-foreground">
               <p className="text-lg mb-2">No email selected</p>
               <p className="text-sm">Select an email from the list or add a new one</p>
             </div>

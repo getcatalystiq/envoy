@@ -34,14 +34,14 @@ export function FAQ() {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   return (
-    <section id="faq" className="py-24 bg-gray-50">
+    <section id="faq" className="py-24 bg-muted">
       <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center mb-16">
-          <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
+          <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">
             Frequently Asked Questions
           </h2>
-          <p className="text-lg text-gray-600">
+          <p className="text-lg text-muted-foreground">
             Got questions? We have answers.
           </p>
         </div>
@@ -51,23 +51,23 @@ export function FAQ() {
           {faqs.map((faq, index) => (
             <div
               key={index}
-              className="bg-white rounded-xl border overflow-hidden"
+              className="bg-background rounded-xl border overflow-hidden"
             >
               <button
                 className="w-full px-6 py-4 flex items-center justify-between text-left"
                 onClick={() => setOpenIndex(openIndex === index ? null : index)}
               >
-                <span className="font-medium text-gray-900">{faq.question}</span>
+                <span className="font-medium text-foreground">{faq.question}</span>
                 <ChevronDown
                   className={cn(
-                    'w-5 h-5 text-gray-500 transition-transform',
+                    'w-5 h-5 text-muted-foreground transition-transform',
                     openIndex === index && 'rotate-180'
                   )}
                 />
               </button>
               {openIndex === index && (
                 <div className="px-6 pb-4">
-                  <p className="text-gray-600 leading-relaxed">{faq.answer}</p>
+                  <p className="text-muted-foreground leading-relaxed">{faq.answer}</p>
                 </div>
               )}
             </div>

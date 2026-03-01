@@ -111,7 +111,7 @@ function getFileIcon(name: string) {
     case 'yml':
       return <Settings className="w-4 h-4 text-yellow-600" />;
     default:
-      return <File className="w-4 h-4 text-gray-500" />;
+      return <File className="w-4 h-4 text-muted-foreground" />;
   }
 }
 
@@ -158,14 +158,14 @@ function FileTreeNode({
   return (
     <div>
       <div
-        className={`flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-gray-100 group ${
-          isSelected ? 'bg-blue-50 text-blue-700' : ''
+        className={`flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-muted group ${
+          isSelected ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : ''
         }`}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
         onClick={handleClick}
       >
         {node.type === 'directory' && (
-          <span className="w-4 h-4 flex items-center justify-center text-gray-400">
+          <span className="w-4 h-4 flex items-center justify-center text-muted-foreground">
             {isExpanded ? (
               <ChevronDown className="w-4 h-4" />
             ) : (
@@ -191,7 +191,7 @@ function FileTreeNode({
         </span>
 
         <button
-          className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-gray-200 text-gray-400 hover:text-red-500"
+          className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-red-500"
           onClick={handleDelete}
           title="Delete"
         >
@@ -250,9 +250,9 @@ export function SkillFileBrowser() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-white border-r min-w-[200px]">
+    <div className="flex flex-col h-full bg-background border-r min-w-[200px]">
       <div className="flex items-center justify-between px-3 py-2 border-b">
-        <span className="text-sm font-medium text-gray-700">Files</span>
+        <span className="text-sm font-medium text-foreground">Files</span>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
@@ -281,12 +281,12 @@ export function SkillFileBrowser() {
 
       <div className="flex-1 overflow-auto">
         {state.isFilesLoading && state.files.length === 0 ? (
-          <div className="flex items-center justify-center p-4 text-sm text-gray-500">
+          <div className="flex items-center justify-center p-4 text-sm text-muted-foreground">
             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
             Loading...
           </div>
         ) : state.files.length === 0 ? (
-          <div className="flex flex-col items-center justify-center p-4 text-sm text-gray-500">
+          <div className="flex flex-col items-center justify-center p-4 text-sm text-muted-foreground">
             <p>No files yet.</p>
             <p className="text-xs">Click + to create one.</p>
           </div>

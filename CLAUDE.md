@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Envoy is an AI-powered sales and marketing agent platform. It enables organizations to create email campaigns with AI-driven personalization, manage target audiences, and automate multi-step email sequences. It exposes an MCP server so AI agents can operate it directly.
+Drip campaigns that write themselves. Build multi-step email sequences where every message is AI-personalized to each recipient. Envoy researches your prospects and writes unique follow-ups that convert. Open source — self-host or deploy to Vercel in minutes. Exposes an MCP server so AI agents can operate it directly.
 
 ## Development Commands
 

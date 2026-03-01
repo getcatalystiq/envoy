@@ -159,23 +159,23 @@ export function SkillsTab() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
+        {error && <div className="p-3 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 rounded-lg text-sm">{error}</div>}
 
         {skills.length === 0 ? (
           <div className="text-center py-8">
-            <Sparkles className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-            <p className="text-gray-500 mb-4">No skills configured yet.</p>
+            <Sparkles className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+            <p className="text-muted-foreground mb-4">No skills configured yet.</p>
             <Button onClick={openCreateDialog}><Plus className="w-4 h-4 mr-2" />Create Your First Skill</Button>
           </div>
         ) : (
           <div className="space-y-3">
             {skills.map((skill) => (
-              <div key={skill.slug} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div key={skill.slug} className="flex items-center justify-between p-4 bg-muted rounded-lg">
                 <div className="flex items-center gap-4 flex-1 min-w-0">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2"><p className="font-medium truncate">{skill.name}</p></div>
-                    {skill.description && <p className="text-sm text-gray-500 truncate">{skill.description}</p>}
-                    <p className="text-xs text-gray-400 font-mono">{skill.slug}</p>
+                    {skill.description && <p className="text-sm text-muted-foreground truncate">{skill.description}</p>}
+                    <p className="text-xs text-muted-foreground font-mono">{skill.slug}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 ml-4">
@@ -215,7 +215,7 @@ export function SkillsTab() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div><Label htmlFor="edit-name">Name</Label><Input id="edit-name" value={formName} onChange={(e) => setFormName(e.target.value)} /></div>
-              <div><Label htmlFor="edit-slug">Slug</Label><Input id="edit-slug" value={formSlug} disabled className="font-mono bg-gray-50" /></div>
+              <div><Label htmlFor="edit-slug">Slug</Label><Input id="edit-slug" value={formSlug} disabled className="font-mono bg-muted" /></div>
             </div>
             <div><Label htmlFor="edit-description">Description (optional)</Label><Input id="edit-description" value={formDescription} onChange={(e) => setFormDescription(e.target.value)} /></div>
           </div>
@@ -231,7 +231,7 @@ export function SkillsTab() {
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Delete Skill</DialogTitle></DialogHeader>
-          <p className="text-gray-600">Are you sure you want to delete this skill? This action cannot be undone.</p>
+          <p className="text-muted-foreground">Are you sure you want to delete this skill? This action cannot be undone.</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
             <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)}>Delete</Button>

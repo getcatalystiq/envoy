@@ -233,8 +233,8 @@ export default function SequencesPage() {
         <div className="flex items-center gap-3">
           <MenuButton />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Sequences</h1>
-            <p className="text-gray-600">Build multi-step email sequences for automated outreach</p>
+            <h1 className="text-2xl font-bold text-foreground">Sequences</h1>
+            <p className="text-muted-foreground">Build multi-step email sequences for automated outreach</p>
           </div>
         </div>
         <Button onClick={() => setShowCreateDialog(true)}>
@@ -254,25 +254,25 @@ export default function SequencesPage() {
       <div className="grid grid-cols-4 gap-4">
         <Card className={cn('cursor-pointer transition-colors', filter === 'all' && 'ring-2 ring-primary')} onClick={() => setFilter('all')}>
           <CardContent className="pt-4">
-            <div className="flex items-center gap-2"><GitBranch className="w-4 h-4 text-gray-600" /><span className="text-sm text-gray-600">All</span></div>
+            <div className="flex items-center gap-2"><GitBranch className="w-4 h-4 text-muted-foreground" /><span className="text-sm text-muted-foreground">All</span></div>
             <p className="text-2xl font-bold mt-1">{counts.all}</p>
           </CardContent>
         </Card>
         <Card className={cn('cursor-pointer transition-colors', filter === 'draft' && 'ring-2 ring-primary')} onClick={() => setFilter('draft')}>
           <CardContent className="pt-4">
-            <div className="flex items-center gap-2"><GitBranch className="w-4 h-4 text-gray-400" /><span className="text-sm text-gray-600">Draft</span></div>
+            <div className="flex items-center gap-2"><GitBranch className="w-4 h-4 text-muted-foreground" /><span className="text-sm text-muted-foreground">Draft</span></div>
             <p className="text-2xl font-bold mt-1">{counts.draft}</p>
           </CardContent>
         </Card>
         <Card className={cn('cursor-pointer transition-colors', filter === 'active' && 'ring-2 ring-primary')} onClick={() => setFilter('active')}>
           <CardContent className="pt-4">
-            <div className="flex items-center gap-2"><Play className="w-4 h-4 text-green-600" /><span className="text-sm text-gray-600">Active</span></div>
+            <div className="flex items-center gap-2"><Play className="w-4 h-4 text-green-600" /><span className="text-sm text-muted-foreground">Active</span></div>
             <p className="text-2xl font-bold mt-1">{counts.active}</p>
           </CardContent>
         </Card>
         <Card className={cn('cursor-pointer transition-colors', filter === 'archived' && 'ring-2 ring-primary')} onClick={() => setFilter('archived')}>
           <CardContent className="pt-4">
-            <div className="flex items-center gap-2"><Archive className="w-4 h-4 text-gray-400" /><span className="text-sm text-gray-600">Archived</span></div>
+            <div className="flex items-center gap-2"><Archive className="w-4 h-4 text-muted-foreground" /><span className="text-sm text-muted-foreground">Archived</span></div>
             <p className="text-2xl font-bold mt-1">{counts.archived}</p>
           </CardContent>
         </Card>
@@ -282,11 +282,11 @@ export default function SequencesPage() {
       {filteredSequences.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
-            <GitBranch className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
+            <GitBranch className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-foreground mb-2">
               {filter === 'all' ? 'Build your first sequence' : `No ${filter} sequences`}
             </h3>
-            <p className="text-gray-600 mb-4">Create multi-step email sequences that automatically follow up with prospects</p>
+            <p className="text-muted-foreground mb-4">Create multi-step email sequences that automatically follow up with prospects</p>
             {filter === 'all' && (
               <Button onClick={() => setShowCreateDialog(true)}>
                 <Plus className="w-4 h-4 mr-2" />Create Sequence
@@ -301,7 +301,7 @@ export default function SequencesPage() {
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <h3 className="text-lg font-semibold text-gray-900">{sequence.name}</h3>
+                    <h3 className="text-lg font-semibold text-foreground">{sequence.name}</h3>
                     {getStatusBadge(sequence.status)}
                   </div>
                   <DropdownMenu>
@@ -343,26 +343,26 @@ export default function SequencesPage() {
                   {sequence.is_default && <Badge variant="secondary">Default</Badge>}
                 </div>
 
-                <p className="text-sm text-gray-500 italic mb-6">
+                <p className="text-sm text-muted-foreground italic mb-6">
                   A {sequence.total_duration_days ?? 0} day sequence with {sequence.step_count ?? 0} emails
                 </p>
 
                 <div className="grid grid-cols-4 gap-4">
                   <div>
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Subscribers</p>
-                    <p className="text-xl font-bold text-gray-900">{sequence.total_enrollments ?? 0}</p>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Subscribers</p>
+                    <p className="text-xl font-bold text-foreground">{sequence.total_enrollments ?? 0}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Open Rate</p>
-                    <p className="text-xl font-bold text-gray-900">{sequence.open_rate ?? 0}%</p>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Open Rate</p>
+                    <p className="text-xl font-bold text-foreground">{sequence.open_rate ?? 0}%</p>
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Click Rate</p>
-                    <p className="text-xl font-bold text-gray-900">{sequence.click_rate ?? 0}%</p>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Click Rate</p>
+                    <p className="text-xl font-bold text-foreground">{sequence.click_rate ?? 0}%</p>
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Unsubscribers</p>
-                    <p className="text-xl font-bold text-gray-900">{sequence.unsubscribed_count ?? 0}</p>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Unsubscribers</p>
+                    <p className="text-xl font-bold text-foreground">{sequence.unsubscribed_count ?? 0}</p>
                   </div>
                 </div>
               </CardContent>

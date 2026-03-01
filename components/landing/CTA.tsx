@@ -17,7 +17,7 @@ export function CTA() {
           href="https://github.com/getcatalystiq/envoy"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 bg-white text-gray-900 font-semibold text-base px-8 py-4 rounded-lg hover:bg-gray-100 transition-colors"
+          className="inline-flex items-center gap-2 bg-background text-foreground font-semibold text-base px-8 py-4 rounded-lg hover:bg-muted transition-colors"
         >
           View on GitHub
           <ArrowRight className="h-4 w-4" />

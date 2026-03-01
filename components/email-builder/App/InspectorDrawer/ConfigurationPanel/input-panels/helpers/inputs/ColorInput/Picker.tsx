@@ -59,7 +59,7 @@ export default function Picker({ value, onChange }: Props) {
           prefixed
           color={internalValue}
           onChange={handleChange}
-          className="p-1 border border-gray-300 rounded w-full"
+          className="p-1 border border-border rounded w-full"
         />
       </div>
     </div>

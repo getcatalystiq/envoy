@@ -31,13 +31,13 @@ export default function CallbackPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="min-h-screen flex items-center justify-center bg-muted px-4">
         <div className="text-center">
           <div className="flex items-center justify-center gap-2 mb-4">
             <img src="/logo.png" alt="Envoy" className="w-10 h-10 rounded-lg" />
             <span className="font-semibold text-xl">Envoy</span>
           </div>
-          <div className="flex items-center justify-center gap-2 p-4 text-red-600 bg-red-50 rounded-lg">
+          <div className="flex items-center justify-center gap-2 p-4 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950 rounded-lg">
             <AlertCircle className="w-5 h-5" />
             <span>{error}</span>
           </div>
@@ -53,14 +53,14 @@ export default function CallbackPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center bg-muted">
       <div className="text-center">
         <div className="flex items-center justify-center gap-2 mb-4">
           <img src="/logo.png" alt="Envoy" className="w-10 h-10 rounded-lg" />
           <span className="font-semibold text-xl">Envoy</span>
         </div>
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-        <p className="mt-4 text-gray-600">Signing you in...</p>
+        <p className="mt-4 text-muted-foreground">Signing you in...</p>
       </div>
     </div>
   );

@@ -7,7 +7,7 @@ const handler = createMcpHandler(
     registerTools(server);
   },
   { instructions: SERVER_INSTRUCTIONS },
-  { basePath: "/mcp", maxDuration: 60 },
+  { maxDuration: 60 },
 );
 
 const authHandler = withMcpAuth(

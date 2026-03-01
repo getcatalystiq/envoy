@@ -64,11 +64,11 @@ export default function EmbedPage() {
   // Show error if auth failed
   if (error) {
     return (
-      <div className="flex items-center justify-center h-screen bg-white">
+      <div className="flex items-center justify-center h-screen bg-background">
         <div className="text-center max-w-md p-6">
           <div className="text-red-500 text-xl mb-4">Authentication Error</div>
-          <p className="text-gray-600 mb-4">{error}</p>
-          <p className="text-sm text-gray-500">
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <p className="text-sm text-muted-foreground">
             Please ensure the Envoy connector is properly configured.
           </p>
         </div>
@@ -79,10 +79,10 @@ export default function EmbedPage() {
   // Show loading until we receive auth from parent
   if (!isReady) {
     return (
-      <div className="flex items-center justify-center h-screen bg-white">
+      <div className="flex items-center justify-center h-screen bg-background">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-gray-600">Connecting...</p>
+          <p className="text-muted-foreground">Connecting...</p>
         </div>
       </div>
     );

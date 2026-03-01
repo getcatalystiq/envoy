@@ -52,7 +52,7 @@ export default function TemplatePanel() {
 
   return (
     <TooltipProvider>
-      <div className="h-[49px] border-b border-border bg-white sticky top-0 z-10 px-1 flex flex-row justify-between items-center">
+      <div className="h-[49px] border-b border-border bg-background sticky top-0 z-10 px-1 flex flex-row justify-between items-center">
         <div className="px-2 flex flex-row gap-4 w-full justify-between items-center">
           <div className="flex flex-row gap-4">
             <MainTabsGroup />

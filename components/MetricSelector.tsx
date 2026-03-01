@@ -60,7 +60,7 @@ export function MetricSelector({
       </PopoverTrigger>
       <PopoverContent className="w-[220px] p-0" align="start">
         <div className="border-b p-2">
-          <label className="flex cursor-pointer items-center gap-2 rounded p-2 hover:bg-gray-50">
+          <label className="flex cursor-pointer items-center gap-2 rounded p-2 hover:bg-muted">
             <Checkbox
               checked={allSelected}
               onCheckedChange={() => (allSelected ? clearAll() : selectAll())}
@@ -72,7 +72,7 @@ export function MetricSelector({
           {metrics.map((metric) => (
             <label
               key={metric.id}
-              className="flex cursor-pointer items-center gap-2 rounded p-2 hover:bg-gray-50"
+              className="flex cursor-pointer items-center gap-2 rounded p-2 hover:bg-muted"
             >
               <Checkbox
                 checked={selected.includes(metric.id)}

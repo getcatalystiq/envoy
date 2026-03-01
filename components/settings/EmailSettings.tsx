@@ -190,20 +190,20 @@ export function EmailSettings() {
                 maxLength={100}
                 disabled={isSaving}
               />
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-muted-foreground">
                 Emails will be sent from {emailFromName || 'noreply'}@{emailDomain || 'your-domain.com'}
               </p>
             </div>
           </div>
 
           {error && (
-            <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+            <div className="p-3 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 rounded-lg text-sm">
               {error}
             </div>
           )}
 
           {success && (
-            <div className="p-3 bg-green-50 text-green-700 rounded-lg text-sm flex items-center gap-2">
+            <div className="p-3 bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 rounded-lg text-sm flex items-center gap-2">
               <CheckCircle className="w-4 h-4" />
               {success}
             </div>
@@ -256,7 +256,7 @@ export function EmailSettings() {
                   {/* DKIM Records */}
                   {settings.dns_records.filter(r => r.type === 'CNAME').length > 0 && (
                     <tr>
-                      <td colSpan={4} className="py-2 pt-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      <td colSpan={4} className="py-2 pt-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                         DKIM (Email Authentication)
                       </td>
                     </tr>
@@ -286,7 +286,7 @@ export function EmailSettings() {
                   {/* MAIL FROM Records */}
                   {settings.dns_records.filter(r => r.type === 'MX' || (r.type === 'TXT' && r.name.startsWith('mail.'))).length > 0 && (
                     <tr>
-                      <td colSpan={4} className="py-2 pt-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      <td colSpan={4} className="py-2 pt-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                         MAIL FROM (Bounce Handling)
                       </td>
                     </tr>
@@ -316,7 +316,7 @@ export function EmailSettings() {
                   {/* DMARC Record */}
                   {settings.dns_records.filter(r => r.type === 'TXT' && r.name.startsWith('_dmarc.')).length > 0 && (
                     <tr>
-                      <td colSpan={4} className="py-2 pt-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      <td colSpan={4} className="py-2 pt-4 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                         DMARC (Email Policy)
                       </td>
                     </tr>

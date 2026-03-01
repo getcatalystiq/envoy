@@ -227,8 +227,8 @@ export function SkillCodeEditor() {
 
   if (state.openTabs.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full bg-gray-50 text-gray-400">
-        <FileText className="w-16 h-16 mb-4 text-gray-300" />
+      <div className="flex flex-col items-center justify-center h-full bg-muted text-muted-foreground">
+        <FileText className="w-16 h-16 mb-4 text-muted-foreground" />
         <p>Select a file to edit</p>
       </div>
     );

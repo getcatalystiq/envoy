@@ -43,7 +43,7 @@ export function Hero() {
   }, []);
 
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-b from-gray-50 to-white pt-20">
+    <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-b from-muted to-background pt-20">
       {/* Background pattern */}
       <div
         className="absolute inset-0 opacity-[0.03]"
@@ -67,13 +67,13 @@ export function Hero() {
             </div>
 
             {/* Headline */}
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-900 leading-[1.1] tracking-tight mb-6 animate-fade-in-up">
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-foreground leading-[1.1] tracking-tight mb-6 animate-fade-in-up">
               Drip campaigns that{' '}
               <span className="text-primary">write themselves</span>
             </h1>
 
             {/* Subheadline */}
-            <p className="text-lg sm:text-xl text-gray-600 max-w-xl mx-auto lg:mx-0 mb-10 leading-relaxed animate-fade-in-up animation-delay-100">
+            <p className="text-lg sm:text-xl text-muted-foreground max-w-xl mx-auto lg:mx-0 mb-10 leading-relaxed animate-fade-in-up animation-delay-100">
               Build multi-step email sequences where every message is AI-personalized
               to each recipient. Envoy researches your prospects and writes unique
               follow-ups that convert.
@@ -99,7 +99,7 @@ export function Hero() {
             </div>
 
             {/* Trust indicator */}
-            <p className="text-sm text-gray-500 mt-8 animate-fade-in-up animation-delay-300">
+            <p className="text-sm text-muted-foreground mt-8 animate-fade-in-up animation-delay-300">
               Open source. Self-host or deploy to Vercel in minutes.
             </p>
           </div>
@@ -110,23 +110,23 @@ export function Hero() {
             <div className="absolute -inset-4 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent rounded-3xl blur-2xl opacity-60" />
 
             {/* Sequence window */}
-            <div className="relative bg-white rounded-2xl border shadow-2xl overflow-hidden">
+            <div className="relative bg-background rounded-2xl border shadow-2xl overflow-hidden">
               {/* Window header */}
-              <div className="flex items-center gap-2 px-4 py-3 border-b bg-gray-50">
+              <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted">
                 <div className="flex gap-1.5">
                   <div className="w-3 h-3 rounded-full bg-red-400" />
                   <div className="w-3 h-3 rounded-full bg-yellow-400" />
                   <div className="w-3 h-3 rounded-full bg-green-400" />
                 </div>
-                <span className="text-xs text-gray-500 ml-2">Sequence: Enterprise Outreach</span>
+                <span className="text-xs text-muted-foreground ml-2">Sequence: Enterprise Outreach</span>
               </div>
 
               {/* Target info */}
-              <div className="px-4 py-3 border-b bg-gray-50/50 flex items-center gap-3">
+              <div className="px-4 py-3 border-b bg-muted/50 flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary">SJ</div>
                 <div>
-                  <div className="text-sm font-medium text-gray-900">Sarah Johnson</div>
-                  <div className="text-xs text-gray-500">VP Marketing, Acme Corp</div>
+                  <div className="text-sm font-medium text-foreground">Sarah Johnson</div>
+                  <div className="text-xs text-muted-foreground">VP Marketing, Acme Corp</div>
                 </div>
               </div>
 
@@ -138,13 +138,13 @@ export function Hero() {
                     className={`rounded-xl border p-3 transition-all duration-500 ${
                       index === activeStep
                         ? 'border-primary/30 bg-primary/5 shadow-sm'
-                        : 'border-gray-100 bg-white'
+                        : 'border-border bg-background'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${
-                        step.status === 'delivered' ? 'bg-green-100' :
-                        step.status === 'opened' ? 'bg-blue-100' :
+                        step.status === 'delivered' ? 'bg-green-100 dark:bg-green-900' :
+                        step.status === 'opened' ? 'bg-blue-100 dark:bg-blue-900' :
                         'bg-primary/10'
                       }`}>
                         {step.status === 'writing' ? (
@@ -159,10 +159,10 @@ export function Hero() {
                         <div className="flex items-center gap-2 mb-0.5">
                           <span className="text-xs font-medium text-primary">{step.day}</span>
                           {step.status === 'delivered' && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Delivered</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 font-medium">Delivered</span>
                           )}
                           {step.status === 'opened' && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">Opened</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 font-medium">Opened</span>
                           )}
                           {step.status === 'writing' && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium flex items-center gap-1">
@@ -171,27 +171,27 @@ export function Hero() {
                             </span>
                           )}
                         </div>
-                        <div className="text-sm font-medium text-gray-900 truncate">{step.subject}</div>
-                        <div className="text-xs text-gray-500 truncate">
+                        <div className="text-sm font-medium text-foreground truncate">{step.subject}</div>
+                        <div className="text-xs text-muted-foreground truncate">
                           {step.preview}
                           {step.status === 'writing' && index === activeStep && (
                             <span className={`inline-block w-0.5 h-3 bg-primary ml-0.5 ${showCursor ? 'opacity-100' : 'opacity-0'}`} />
                           )}
                         </div>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />
+                      <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                     </div>
                   </div>
                 ))}
               </div>
 
               {/* Footer */}
-              <div className="px-4 py-3 border-t bg-gray-50 flex justify-between items-center">
-                <div className="flex items-center gap-2 text-xs text-gray-500">
+              <div className="px-4 py-3 border-t bg-muted flex justify-between items-center">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Sparkles className="w-3 h-3 text-primary" />
                   <span>Each email personalized by AI</span>
                 </div>
-                <span className="text-xs text-gray-400">3 steps &middot; 7 days</span>
+                <span className="text-xs text-muted-foreground">3 steps &middot; 7 days</span>
               </div>
             </div>
           </div>

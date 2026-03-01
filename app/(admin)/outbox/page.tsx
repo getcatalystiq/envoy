@@ -239,7 +239,7 @@ export default function OutboxPage() {
               className="relative group"
               title={isActive ? `${metric.label}: ${formatDate(metric.value!)}` : `Not ${metric.label.toLowerCase()}`}
             >
-              <Icon className={cn('w-4 h-4', isActive ? metric.activeColor : 'text-gray-300')} />
+              <Icon className={cn('w-4 h-4', isActive ? metric.activeColor : 'text-muted-foreground')} />
             </div>
           );
         })}
@@ -270,8 +270,8 @@ export default function OutboxPage() {
         <div className="flex items-center gap-3">
           <MenuButton />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Outbox</h1>
-            <p className="text-gray-600">Review and approve AI-generated content</p>
+            <h1 className="text-2xl font-bold text-foreground">Outbox</h1>
+            <p className="text-muted-foreground">Review and approve AI-generated content</p>
           </div>
         </div>
       </div>
@@ -283,7 +283,7 @@ export default function OutboxPage() {
             <CardContent className="pt-4">
               <div className="flex items-center gap-2">
                 <Inbox className="w-4 h-4 text-yellow-600" />
-                <span className="text-sm text-gray-600">Pending</span>
+                <span className="text-sm text-muted-foreground">Pending</span>
               </div>
               <p className="text-2xl font-bold mt-1">{stats.pending}</p>
             </CardContent>
@@ -292,7 +292,7 @@ export default function OutboxPage() {
             <CardContent className="pt-4">
               <div className="flex items-center gap-2">
                 <Check className="w-4 h-4 text-green-600" />
-                <span className="text-sm text-gray-600">Approved</span>
+                <span className="text-sm text-muted-foreground">Approved</span>
               </div>
               <p className="text-2xl font-bold mt-1">{stats.approved}</p>
             </CardContent>
@@ -301,7 +301,7 @@ export default function OutboxPage() {
             <CardContent className="pt-4">
               <div className="flex items-center gap-2">
                 <X className="w-4 h-4 text-red-600" />
-                <span className="text-sm text-gray-600">Rejected</span>
+                <span className="text-sm text-muted-foreground">Rejected</span>
               </div>
               <p className="text-2xl font-bold mt-1">{stats.rejected}</p>
             </CardContent>
@@ -309,8 +309,8 @@ export default function OutboxPage() {
           <Card className={cn('cursor-pointer transition-colors', filter === 'snoozed' && 'ring-2 ring-primary')} onClick={() => setFilter('snoozed')}>
             <CardContent className="pt-4">
               <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-gray-600" />
-                <span className="text-sm text-gray-600">Snoozed</span>
+                <Clock className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Snoozed</span>
               </div>
               <p className="text-2xl font-bold mt-1">{stats.snoozed}</p>
             </CardContent>
@@ -319,7 +319,7 @@ export default function OutboxPage() {
             <CardContent className="pt-4">
               <div className="flex items-center gap-2">
                 <Send className="w-4 h-4 text-blue-600" />
-                <span className="text-sm text-gray-600">Sent</span>
+                <span className="text-sm text-muted-foreground">Sent</span>
               </div>
               <p className="text-2xl font-bold mt-1">{stats.sent}</p>
             </CardContent>
@@ -328,7 +328,7 @@ export default function OutboxPage() {
             <CardContent className="pt-4">
               <div className="flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 text-red-600" />
-                <span className="text-sm text-gray-600">Failed</span>
+                <span className="text-sm text-muted-foreground">Failed</span>
               </div>
               <p className="text-2xl font-bold mt-1">{stats.failed}</p>
             </CardContent>
@@ -340,11 +340,11 @@ export default function OutboxPage() {
       {items.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
-            <Inbox className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
+            <Inbox className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-foreground mb-2">
               No {filter} items
             </h3>
-            <p className="text-gray-600">
+            <p className="text-muted-foreground">
               {filter === 'pending'
                 ? 'All caught up! No content waiting for review.'
                 : `No items with status "${filter}".`}
@@ -360,16 +360,16 @@ export default function OutboxPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
                       {getChannelIcon(item.channel)}
-                      <span className="font-medium text-gray-900">{item.first_name} {item.last_name}</span>
-                      <span className="text-gray-500">{item.email || 'No email'}</span>
-                      {item.company && <span className="text-gray-400">@ {item.company}</span>}
+                      <span className="font-medium text-foreground">{item.first_name} {item.last_name}</span>
+                      <span className="text-muted-foreground">{item.email || 'No email'}</span>
+                      {item.company && <span className="text-muted-foreground">@ {item.company}</span>}
                     </div>
-                    {item.subject && <p className="font-medium text-gray-800 mb-1 truncate">{item.subject}</p>}
+                    {item.subject && <p className="font-medium text-foreground mb-1 truncate">{item.subject}</p>}
                     <div className="flex items-center gap-3 mt-3">
                       {getStatusBadge(item.status)}
                       {getConfidenceBadge(item.confidence_score)}
                       {renderEngagementMetrics(item)}
-                      <span className="text-xs text-gray-400">{formatDate(item.created_at)}</span>
+                      <span className="text-xs text-muted-foreground">{formatDate(item.created_at)}</span>
                     </div>
                     {item.status === 'failed' && !!item.send_result?.error && (
                       <div className="mt-2 flex items-center gap-2 text-sm text-red-600">
@@ -384,16 +384,16 @@ export default function OutboxPage() {
                     </Button>
                     {item.status === 'pending' && (
                       <>
-                        <Button size="sm" variant="ghost" className="text-green-600 hover:text-green-700 hover:bg-green-50" onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleApprove(item.id); }}>
+                        <Button size="sm" variant="ghost" className="text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950" onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleApprove(item.id); }}>
                           <Check className="w-4 h-4" />
                         </Button>
-                        <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={(e: React.MouseEvent) => { e.stopPropagation(); setSelectedItem(item); setShowRejectDialog(true); }}>
+                        <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950" onClick={(e: React.MouseEvent) => { e.stopPropagation(); setSelectedItem(item); setShowRejectDialog(true); }}>
                           <X className="w-4 h-4" />
                         </Button>
                       </>
                     )}
                     {item.status === 'failed' && (
-                      <Button size="sm" variant="ghost" className="text-blue-600 hover:text-blue-700 hover:bg-blue-50" onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleRetry(item.id); }}>
+                      <Button size="sm" variant="ghost" className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950" onClick={(e: React.MouseEvent) => { e.stopPropagation(); handleRetry(item.id); }}>
                         <RotateCcw className="w-4 h-4" />
                       </Button>
                     )}
@@ -422,49 +422,49 @@ export default function OutboxPage() {
               </DialogHeader>
 
               <div className="space-y-4">
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-sm"><span className="text-gray-500">Email:</span> {selectedItem.email || 'N/A'}</p>
-                  {selectedItem.company && <p className="text-sm"><span className="text-gray-500">Company:</span> {selectedItem.company}</p>}
+                <div className="bg-muted rounded-lg p-3">
+                  <p className="text-sm"><span className="text-muted-foreground">Email:</span> {selectedItem.email || 'N/A'}</p>
+                  {selectedItem.company && <p className="text-sm"><span className="text-muted-foreground">Company:</span> {selectedItem.company}</p>}
                   {selectedItem.confidence_score !== null && (
-                    <p className="text-sm flex items-center gap-2"><span className="text-gray-500">Confidence:</span>{getConfidenceBadge(selectedItem.confidence_score)}</p>
+                    <p className="text-sm flex items-center gap-2"><span className="text-muted-foreground">Confidence:</span>{getConfidenceBadge(selectedItem.confidence_score)}</p>
                   )}
                 </div>
 
                 {selectedItem.status === 'sent' && (
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <label className="text-sm font-medium text-gray-700 mb-2 block">Engagement</label>
+                  <div className="bg-muted rounded-lg p-3">
+                    <label className="text-sm font-medium text-foreground mb-2 block">Engagement</label>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                       <div className="flex items-center gap-2">
-                        <CheckCircle2 className={cn('w-4 h-4', selectedItem.delivered_at ? 'text-green-600' : 'text-gray-300')} />
+                        <CheckCircle2 className={cn('w-4 h-4', selectedItem.delivered_at ? 'text-green-600' : 'text-muted-foreground')} />
                         <div className="text-sm">
-                          <span className="text-gray-700">Delivered</span>
-                          {selectedItem.delivered_at && <p className="text-xs text-gray-500">{formatDate(selectedItem.delivered_at)}</p>}
+                          <span className="text-foreground">Delivered</span>
+                          {selectedItem.delivered_at && <p className="text-xs text-muted-foreground">{formatDate(selectedItem.delivered_at)}</p>}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Eye className={cn('w-4 h-4', selectedItem.opened_at ? 'text-blue-600' : 'text-gray-300')} />
+                        <Eye className={cn('w-4 h-4', selectedItem.opened_at ? 'text-blue-600' : 'text-muted-foreground')} />
                         <div className="text-sm">
-                          <span className="text-gray-700">Opened</span>
-                          {selectedItem.opened_at && <p className="text-xs text-gray-500">{formatDate(selectedItem.opened_at)}</p>}
+                          <span className="text-foreground">Opened</span>
+                          {selectedItem.opened_at && <p className="text-xs text-muted-foreground">{formatDate(selectedItem.opened_at)}</p>}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <MousePointerClick className={cn('w-4 h-4', selectedItem.clicked_at ? 'text-purple-600' : 'text-gray-300')} />
+                        <MousePointerClick className={cn('w-4 h-4', selectedItem.clicked_at ? 'text-purple-600' : 'text-muted-foreground')} />
                         <div className="text-sm">
-                          <span className="text-gray-700">Clicked</span>
-                          {selectedItem.clicked_at && <p className="text-xs text-gray-500">{formatDate(selectedItem.clicked_at)}</p>}
+                          <span className="text-foreground">Clicked</span>
+                          {selectedItem.clicked_at && <p className="text-xs text-muted-foreground">{formatDate(selectedItem.clicked_at)}</p>}
                         </div>
                       </div>
                       {selectedItem.bounced_at && (
                         <div className="flex items-center gap-2">
                           <Ban className="w-4 h-4 text-red-600" />
-                          <div className="text-sm"><span className="text-gray-700">Bounced</span><p className="text-xs text-gray-500">{formatDate(selectedItem.bounced_at)}</p></div>
+                          <div className="text-sm"><span className="text-foreground">Bounced</span><p className="text-xs text-muted-foreground">{formatDate(selectedItem.bounced_at)}</p></div>
                         </div>
                       )}
                       {selectedItem.complained_at && (
                         <div className="flex items-center gap-2">
                           <Flag className="w-4 h-4 text-orange-600" />
-                          <div className="text-sm"><span className="text-gray-700">Complained</span><p className="text-xs text-gray-500">{formatDate(selectedItem.complained_at)}</p></div>
+                          <div className="text-sm"><span className="text-foreground">Complained</span><p className="text-xs text-muted-foreground">{formatDate(selectedItem.complained_at)}</p></div>
                         </div>
                       )}
                     </div>
@@ -473,38 +473,38 @@ export default function OutboxPage() {
 
                 {!!(selectedItem.subject || editMode) && (
                   <div>
-                    <label className="text-sm font-medium text-gray-700">Subject</label>
+                    <label className="text-sm font-medium text-foreground">Subject</label>
                     {editMode ? (
                       <Input value={editedSubject} onChange={(e) => setEditedSubject(e.target.value)} className="mt-1" />
                     ) : (
-                      <p className="mt-1 text-gray-900">{selectedItem.subject}</p>
+                      <p className="mt-1 text-foreground">{selectedItem.subject}</p>
                     )}
                   </div>
                 )}
 
                 <div>
-                  <label className="text-sm font-medium text-gray-700">Body</label>
+                  <label className="text-sm font-medium text-foreground">Body</label>
                   {editMode ? (
                     <Textarea value={editedBody} onChange={(e) => setEditedBody(e.target.value)} className="mt-1 min-h-[200px]" />
                   ) : (
-                    <iframe srcDoc={selectedItem.body} className="mt-1 w-full min-h-[400px] bg-gray-100 border rounded-lg" sandbox="allow-same-origin" title="Email preview" />
+                    <iframe srcDoc={selectedItem.body} className="mt-1 w-full min-h-[400px] bg-muted border rounded-lg" sandbox="allow-same-origin" title="Email preview" />
                   )}
                 </div>
 
                 {selectedItem.status === 'failed' && !!selectedItem.send_result?.error && (
                   <div>
-                    <label className="text-sm font-medium text-gray-700">Error</label>
-                    <div className="mt-1 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-900 flex items-start gap-2">
+                    <label className="text-sm font-medium text-foreground">Error</label>
+                    <div className="mt-1 p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
                       <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                       <span>{String(selectedItem.send_result.error)}</span>
                     </div>
                   </div>
                 )}
 
-                <div className="bg-gray-50 rounded-lg p-3">
+                <div className="bg-muted rounded-lg p-3">
                   <button
                     type="button"
-                    className="flex items-center gap-1 text-sm font-medium text-gray-700 w-full text-left"
+                    className="flex items-center gap-1 text-sm font-medium text-foreground w-full text-left"
                     onClick={() => setTargetDataExpanded(!targetDataExpanded)}
                   >
                     {targetDataExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
@@ -512,16 +512,16 @@ export default function OutboxPage() {
                   </button>
                   {targetDataExpanded && (
                     <div className="space-y-1 text-sm mt-2">
-                      <p><span className="text-gray-500">Email:</span> {selectedItem.email || 'N/A'}</p>
-                      <p><span className="text-gray-500">Name:</span> {[selectedItem.first_name, selectedItem.last_name].filter(Boolean).join(' ') || 'N/A'}</p>
-                      <p><span className="text-gray-500">Company:</span> {selectedItem.company || 'N/A'}</p>
+                      <p><span className="text-muted-foreground">Email:</span> {selectedItem.email || 'N/A'}</p>
+                      <p><span className="text-muted-foreground">Name:</span> {[selectedItem.first_name, selectedItem.last_name].filter(Boolean).join(' ') || 'N/A'}</p>
+                      <p><span className="text-muted-foreground">Company:</span> {selectedItem.company || 'N/A'}</p>
                       {selectedItem.metadata && Object.keys(selectedItem.metadata).length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-gray-200">
-                          <span className="text-gray-500 block mb-1">Metadata:</span>
+                        <div className="mt-2 pt-2 border-t border-border">
+                          <span className="text-muted-foreground block mb-1">Metadata:</span>
                           <div className="pl-2 space-y-1">
                             {Object.entries(selectedItem.metadata).map(([key, value]) => (
-                              <p key={key} className="text-gray-700">
-                                <span className="text-gray-500">{key}:</span> {typeof value === 'object' ? JSON.stringify(value) : String(value ?? '')}
+                              <p key={key} className="text-foreground">
+                                <span className="text-muted-foreground">{key}:</span> {typeof value === 'object' ? JSON.stringify(value) : String(value ?? '')}
                               </p>
                             ))}
                           </div>
@@ -533,11 +533,11 @@ export default function OutboxPage() {
 
                 {selectedItem.edit_history?.length > 0 && (
                   <div>
-                    <label className="text-sm font-medium text-gray-700">Edit History</label>
+                    <label className="text-sm font-medium text-foreground">Edit History</label>
                     <div className="mt-1 space-y-2">
                       {selectedItem.edit_history.map((edit, i) => (
-                        <div key={i} className="text-xs p-2 bg-gray-50 rounded">
-                          <span className="text-gray-500">{formatDate(edit.timestamp)}</span>: Edited {edit.field}
+                        <div key={i} className="text-xs p-2 bg-muted rounded">
+                          <span className="text-muted-foreground">{formatDate(edit.timestamp)}</span>: Edited {edit.field}
                         </div>
                       ))}
                     </div>
@@ -588,7 +588,7 @@ export default function OutboxPage() {
           <DialogHeader><DialogTitle>Reject Content</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-gray-700">Reason (optional)</label>
+              <label className="text-sm font-medium text-foreground">Reason (optional)</label>
               <Textarea value={rejectReason} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setRejectReason(e.target.value)} placeholder="Why is this content being rejected?" className="mt-1" />
             </div>
           </div>
@@ -605,7 +605,7 @@ export default function OutboxPage() {
           <DialogHeader><DialogTitle>Snooze Until</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-gray-700">Snooze until</label>
+              <label className="text-sm font-medium text-foreground">Snooze until</label>
               <Input type="datetime-local" value={snoozeUntil} onChange={(e) => setSnoozeUntil(e.target.value)} className="mt-1" />
             </div>
           </div>

@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { isEmbedded } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
 import {
   LayoutDashboard,
   Users,
@@ -39,12 +40,12 @@ export function MenuButton({ className }: { className?: string }) {
     <button
       onClick={layout.openSidebar}
       className={cn(
-        'p-1.5 -ml-1.5 rounded-lg hover:bg-gray-100 transition-colors',
+        'p-1.5 -ml-1.5 rounded-lg hover:bg-muted transition-colors',
         className
       )}
       aria-label="Open menu"
     >
-      <Menu className="w-5 h-5 text-gray-600" />
+      <Menu className="w-5 h-5 text-muted-foreground" />
     </button>
   );
 }
@@ -80,7 +81,7 @@ export function Layout({ children, embedded = false }: LayoutProps) {
 
     return (
       <LayoutContext.Provider value={contextValue}>
-        <div className="min-h-screen bg-white">
+        <div className="min-h-screen bg-background">
           {/* Sidebar backdrop */}
           {sidebarOpen && (
             <div
@@ -92,7 +93,7 @@ export function Layout({ children, embedded = false }: LayoutProps) {
           {/* Sidebar */}
           <aside
             className={cn(
-              'fixed inset-y-0 left-0 z-50 w-64 bg-white border-r transform transition-transform duration-200 ease-in-out',
+              'fixed inset-y-0 left-0 z-50 w-64 bg-background border-r transform transition-transform duration-200 ease-in-out',
               sidebarOpen ? 'translate-x-0' : '-translate-x-full'
             )}
           >
@@ -117,7 +118,7 @@ export function Layout({ children, embedded = false }: LayoutProps) {
                         'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
                         isActive
                           ? 'bg-primary/10 text-primary'
-                          : 'text-gray-600 hover:bg-gray-100'
+                          : 'text-muted-foreground hover:bg-muted'
                       )}
                       onClick={() => setSidebarOpen(false)}
                     >
@@ -138,8 +139,11 @@ export function Layout({ children, embedded = false }: LayoutProps) {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{user?.email}</p>
-                    <p className="text-xs text-gray-500 truncate">{user?.org_name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{user?.org_name}</p>
                   </div>
+                </div>
+                <div className="mt-2 flex justify-end">
+                  <ThemeToggle />
                 </div>
               </div>
             </div>
@@ -153,7 +157,7 @@ export function Layout({ children, embedded = false }: LayoutProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-muted">
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div
@@ -165,7 +169,7 @@ export function Layout({ children, embedded = false }: LayoutProps) {
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 w-64 bg-white border-r transform transition-transform duration-200 ease-in-out lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-50 w-64 bg-background border-r transform transition-transform duration-200 ease-in-out lg:translate-x-0',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
@@ -197,7 +201,7 @@ export function Layout({ children, embedded = false }: LayoutProps) {
                     'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
                     isActive
                       ? 'bg-primary/10 text-primary'
-                      : 'text-gray-600 hover:bg-gray-100'
+                      : 'text-muted-foreground hover:bg-muted'
                   )}
                   onClick={() => setSidebarOpen(false)}
                 >
@@ -218,18 +222,21 @@ export function Layout({ children, embedded = false }: LayoutProps) {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{user?.email}</p>
-                <p className="text-xs text-gray-500 truncate">{user?.org_name}</p>
+                <p className="text-xs text-muted-foreground truncate">{user?.org_name}</p>
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full justify-start"
-              onClick={logout}
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Sign out
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 justify-start"
+                onClick={logout}
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                Sign out
+              </Button>
+              <ThemeToggle />
+            </div>
           </div>
         </div>
       </aside>
@@ -237,7 +244,7 @@ export function Layout({ children, embedded = false }: LayoutProps) {
       {/* Main content */}
       <div className="lg:pl-64">
         {/* Mobile header */}
-        <header className="sticky top-0 z-30 bg-white border-b lg:hidden">
+        <header className="sticky top-0 z-30 bg-background border-b lg:hidden">
           <div className="flex items-center justify-between h-16 px-4">
             <button onClick={() => setSidebarOpen(true)}>
               <Menu className="w-6 h-6" />

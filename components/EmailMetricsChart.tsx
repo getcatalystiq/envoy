@@ -90,16 +90,16 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   if (!active || !payload || !payload.length) return null;
 
   return (
-    <div className="rounded-lg border bg-white p-3 shadow-lg">
-      <p className="mb-2 text-sm font-medium text-gray-900">{label}</p>
+    <div className="rounded-lg border bg-background p-3 shadow-lg">
+      <p className="mb-2 text-sm font-medium text-foreground">{label}</p>
       {payload.map((entry: TooltipPayloadEntry) => (
         <div key={entry.dataKey} className="flex items-center gap-2 text-sm">
           <span
             className="h-3 w-3 rounded-full"
             style={{ backgroundColor: entry.color }}
           />
-          <span className="text-gray-600">{entry.name}:</span>
-          <span className="font-medium text-gray-900">
+          <span className="text-muted-foreground">{entry.name}:</span>
+          <span className="font-medium text-foreground">
             {typeof entry.value === 'number'
               ? entry.dataKey?.includes('rate')
                 ? `${entry.value.toFixed(1)}%`
@@ -179,7 +179,7 @@ export function EmailMetricsChart() {
     return (
       <Card>
         <CardContent className="flex h-[400px] flex-col items-center justify-center gap-4">
-          <p className="text-gray-600">{error}</p>
+          <p className="text-muted-foreground">{error}</p>
           <Button onClick={loadData} variant="outline">
             <RefreshCw className="mr-2 h-4 w-4" />
             Retry
@@ -193,8 +193,8 @@ export function EmailMetricsChart() {
     return (
       <Card>
         <CardContent className="flex h-[400px] flex-col items-center justify-center gap-2">
-          <p className="text-gray-600">No email activity in this period</p>
-          <p className="text-sm text-gray-400">
+          <p className="text-muted-foreground">No email activity in this period</p>
+          <p className="text-sm text-muted-foreground">
             Send some emails to see metrics here
           </p>
         </CardContent>
@@ -247,14 +247,14 @@ export function EmailMetricsChart() {
       </CardHeader>
       <CardContent>
         {selectedMetrics.length === 0 ? (
-          <div className="flex h-[300px] items-center justify-center text-gray-500">
+          <div className="flex h-[300px] items-center justify-center text-muted-foreground">
             Select metrics to display
           </div>
         ) : (
           <div className="grid gap-6 lg:grid-cols-2">
             {/* Volume Chart */}
             <div>
-              <h3 className="mb-4 text-sm font-medium text-gray-700">Volume</h3>
+              <h3 className="mb-4 text-sm font-medium text-foreground">Volume</h3>
               <ResponsiveContainer width="100%" height={280}>
                 <LineChart
                   data={chartData}
@@ -358,7 +358,7 @@ export function EmailMetricsChart() {
 
             {/* Rate Chart */}
             <div>
-              <h3 className="mb-4 text-sm font-medium text-gray-700">Rate</h3>
+              <h3 className="mb-4 text-sm font-medium text-foreground">Rate</h3>
               <ResponsiveContainer width="100%" height={280}>
                 <LineChart
                   data={chartData}

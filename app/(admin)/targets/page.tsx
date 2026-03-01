@@ -303,8 +303,8 @@ export default function TargetsPage() {
         <div className="flex items-center gap-3">
           <MenuButton />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Targets</h1>
-            <p className="text-gray-600">Manage your prospect list</p>
+            <h1 className="text-2xl font-bold text-foreground">Targets</h1>
+            <p className="text-muted-foreground">Manage your prospect list</p>
           </div>
         </div>
         <div className="flex gap-3">
@@ -320,7 +320,7 @@ export default function TargetsPage() {
       </div>
 
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
           placeholder="Search by name, email, company, or phone..."
           className="pl-10"
@@ -332,9 +332,9 @@ export default function TargetsPage() {
       {total === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
-            <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No targets yet</h3>
-            <p className="text-gray-600 mb-4">Import a CSV or add targets manually to get started</p>
+            <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-foreground mb-2">No targets yet</h3>
+            <p className="text-muted-foreground mb-4">Import a CSV or add targets manually to get started</p>
             <div className="flex justify-center gap-3">
               <Button variant="outline">
                 <Upload className="w-4 h-4 mr-2" />
@@ -352,30 +352,30 @@ export default function TargetsPage() {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b bg-gray-50">
-                  <th className="text-left text-sm font-medium text-gray-600 px-4 py-3">Name</th>
-                  <th className="text-left text-sm font-medium text-gray-600 px-4 py-3">Email</th>
-                  <th className="text-left text-sm font-medium text-gray-600 px-4 py-3">Company</th>
-                  <th className="text-left text-sm font-medium text-gray-600 px-4 py-3">Phone</th>
-                  <th className="text-left text-sm font-medium text-gray-600 px-4 py-3">Type</th>
-                  <th className="text-left text-sm font-medium text-gray-600 px-4 py-3">Segment</th>
-                  <th className="text-left text-sm font-medium text-gray-600 px-4 py-3">Stage</th>
-                  <th className="text-left text-sm font-medium text-gray-600 px-4 py-3">Created</th>
-                  <th className="text-left text-sm font-medium text-gray-600 px-4 py-3">Status</th>
-                  <th className="text-left text-sm font-medium text-gray-600 px-4 py-3">Actions</th>
+                <tr className="border-b bg-muted">
+                  <th className="text-left text-sm font-medium text-muted-foreground px-4 py-3">Name</th>
+                  <th className="text-left text-sm font-medium text-muted-foreground px-4 py-3">Email</th>
+                  <th className="text-left text-sm font-medium text-muted-foreground px-4 py-3">Company</th>
+                  <th className="text-left text-sm font-medium text-muted-foreground px-4 py-3">Phone</th>
+                  <th className="text-left text-sm font-medium text-muted-foreground px-4 py-3">Type</th>
+                  <th className="text-left text-sm font-medium text-muted-foreground px-4 py-3">Segment</th>
+                  <th className="text-left text-sm font-medium text-muted-foreground px-4 py-3">Stage</th>
+                  <th className="text-left text-sm font-medium text-muted-foreground px-4 py-3">Created</th>
+                  <th className="text-left text-sm font-medium text-muted-foreground px-4 py-3">Status</th>
+                  <th className="text-left text-sm font-medium text-muted-foreground px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredTargets.map((target) => (
-                  <tr key={target.id} className="border-b hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-600">{getFullName(target) || '-'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{target.email}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{target.company || '-'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{target.phone || '-'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{getTargetTypeName(target.target_type_id)}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{getSegmentName(target.segment_id)}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{LIFECYCLE_STAGES[target.lifecycle_stage] || target.lifecycle_stage}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{formatDate(target.created_at)}</td>
+                  <tr key={target.id} className="border-b hover:bg-muted">
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{getFullName(target) || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{target.email}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{target.company || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{target.phone || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{getTargetTypeName(target.target_type_id)}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{getSegmentName(target.segment_id)}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{LIFECYCLE_STAGES[target.lifecycle_stage] || target.lifecycle_stage}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{formatDate(target.created_at)}</td>
                     <td className="px-4 py-3">{getStatusBadge(target.status)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
@@ -385,7 +385,7 @@ export default function TargetsPage() {
                         <Button variant="ghost" size="sm" onClick={() => openEditDialog(target)} className="h-8 w-8 p-0" title="Edit">
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => openDeleteDialog(target)} className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50" title="Delete">
+                        <Button variant="ghost" size="sm" onClick={() => openDeleteDialog(target)} className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950" title="Delete">
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -396,13 +396,13 @@ export default function TargetsPage() {
             </table>
           </div>
 
-          <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
-            <div className="flex items-center gap-2 text-sm text-gray-600">
+          <div className="flex items-center justify-between px-4 py-3 border-t bg-muted">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <span>Rows per page:</span>
               <select
                 value={pageSize}
                 onChange={(e) => handlePageSizeChange(e.target.value)}
-                className="h-8 px-2 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                className="h-8 px-2 border border-border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 {PAGE_SIZES.map((size) => (
                   <option key={size} value={size}>{size}</option>
@@ -420,7 +420,7 @@ export default function TargetsPage() {
               </Button>
               {getPageNumbers().map((pageNum, idx) =>
                 pageNum === '...' ? (
-                  <span key={`ellipsis-${idx}`} className="px-2 text-gray-400">...</span>
+                  <span key={`ellipsis-${idx}`} className="px-2 text-muted-foreground">...</span>
                 ) : (
                   <Button key={pageNum} variant={page === pageNum ? 'default' : 'outline'} size="sm" onClick={() => setPage(pageNum as number)} className="h-8 w-8 p-0">{pageNum}</Button>
                 )
@@ -466,14 +466,14 @@ export default function TargetsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="add-target_type">Target Type</Label>
-                <select id="add-target_type" value={formData.target_type_id} onChange={(e) => setFormData({ ...formData, target_type_id: e.target.value })} className="w-full h-10 px-3 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                <select id="add-target_type" value={formData.target_type_id} onChange={(e) => setFormData({ ...formData, target_type_id: e.target.value })} className="w-full h-10 px-3 border border-border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">Select type...</option>
                   {targetTypes.map((type) => (<option key={type.id} value={type.id}>{type.name}</option>))}
                 </select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="add-segment">Segment</Label>
-                <select id="add-segment" value={formData.segment_id} onChange={(e) => setFormData({ ...formData, segment_id: e.target.value })} className="w-full h-10 px-3 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                <select id="add-segment" value={formData.segment_id} onChange={(e) => setFormData({ ...formData, segment_id: e.target.value })} className="w-full h-10 px-3 border border-border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">Select segment...</option>
                   {segments.map((segment) => (<option key={segment.id} value={segment.id}>{segment.name}</option>))}
                 </select>
@@ -519,14 +519,14 @@ export default function TargetsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-target_type">Target Type</Label>
-                <select id="edit-target_type" value={formData.target_type_id} onChange={(e) => setFormData({ ...formData, target_type_id: e.target.value })} className="w-full h-10 px-3 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                <select id="edit-target_type" value={formData.target_type_id} onChange={(e) => setFormData({ ...formData, target_type_id: e.target.value })} className="w-full h-10 px-3 border border-border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">Select type...</option>
                   {targetTypes.map((type) => (<option key={type.id} value={type.id}>{type.name}</option>))}
                 </select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-segment">Segment</Label>
-                <select id="edit-segment" value={formData.segment_id} onChange={(e) => setFormData({ ...formData, segment_id: e.target.value })} className="w-full h-10 px-3 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                <select id="edit-segment" value={formData.segment_id} onChange={(e) => setFormData({ ...formData, segment_id: e.target.value })} className="w-full h-10 px-3 border border-border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary">
                   <option value="">Select segment...</option>
                   {segments.map((segment) => (<option key={segment.id} value={segment.id}>{segment.name}</option>))}
                 </select>
@@ -534,7 +534,7 @@ export default function TargetsPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-lifecycle_stage">Lifecycle Stage</Label>
-              <select id="edit-lifecycle_stage" value={formData.lifecycle_stage} onChange={(e) => setFormData({ ...formData, lifecycle_stage: Number(e.target.value) })} className="w-full h-10 px-3 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+              <select id="edit-lifecycle_stage" value={formData.lifecycle_stage} onChange={(e) => setFormData({ ...formData, lifecycle_stage: Number(e.target.value) })} className="w-full h-10 px-3 border border-border rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary">
                 {LIFECYCLE_STAGES.map((stage, index) => (<option key={index} value={index}>{stage}</option>))}
               </select>
             </div>
@@ -553,7 +553,7 @@ export default function TargetsPage() {
             <DialogTitle>Delete Target</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-muted-foreground">
               Are you sure you want to delete <strong>{deletingTarget?.email}</strong>? This action cannot be undone.
             </p>
             <div className="flex justify-end gap-3 pt-4">
@@ -573,49 +573,49 @@ export default function TargetsPage() {
           {viewingTarget && (
             <div className="space-y-6">
               <div className="space-y-3">
-                <h4 className="text-sm font-medium text-gray-900">Basic Information</h4>
+                <h4 className="text-sm font-medium text-foreground">Basic Information</h4>
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div><span className="text-gray-500">Name</span><p className="text-gray-900">{getFullName(viewingTarget) || '-'}</p></div>
-                  <div><span className="text-gray-500">Email</span><p className="text-gray-900">{viewingTarget.email}</p></div>
-                  <div><span className="text-gray-500">Company</span><p className="text-gray-900">{viewingTarget.company || '-'}</p></div>
-                  <div><span className="text-gray-500">Phone</span><p className="text-gray-900">{viewingTarget.phone || '-'}</p></div>
+                  <div><span className="text-muted-foreground">Name</span><p className="text-foreground">{getFullName(viewingTarget) || '-'}</p></div>
+                  <div><span className="text-muted-foreground">Email</span><p className="text-foreground">{viewingTarget.email}</p></div>
+                  <div><span className="text-muted-foreground">Company</span><p className="text-foreground">{viewingTarget.company || '-'}</p></div>
+                  <div><span className="text-muted-foreground">Phone</span><p className="text-foreground">{viewingTarget.phone || '-'}</p></div>
                 </div>
               </div>
               <div className="space-y-3">
-                <h4 className="text-sm font-medium text-gray-900">Classification</h4>
+                <h4 className="text-sm font-medium text-foreground">Classification</h4>
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div><span className="text-gray-500">Type</span><p className="text-gray-900">{getTargetTypeName(viewingTarget.target_type_id)}</p></div>
-                  <div><span className="text-gray-500">Segment</span><p className="text-gray-900">{getSegmentName(viewingTarget.segment_id)}</p></div>
-                  <div><span className="text-gray-500">Lifecycle Stage</span><p className="text-gray-900">{LIFECYCLE_STAGES[viewingTarget.lifecycle_stage] || viewingTarget.lifecycle_stage}</p></div>
-                  <div><span className="text-gray-500">Status</span><div className="mt-0.5">{getStatusBadge(viewingTarget.status)}</div></div>
+                  <div><span className="text-muted-foreground">Type</span><p className="text-foreground">{getTargetTypeName(viewingTarget.target_type_id)}</p></div>
+                  <div><span className="text-muted-foreground">Segment</span><p className="text-foreground">{getSegmentName(viewingTarget.segment_id)}</p></div>
+                  <div><span className="text-muted-foreground">Lifecycle Stage</span><p className="text-foreground">{LIFECYCLE_STAGES[viewingTarget.lifecycle_stage] || viewingTarget.lifecycle_stage}</p></div>
+                  <div><span className="text-muted-foreground">Status</span><div className="mt-0.5">{getStatusBadge(viewingTarget.status)}</div></div>
                 </div>
               </div>
               <div className="space-y-3">
-                <h4 className="text-sm font-medium text-gray-900">Timestamps</h4>
+                <h4 className="text-sm font-medium text-foreground">Timestamps</h4>
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div><span className="text-gray-500">Created</span><p className="text-gray-900">{formatDate(viewingTarget.created_at)}</p></div>
-                  <div><span className="text-gray-500">Updated</span><p className="text-gray-900">{formatDate(viewingTarget.updated_at)}</p></div>
+                  <div><span className="text-muted-foreground">Created</span><p className="text-foreground">{formatDate(viewingTarget.created_at)}</p></div>
+                  <div><span className="text-muted-foreground">Updated</span><p className="text-foreground">{formatDate(viewingTarget.updated_at)}</p></div>
                 </div>
               </div>
               {viewingTarget.custom_fields && Object.keys(viewingTarget.custom_fields).length > 0 && (
                 <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-gray-900">Custom Fields</h4>
-                  <div className="bg-gray-50 rounded-md p-3">
-                    <pre className="text-xs text-gray-700 whitespace-pre-wrap overflow-auto max-h-32">{JSON.stringify(viewingTarget.custom_fields, null, 2)}</pre>
+                  <h4 className="text-sm font-medium text-foreground">Custom Fields</h4>
+                  <div className="bg-muted rounded-md p-3">
+                    <pre className="text-xs text-foreground whitespace-pre-wrap overflow-auto max-h-32">{JSON.stringify(viewingTarget.custom_fields, null, 2)}</pre>
                   </div>
                 </div>
               )}
               {viewingTarget.metadata && Object.keys(viewingTarget.metadata).length > 0 && (
                 <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-gray-900">Metadata</h4>
-                  <div className="bg-gray-50 rounded-md p-3">
-                    <pre className="text-xs text-gray-700 whitespace-pre-wrap overflow-auto max-h-32">{JSON.stringify(viewingTarget.metadata, null, 2)}</pre>
+                  <h4 className="text-sm font-medium text-foreground">Metadata</h4>
+                  <div className="bg-muted rounded-md p-3">
+                    <pre className="text-xs text-foreground whitespace-pre-wrap overflow-auto max-h-32">{JSON.stringify(viewingTarget.metadata, null, 2)}</pre>
                   </div>
                 </div>
               )}
               <div className="space-y-3 border-t pt-4">
-                <h4 className="text-xs font-medium text-gray-500 uppercase">Internal</h4>
-                <div className="text-xs text-gray-500">
+                <h4 className="text-xs font-medium text-muted-foreground uppercase">Internal</h4>
+                <div className="text-xs text-muted-foreground">
                   <p>ID: {viewingTarget.id}</p>
                   <p>Organization ID: {viewingTarget.organization_id}</p>
                 </div>

@@ -26,8 +26,8 @@ function FileBasedSkillEditor() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-white">
+    <div className="flex flex-col h-screen bg-muted">
+      <div className="flex items-center justify-between px-4 py-3 border-b bg-background">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={handleBack}>
             <ArrowLeft className="w-4 h-4 mr-1" />Back
@@ -53,7 +53,7 @@ function FileBasedSkillEditor() {
       </div>
 
       {state.publishError && (
-        <div className="px-4 py-2 bg-red-50 text-red-700 text-sm border-b border-red-200">{state.publishError}</div>
+        <div className="px-4 py-2 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 text-sm border-b border-red-200 dark:border-red-800">{state.publishError}</div>
       )}
 
       <div className="flex flex-1 overflow-hidden">
@@ -61,8 +61,8 @@ function FileBasedSkillEditor() {
         <div className="flex-1"><SkillCodeEditor /></div>
       </div>
 
-      <div className="px-4 py-2 border-t bg-white text-xs text-gray-500 flex items-center gap-4">
-        <span>Slug: <code className="font-mono bg-gray-100 px-1 rounded">{state.skillSlug}</code></span>
+      <div className="px-4 py-2 border-t bg-background text-xs text-muted-foreground flex items-center gap-4">
+        <span>Slug: <code className="font-mono bg-muted px-1 rounded">{state.skillSlug}</code></span>
       </div>
     </div>
   );
@@ -102,8 +102,8 @@ function SimplePromptEditor({ skill, onSkillUpdate }: { skill: Skill; onSkillUpd
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-white">
+    <div className="flex flex-col h-screen bg-muted">
+      <div className="flex items-center justify-between px-4 py-3 border-b bg-background">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={handleBack}>
             <ArrowLeft className="w-4 h-4 mr-1" />Back
@@ -126,7 +126,7 @@ function SimplePromptEditor({ skill, onSkillUpdate }: { skill: Skill; onSkillUpd
       </div>
 
       {error && (
-        <div className="px-4 py-2 bg-red-50 text-red-700 text-sm border-b border-red-200">{error}</div>
+        <div className="px-4 py-2 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 text-sm border-b border-red-200 dark:border-red-800">{error}</div>
       )}
 
       <div className="flex-1 overflow-hidden">
@@ -145,8 +145,8 @@ function SimplePromptEditor({ skill, onSkillUpdate }: { skill: Skill; onSkillUpd
         />
       </div>
 
-      <div className="px-4 py-2 border-t bg-white text-xs text-gray-500 flex items-center gap-4">
-        <span>Slug: <code className="font-mono bg-gray-100 px-1 rounded">{skill.slug}</code></span>
+      <div className="px-4 py-2 border-t bg-background text-xs text-muted-foreground flex items-center gap-4">
+        <span>Slug: <code className="font-mono bg-muted px-1 rounded">{skill.slug}</code></span>
         {skill.description && <span>Description: {skill.description}</span>}
       </div>
     </div>
@@ -188,7 +188,7 @@ export default function SkillBuilderPage() {
   if (error || !skill) {
     return (
       <div className="flex flex-col items-center justify-center h-screen">
-        <p className="text-gray-600 mb-4">{error || 'Skill not found'}</p>
+        <p className="text-muted-foreground mb-4">{error || 'Skill not found'}</p>
         <Button variant="outline" onClick={() => router.push('/settings?tab=skills')}>Back to Skills</Button>
       </div>
     );

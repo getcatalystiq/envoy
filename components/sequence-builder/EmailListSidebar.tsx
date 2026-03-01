@@ -20,14 +20,14 @@ function EmailPreview({ document }: { document: TReaderDocument }) {
 
   if (!hasContent) {
     return (
-      <div className="w-full h-[140px] bg-gray-50 rounded-md flex items-center justify-center">
-        <span className="text-xs text-gray-400">No preview</span>
+      <div className="w-full h-[140px] bg-muted rounded-md flex items-center justify-center">
+        <span className="text-xs text-muted-foreground">No preview</span>
       </div>
     );
   }
 
   return (
-    <div className="w-full h-[140px] overflow-hidden rounded-md border border-gray-100 bg-white relative">
+    <div className="w-full h-[140px] overflow-hidden rounded-md border border-border bg-background relative">
       <div
         className="absolute inset-0 origin-top-left pointer-events-none"
         style={{
@@ -85,8 +85,8 @@ function EmailItem({
       onDragEnd={onDragEnd}
       onClick={onSelect}
       className={cn(
-        'bg-white rounded-lg border cursor-pointer transition-all overflow-hidden',
-        'hover:border-gray-300',
+        'bg-background rounded-lg border cursor-pointer transition-all overflow-hidden',
+        'hover:border-border',
         isSelected && 'ring-2 ring-primary border-primary',
         isDragging && 'opacity-50',
         dragOverIndex === index && 'border-primary border-2'
@@ -101,12 +101,12 @@ function EmailItem({
       <div className="px-3 pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <div className="font-medium text-gray-900 truncate text-sm">
+            <div className="font-medium text-foreground truncate text-sm">
               {email.subject || 'Untitled Email'}
             </div>
             <div className="flex items-center gap-2 mt-1">
-              <Clock className="w-3 h-3 text-gray-400 flex-shrink-0" />
-              <span className="text-xs text-gray-500">{email.delay}</span>
+              <Clock className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+              <span className="text-xs text-muted-foreground">{email.delay}</span>
               {email.hasUnpublishedChanges && (
                 <Badge variant="outline" className="text-[9px] uppercase tracking-wide px-1 py-0">
                   Draft
@@ -115,7 +115,7 @@ function EmailItem({
             </div>
           </div>
           {canEdit && (
-            <GripVertical className="w-4 h-4 text-gray-400 flex-shrink-0 cursor-grab" />
+            <GripVertical className="w-4 h-4 text-muted-foreground flex-shrink-0 cursor-grab" />
           )}
         </div>
       </div>
@@ -162,7 +162,7 @@ export function EmailListSidebar({
   };
 
   return (
-    <div className="w-80 border-r bg-gray-50 overflow-y-auto">
+    <div className="w-80 border-r bg-muted overflow-y-auto">
       <div className="p-3 space-y-2">
         {emails.map((email, index) => (
           <EmailItem

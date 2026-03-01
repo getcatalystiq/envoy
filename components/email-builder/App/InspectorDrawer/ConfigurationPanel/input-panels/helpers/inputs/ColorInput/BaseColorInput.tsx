@@ -40,9 +40,9 @@ export default function ColorInput({ label, defaultValue, onChange, nullable }: 
           setValue(null);
           onChange(null);
         }}
-        className="p-1 hover:bg-gray-100 rounded"
+        className="p-1 hover:bg-muted rounded"
       >
-        <X className="h-4 w-4 text-gray-600" />
+        <X className="h-4 w-4 text-muted-foreground" />
       </button>
     );
   };
@@ -51,13 +51,13 @@ export default function ColorInput({ label, defaultValue, onChange, nullable }: 
     if (value) {
       return (
         <div
-          className={`w-8 h-8 rounded border border-gray-300 ${readOnly ? 'opacity-60' : ''}`}
+          className={`w-8 h-8 rounded border border-border ${readOnly ? 'opacity-60' : ''}`}
           style={{ backgroundColor: value }}
         />
       );
     }
     return (
-      <div className={`w-8 h-8 rounded border border-gray-300 bg-white flex items-center justify-center ${readOnly ? 'opacity-60' : ''}`}>
+      <div className={`w-8 h-8 rounded border border-border bg-background flex items-center justify-center ${readOnly ? 'opacity-60' : ''}`}>
         <Plus className="h-4 w-4" />
       </div>
     );
@@ -69,7 +69,7 @@ export default function ColorInput({ label, defaultValue, onChange, nullable }: 
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="w-8 h-8 rounded border border-gray-300"
+          className="w-8 h-8 rounded border border-border"
           style={{ backgroundColor: value }}
         />
       );
@@ -78,7 +78,7 @@ export default function ColorInput({ label, defaultValue, onChange, nullable }: 
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="w-8 h-8 rounded border border-gray-300 bg-white flex items-center justify-center"
+        className="w-8 h-8 rounded border border-border bg-background flex items-center justify-center"
       >
         <Plus className="h-4 w-4" />
       </button>

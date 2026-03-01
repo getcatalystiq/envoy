@@ -15,8 +15,8 @@ export default function Swatch({ paletteColors, value, onChange }: Props) {
         type="button"
         onClick={() => onChange(colorValue)}
         className={cn(
-          'w-6 h-6 rounded border inline-flex hover:border-gray-500 transition-colors',
-          value === colorValue ? 'border-black' : 'border-gray-200'
+          'w-6 h-6 rounded border inline-flex hover:border-border transition-colors',
+          value === colorValue ? 'border-black' : 'border-border'
         )}
         style={{ backgroundColor: colorValue }}
       />

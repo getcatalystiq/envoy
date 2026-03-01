@@ -80,8 +80,8 @@ export function NewFileModal({ isOpen, onClose }: NewFileModalProps) {
             <button
               className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${
                 fileType === 'file'
-                  ? 'border-blue-500 bg-blue-50 text-blue-700'
-                  : 'border-gray-200 hover:bg-gray-50'
+                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
+                  : 'border-border hover:bg-muted'
               }`}
               onClick={() => setFileType('file')}
             >
@@ -91,8 +91,8 @@ export function NewFileModal({ isOpen, onClose }: NewFileModalProps) {
             <button
               className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${
                 fileType === 'directory'
-                  ? 'border-blue-500 bg-blue-50 text-blue-700'
-                  : 'border-gray-200 hover:bg-gray-50'
+                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
+                  : 'border-border hover:bg-muted'
               }`}
               onClick={() => setFileType('directory')}
             >
@@ -117,12 +117,12 @@ export function NewFileModal({ isOpen, onClose }: NewFileModalProps) {
           {/* Quick templates */}
           {fileType === 'file' && (
             <div className="space-y-2">
-              <Label className="text-gray-500 text-xs">Quick templates</Label>
+              <Label className="text-muted-foreground text-xs">Quick templates</Label>
               <div className="flex flex-wrap gap-2">
                 {TEMPLATES.map((template) => (
                   <button
                     key={template.path}
-                    className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                    className="px-2 py-1 text-xs bg-muted hover:bg-muted rounded"
                     onClick={() => handleTemplateClick(template)}
                   >
                     {template.label}
@@ -134,7 +134,7 @@ export function NewFileModal({ isOpen, onClose }: NewFileModalProps) {
 
           {/* Error message */}
           {error && (
-            <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">
+            <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950 px-3 py-2 rounded">
               {error}
             </div>
           )}

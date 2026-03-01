@@ -66,10 +66,10 @@ function StepThumbnail({
         'flex-shrink-0 w-20 rounded-lg border-2 transition-all overflow-hidden',
         isSelected
           ? 'border-primary ring-2 ring-primary/20'
-          : 'border-gray-200 hover:border-gray-300'
+          : 'border-border hover:border-border'
       )}
     >
-      <div className="w-full h-14 bg-white relative overflow-hidden">
+      <div className="w-full h-14 bg-background relative overflow-hidden">
         {hasContent ? (
           <div
             className="absolute inset-0 origin-top-left pointer-events-none"
@@ -78,14 +78,14 @@ function StepThumbnail({
             <Reader document={document} rootBlockId="root" />
           </div>
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gray-50">
-            <span className="text-[10px] text-gray-400">Empty</span>
+          <div className="w-full h-full flex items-center justify-center bg-muted">
+            <span className="text-[10px] text-muted-foreground">Empty</span>
           </div>
         )}
       </div>
-      <div className="px-1.5 py-1 bg-gray-50 border-t flex items-center justify-center gap-1">
-        <Clock className="w-3 h-3 text-gray-400" />
-        <span className="text-[10px] font-medium text-gray-600">
+      <div className="px-1.5 py-1 bg-muted border-t flex items-center justify-center gap-1">
+        <Clock className="w-3 h-3 text-muted-foreground" />
+        <span className="text-[10px] font-medium text-muted-foreground">
           {formatDelayShort(step.default_delay_hours)}
         </span>
       </div>
@@ -334,7 +334,7 @@ export default function SequenceBuilderPage() {
   if (!sequence) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-600">Sequence not found</p>
+        <p className="text-muted-foreground">Sequence not found</p>
         <Button variant="outline" className="mt-4" onClick={() => router.push('/sequences')}>Back to Sequences</Button>
       </div>
     );
@@ -344,7 +344,7 @@ export default function SequenceBuilderPage() {
 
   return (
     <div className="flex flex-col h-screen">
-      <div className={cn("flex items-center justify-between border-b bg-white", isEmbedded ? "px-4 py-2" : "px-6 py-4")}>
+      <div className={cn("flex items-center justify-between border-b bg-background", isEmbedded ? "px-4 py-2" : "px-6 py-4")}>
         <div className="flex items-center gap-3">
           <MenuButton />
           <Button variant="ghost" size="sm" onClick={() => router.push('/sequences')}>
@@ -352,7 +352,7 @@ export default function SequenceBuilderPage() {
           </Button>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className={cn("font-bold text-gray-900", isEmbedded ? "text-lg" : "text-2xl")}>{sequence.name}</h1>
+              <h1 className={cn("font-bold text-foreground", isEmbedded ? "text-lg" : "text-2xl")}>{sequence.name}</h1>
               {getStatusBadge(sequence.status)}
             </div>
             {!isEmbedded && (
@@ -388,7 +388,7 @@ export default function SequenceBuilderPage() {
       {error && (<Alert variant="destructive" className="mx-6 mt-4"><AlertCircle className="h-4 w-4" /><AlertDescription>{error}</AlertDescription></Alert>)}
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'builder' | 'enrollments')} className="flex-1 flex flex-col">
-        <div className={cn("border-b bg-white", isEmbedded ? "px-4" : "px-6")}>
+        <div className={cn("border-b bg-background", isEmbedded ? "px-4" : "px-6")}>
           <TabsList>
             <TabsTrigger value="builder">Builder</TabsTrigger>
             <TabsTrigger value="enrollments">
@@ -400,14 +400,14 @@ export default function SequenceBuilderPage() {
         </div>
 
         {isEmbedded && activeTab === 'builder' && (
-          <div className="border-b bg-gray-50 px-4 py-2">
+          <div className="border-b bg-muted px-4 py-2">
             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
               {steps.map((step) => (
                 <StepThumbnail key={step.id} step={step} isSelected={step.id === selectedStepId} onClick={() => setSelectedStepId(step.id)} />
               ))}
               {canEdit && (
-                <button onClick={handleAddStep} className="flex-shrink-0 w-20 h-[74px] rounded-lg border-2 border-dashed border-gray-300 hover:border-primary hover:bg-primary/5 transition-colors flex items-center justify-center">
-                  <span className="text-2xl text-gray-400">+</span>
+                <button onClick={handleAddStep} className="flex-shrink-0 w-20 h-[74px] rounded-lg border-2 border-dashed border-border hover:border-primary hover:bg-primary/5 transition-colors flex items-center justify-center">
+                  <span className="text-2xl text-muted-foreground">+</span>
                 </button>
               )}
             </div>
@@ -427,7 +427,7 @@ export default function SequenceBuilderPage() {
               return (
                 <Card key={status} className={cn('cursor-pointer transition-colors', enrollmentFilter === status && 'ring-2 ring-primary')} onClick={() => setEnrollmentFilter(status)}>
                   <CardContent className="pt-4">
-                    <div className="flex items-center gap-2"><Icon className={cn('w-4 h-4', colors[status])} /><span className="text-sm text-gray-600 capitalize">{status}</span></div>
+                    <div className="flex items-center gap-2"><Icon className={cn('w-4 h-4', colors[status])} /><span className="text-sm text-muted-foreground capitalize">{status}</span></div>
                     <p className="text-2xl font-bold mt-1">{enrollmentCounts[status]}</p>
                   </CardContent>
                 </Card>
@@ -439,25 +439,25 @@ export default function SequenceBuilderPage() {
             <CardContent className="p-6">
               {enrollments.length === 0 ? (
                 <div className="text-center py-8">
-                  <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No enrollments</h3>
-                  <p className="text-gray-600">{enrollmentFilter === 'all' ? 'No targets have been enrolled in this sequence yet.' : `No ${enrollmentFilter} enrollments.`}</p>
+                  <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-foreground mb-2">No enrollments</h3>
+                  <p className="text-muted-foreground">{enrollmentFilter === 'all' ? 'No targets have been enrolled in this sequence yet.' : `No ${enrollmentFilter} enrollments.`}</p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {enrollments.map((enrollment) => (
-                    <div key={enrollment.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
+                    <div key={enrollment.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted">
                       <div className="flex-1">
                         <div className="flex items-center gap-3">
                           <span className="font-medium">{enrollment.target_email}</span>
                           {getStatusBadge(enrollment.status)}
                         </div>
-                        <div className="flex items-center gap-4 mt-2 text-sm text-gray-600">
+                        <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                           <span>Step {enrollment.current_step_position} of {enrollment.total_steps || steps.length}</span>
                           {enrollment.next_evaluation_at && <span>Next: {formatDate(enrollment.next_evaluation_at)}</span>}
                         </div>
                         <div className="flex items-center gap-3 mt-2">
-                          <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden max-w-xs">
+                          <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden max-w-xs">
                             <div className="h-full bg-green-500 rounded-full" style={{ width: `${((enrollment.current_step_position - 1) / (enrollment.total_steps || steps.length)) * 100}%` }} />
                           </div>
                           <span className="text-xs text-muted-foreground">{enrollment.current_step_position - 1}/{enrollment.total_steps || steps.length}</span>
@@ -478,7 +478,7 @@ export default function SequenceBuilderPage() {
         </TabsContent>
 
         <TabsContent value="analytics" className="flex-1 p-6 mt-0">
-          <div className="text-center py-12"><p className="text-gray-500">Analytics coming soon</p></div>
+          <div className="text-center py-12"><p className="text-muted-foreground">Analytics coming soon</p></div>
         </TabsContent>
       </Tabs>
 
@@ -503,23 +503,23 @@ export default function SequenceBuilderPage() {
           {selectedEnrollment && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div><div className="text-gray-500">Target</div><div className="font-medium">{selectedEnrollment.target_email}</div></div>
-                <div><div className="text-gray-500">Status</div><div>{getStatusBadge(selectedEnrollment.status)}</div></div>
-                <div><div className="text-gray-500">Current Step</div><div className="font-medium">{selectedEnrollment.current_step_position} of {selectedEnrollment.total_steps || steps.length}</div></div>
-                <div><div className="text-gray-500">Enrolled At</div><div>{formatDate(selectedEnrollment.enrolled_at)}</div></div>
-                {selectedEnrollment.next_evaluation_at && <div><div className="text-gray-500">Next Evaluation</div><div>{formatDate(selectedEnrollment.next_evaluation_at)}</div></div>}
-                {selectedEnrollment.completed_at && <div><div className="text-gray-500">Completed At</div><div>{formatDate(selectedEnrollment.completed_at)}</div></div>}
-                {selectedEnrollment.exit_reason && <div className="col-span-2"><div className="text-gray-500">Exit Reason</div><div className="font-medium">{selectedEnrollment.exit_reason}</div></div>}
+                <div><div className="text-muted-foreground">Target</div><div className="font-medium">{selectedEnrollment.target_email}</div></div>
+                <div><div className="text-muted-foreground">Status</div><div>{getStatusBadge(selectedEnrollment.status)}</div></div>
+                <div><div className="text-muted-foreground">Current Step</div><div className="font-medium">{selectedEnrollment.current_step_position} of {selectedEnrollment.total_steps || steps.length}</div></div>
+                <div><div className="text-muted-foreground">Enrolled At</div><div>{formatDate(selectedEnrollment.enrolled_at)}</div></div>
+                {selectedEnrollment.next_evaluation_at && <div><div className="text-muted-foreground">Next Evaluation</div><div>{formatDate(selectedEnrollment.next_evaluation_at)}</div></div>}
+                {selectedEnrollment.completed_at && <div><div className="text-muted-foreground">Completed At</div><div>{formatDate(selectedEnrollment.completed_at)}</div></div>}
+                {selectedEnrollment.exit_reason && <div className="col-span-2"><div className="text-muted-foreground">Exit Reason</div><div className="font-medium">{selectedEnrollment.exit_reason}</div></div>}
               </div>
               <div>
-                <div className="text-sm font-medium text-gray-700 mb-2">Execution History</div>
+                <div className="text-sm font-medium text-foreground mb-2">Execution History</div>
                 {enrollmentExecutions.length === 0 ? (
-                  <p className="text-sm text-gray-500">No executions yet</p>
+                  <p className="text-sm text-muted-foreground">No executions yet</p>
                 ) : (
                   <ul className="space-y-2">
                     {enrollmentExecutions.map((exec) => (
                       <li key={exec.id} className="flex items-center gap-2 text-sm">
-                        {exec.status === 'executed' ? <Check className="w-4 h-4 text-green-600" /> : <SkipForward className="w-4 h-4 text-gray-400" />}
+                        {exec.status === 'executed' ? <Check className="w-4 h-4 text-green-600" /> : <SkipForward className="w-4 h-4 text-muted-foreground" />}
                         <span>Step {exec.step_position}</span>
                         <span className="text-muted-foreground">{exec.status === 'executed' ? 'Sent' : 'Skipped'} on {formatDate(exec.executed_at)}</span>
                       </li>
