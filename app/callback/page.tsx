@@ -1,0 +1,67 @@
+'use client';
+import { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { handleCallback } from '@/lib/auth-client';
+import { useSetUser } from '@/lib/auth-context';
+import { AlertCircle } from 'lucide-react';
+
+export default function CallbackPage() {
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const setUser = useSetUser();
+  const processedRef = useRef(false);
+
+  useEffect(() => {
+    // Prevent double-processing in React StrictMode
+    if (processedRef.current) return;
+    processedRef.current = true;
+
+    const processCallback = async () => {
+      try {
+        const userInfo = await handleCallback();
+        setUser(userInfo);
+        router.push('/dashboard');
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Authentication failed');
+      }
+    };
+
+    processCallback();
+  }, [router, setUser]);
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <div className="text-center">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <img src="/logo.png" alt="Envoy" className="w-10 h-10 rounded-lg" />
+            <span className="font-semibold text-xl">Envoy</span>
+          </div>
+          <div className="flex items-center justify-center gap-2 p-4 text-red-600 bg-red-50 rounded-lg">
+            <AlertCircle className="w-5 h-5" />
+            <span>{error}</span>
+          </div>
+          <button
+            onClick={() => router.push('/login')}
+            className="mt-4 text-primary hover:underline"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="text-center">
+        <div className="flex items-center justify-center gap-2 mb-4">
+          <img src="/logo.png" alt="Envoy" className="w-10 h-10 rounded-lg" />
+          <span className="font-semibold text-xl">Envoy</span>
+        </div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+        <p className="mt-4 text-gray-600">Signing you in...</p>
+      </div>
+    </div>
+  );
+}
