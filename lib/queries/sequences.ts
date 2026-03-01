@@ -14,6 +14,41 @@ const ALLOWED_STEP_UPDATE_COLUMNS = new Set([
 ]);
 
 // =========================================================================
+// AUTO-ENROLLMENT
+// =========================================================================
+
+/**
+ * Enroll a target in all default sequences matching its target type.
+ * Idempotent — skips sequences the target is already enrolled in.
+ */
+export async function autoEnrollInDefaultSequences(
+  orgId: string,
+  targetId: string,
+  targetTypeId: string,
+) {
+  const sequences = await sql`
+    SELECT id FROM sequences
+    WHERE organization_id = ${orgId}
+      AND target_type_id = ${targetTypeId}
+      AND is_default = true
+      AND status = 'active'
+  `;
+
+  for (const seq of sequences) {
+    const existing = await sql`
+      SELECT id FROM sequence_enrollments
+      WHERE sequence_id = ${seq.id} AND target_id = ${targetId}
+    `;
+    if (existing.length === 0) {
+      await sql`
+        INSERT INTO sequence_enrollments (sequence_id, target_id, organization_id, status, current_step_position)
+        VALUES (${seq.id}, ${targetId}, ${orgId}, 'active', 1)
+      `;
+    }
+  }
+}
+
+// =========================================================================
 // SEQUENCES
 // =========================================================================
 

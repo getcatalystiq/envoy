@@ -1,6 +1,7 @@
 import { requireAdmin, isErrorResponse } from "@/lib/admin-auth";
 import { jsonResponse } from "@/lib/utils";
 import * as targets from "@/lib/queries/targets";
+import { autoEnrollInDefaultSequences } from "@/lib/queries/sequences";
 
 export async function GET(request: Request) {
   const auth = await requireAdmin(request);
@@ -49,6 +50,10 @@ export async function POST(request: Request) {
     lifecycleStage: lifecycle_stage,
     customFields: custom_fields,
   });
+
+  if (target.target_type_id) {
+    await autoEnrollInDefaultSequences(auth.tenantId, target.id, target.target_type_id);
+  }
 
   return jsonResponse(target, 201);
 }

@@ -1,6 +1,7 @@
 import { verifyWebhookSecret } from "@/lib/webhook-auth";
 import { jsonResponse } from "@/lib/utils";
 import { sql } from "@/lib/db";
+import { autoEnrollInDefaultSequences } from "@/lib/queries/sequences";
 
 interface TargetPayload {
   email?: string;
@@ -128,32 +129,6 @@ async function upsertTarget(
   return { target: created[0], action: "created", matchedOn: null };
 }
 
-async function autoEnrollInDefaultSequence(
-  orgId: string,
-  targetId: string,
-  targetTypeId: string,
-) {
-  const sequences = await sql`
-    SELECT id FROM sequences
-    WHERE organization_id = ${orgId}
-      AND target_type_id = ${targetTypeId}
-      AND is_default = true
-      AND status = 'active'
-  `;
-
-  for (const seq of sequences) {
-    const existing = await sql`
-      SELECT id FROM sequence_enrollments
-      WHERE sequence_id = ${seq.id} AND target_id = ${targetId}
-    `;
-    if (existing.length === 0) {
-      await sql`
-        INSERT INTO sequence_enrollments (sequence_id, target_id, organization_id, status, current_step_index)
-        VALUES (${seq.id}, ${targetId}, ${orgId}, 'active', 0)
-      `;
-    }
-  }
-}
 
 function hasGraduationRelevantFields(payload: TargetPayload): boolean {
   return !!(
@@ -201,7 +176,7 @@ export async function POST(request: Request) {
 
   // Auto-enroll in default sequence for new targets
   if (action === "created" && targetTypeId) {
-    await autoEnrollInDefaultSequence(
+    await autoEnrollInDefaultSequences(
       orgId,
       target.id as string,
       targetTypeId,

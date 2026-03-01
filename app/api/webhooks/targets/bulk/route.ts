@@ -1,6 +1,7 @@
 import { verifyWebhookSecret } from "@/lib/webhook-auth";
 import { jsonResponse } from "@/lib/utils";
 import { sql } from "@/lib/db";
+import { autoEnrollInDefaultSequences } from "@/lib/queries/sequences";
 
 interface TargetPayload {
   email?: string;
@@ -121,32 +122,6 @@ async function upsertTarget(
   return { target: created[0], action: "created" };
 }
 
-async function autoEnrollInDefaultSequence(
-  orgId: string,
-  targetId: string,
-  targetTypeId: string,
-) {
-  const sequences = await sql`
-    SELECT id FROM sequences
-    WHERE organization_id = ${orgId}
-      AND target_type_id = ${targetTypeId}
-      AND is_default = true
-      AND status = 'active'
-  `;
-
-  for (const seq of sequences) {
-    const existing = await sql`
-      SELECT id FROM sequence_enrollments
-      WHERE sequence_id = ${seq.id} AND target_id = ${targetId}
-    `;
-    if (existing.length === 0) {
-      await sql`
-        INSERT INTO sequence_enrollments (sequence_id, target_id, organization_id, status, current_step_index)
-        VALUES (${seq.id}, ${targetId}, ${orgId}, 'active', 0)
-      `;
-    }
-  }
-}
 
 /** POST /api/webhooks/targets/bulk — bulk ingest up to 100 targets */
 export async function POST(request: Request) {
@@ -192,7 +167,7 @@ export async function POST(request: Request) {
       const result = await upsertTarget(orgId, payload, targetTypeId, segmentId);
 
       if (result.action === "created" && targetTypeId) {
-        await autoEnrollInDefaultSequence(
+        await autoEnrollInDefaultSequences(
           orgId,
           result.target.id as string,
           targetTypeId,
