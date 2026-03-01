@@ -41,8 +41,8 @@ export async function autoEnrollInDefaultSequences(
     `;
     if (existing.length === 0) {
       await sql`
-        INSERT INTO sequence_enrollments (sequence_id, target_id, organization_id, status, current_step_position)
-        VALUES (${seq.id}, ${targetId}, ${orgId}, 'active', 1)
+        INSERT INTO sequence_enrollments (sequence_id, target_id, organization_id, status, current_step_position, next_evaluation_at)
+        VALUES (${seq.id}, ${targetId}, ${orgId}, 'active', 1, NOW())
       `;
     }
   }
