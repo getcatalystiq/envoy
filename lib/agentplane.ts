@@ -27,21 +27,31 @@ export async function runAgent(
   prompt: string,
   opts?: { maxTurns?: number; maxBudgetUsd?: number },
 ): Promise<RunResult> {
-  const run = await getClient().runs.createAndWait({
+  const stream = await getClient().runs.create({
     agent_id: agentId,
     prompt,
     max_turns: opts?.maxTurns,
     max_budget_usd: opts?.maxBudgetUsd,
   });
 
-  return {
-    output: run.result_summary ?? "",
-    metadata: {
-      cost_usd: run.cost_usd,
-      num_turns: run.num_turns,
-      duration_ms: run.duration_ms,
-    },
-  };
+  let result: RunResult = { output: "", metadata: {} };
+
+  for await (const event of stream) {
+    if (event.type === "result") {
+      const e = event as Record<string, unknown>;
+      result = {
+        output: (e.result as string) ?? "",
+        sessionId: e.session_id as string | undefined,
+        metadata: {
+          cost_usd: e.total_cost_usd,
+          num_turns: e.num_turns,
+          duration_ms: e.duration_ms,
+        },
+      };
+    }
+  }
+
+  return result;
 }
 
 export async function listRuns(
