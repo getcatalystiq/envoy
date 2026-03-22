@@ -25,9 +25,9 @@ export function createProxyClient(): AgentPlaneClient {
         api.delete<Any>(`/agentplane/agent`),
       skills: {
         list: (_agentId) =>
-          api.get<Any>('/agentplane/skills').then((r: Any) => r.skills ?? []),
+          api.get<Any>('/agentplane/skills').then((r: Any) => r.skills ?? []).catch(() => []),
         get: (_agentId, folder) =>
-          api.get<Any>(`/agentplane/skills/${encodeURIComponent(folder)}`),
+          api.get<Any>(`/agentplane/skills/${encodeURIComponent(folder)}`).catch(() => null),
         create: (_agentId, skill) =>
           api.post<Any>('/agentplane/skills', skill),
         update: (_agentId, folder, params) =>
@@ -56,7 +56,7 @@ export function createProxyClient(): AgentPlaneClient {
           limit: r.limit ?? 50,
           offset: r.offset ?? 0,
           has_more: r.has_more ?? false,
-        }));
+        })).catch(() => ({ data: [], limit: 50, offset: 0, has_more: false }));
       },
       get: (runId) =>
         api.get<Any>(`/agentplane/runs/${runId}`),
@@ -77,7 +77,7 @@ export function createProxyClient(): AgentPlaneClient {
     },
     connectors: {
       list: (_agentId) =>
-        api.get<Any>('/agentplane/connectors').then((r: Any) => r.connectors ?? r ?? []),
+        api.get<Any>('/agentplane/connectors').then((r: Any) => r.connectors ?? r ?? []).catch(() => []),
       saveApiKey: (_agentId, params) =>
         api.post<Any>(`/agentplane/connectors/${encodeURIComponent(params.toolkit)}/api-key`, {
           api_key: params.api_key,
