@@ -58,18 +58,15 @@ function useAgentData() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      api.get<Any>('/agentplane/skills').catch(() => ({ skills: [] })),
-      api.get<Any>('/agentplane/connectors').catch(() => ({ connectors: [] })),
-      api.get<Any>('/agentplane/plugins').catch(() => ({ plugins: [] })),
-    ])
-      .then(([skillsData, connData, pluginsData]) => {
+    api.get<Any>('/agentplane/agent')
+      .catch(() => ({ skills: [], connectors: [], plugins: [], composio_toolkits: [], composio_allowed_tools: [] }))
+      .then((agentData) => {
         setAgent({
-          skills: skillsData?.skills ?? [],
-          connectors: connData?.connectors ?? [],
-          toolkits: [],
-          composioAllowedTools: [],
-          plugins: pluginsData?.plugins ?? [],
+          skills: agentData?.skills ?? [],
+          connectors: agentData?.connectors ?? [],
+          toolkits: agentData?.composio_toolkits ?? [],
+          composioAllowedTools: agentData?.composio_allowed_tools ?? [],
+          plugins: agentData?.plugins ?? [],
         });
       })
       .finally(() => setLoading(false));
