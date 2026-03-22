@@ -33,9 +33,8 @@ export async function GET(request: Request) {
       string,
       unknown
     >;
-    const data = (result.data ?? []) as Record<string, unknown>[];
-    const connectors = data.map(normalizeConnector);
-    return jsonResponse({ connectors });
+    const connectors = result.data ?? result.connectors ?? result;
+    return jsonResponse({ connectors: Array.isArray(connectors) ? connectors : [] });
   } catch {
     return jsonResponse({ error: "AgentPlane service unavailable" }, 503);
   }
