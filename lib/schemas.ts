@@ -12,7 +12,7 @@ export const targetCreateSchema = z.object({
   target_type_id: z.string().uuid().nullable().optional(),
   segment_id: z.string().uuid().nullable().optional(),
   lifecycle_stage: z.number().int().min(0).max(6).default(0),
-  custom_fields: z.record(z.unknown()).default({}),
+  custom_fields: z.record(z.string(), z.unknown()).default({}),
 });
 export type TargetCreate = z.infer<typeof targetCreateSchema>;
 
@@ -25,7 +25,7 @@ export const targetUpdateSchema = z.object({
   target_type_id: z.string().uuid().nullable().optional(),
   segment_id: z.string().uuid().nullable().optional(),
   lifecycle_stage: z.number().int().min(0).max(6).nullable().optional(),
-  custom_fields: z.record(z.unknown()).nullable().optional(),
+  custom_fields: z.record(z.string(), z.unknown()).nullable().optional(),
   status: z
     .enum(["active", "unsubscribed", "bounced"])
     .nullable()
@@ -45,8 +45,8 @@ export const targetResponseSchema = z.object({
   target_type_id: z.string().uuid().nullable(),
   segment_id: z.string().uuid().nullable(),
   lifecycle_stage: z.number().int(),
-  custom_fields: z.record(z.unknown()),
-  metadata: z.record(z.unknown()).default({}),
+  custom_fields: z.record(z.string(), z.unknown()),
+  metadata: z.record(z.string(), z.unknown()).default({}),
   status: z.string(),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
@@ -147,19 +147,19 @@ export type ContentGenerateToOutbox = z.infer<
 
 export const campaignCreateSchema = z.object({
   name: z.string().min(1).max(255),
-  target_criteria: z.record(z.unknown()).default({}),
-  skills: z.record(z.unknown()).default({}),
+  target_criteria: z.record(z.string(), z.unknown()).default({}),
+  skills: z.record(z.string(), z.unknown()).default({}),
   scheduled_at: z.string().datetime().nullable().optional(),
-  settings: z.record(z.unknown()).default({}),
+  settings: z.record(z.string(), z.unknown()).default({}),
 });
 export type CampaignCreate = z.infer<typeof campaignCreateSchema>;
 
 export const campaignUpdateSchema = z.object({
   name: z.string().min(1).max(255).nullable().optional(),
-  target_criteria: z.record(z.unknown()).nullable().optional(),
-  skills: z.record(z.unknown()).nullable().optional(),
+  target_criteria: z.record(z.string(), z.unknown()).nullable().optional(),
+  skills: z.record(z.string(), z.unknown()).nullable().optional(),
   scheduled_at: z.string().datetime().nullable().optional(),
-  settings: z.record(z.unknown()).nullable().optional(),
+  settings: z.record(z.string(), z.unknown()).nullable().optional(),
   status: z
     .enum(["draft", "scheduled", "active", "paused", "completed"])
     .nullable()
@@ -171,13 +171,13 @@ export const campaignResponseSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   status: z.string(),
-  target_criteria: z.record(z.unknown()),
-  skills: z.record(z.unknown()),
+  target_criteria: z.record(z.string(), z.unknown()),
+  skills: z.record(z.string(), z.unknown()),
   scheduled_at: z.string().datetime().nullable(),
   started_at: z.string().datetime().nullable(),
   completed_at: z.string().datetime().nullable(),
-  settings: z.record(z.unknown()),
-  stats: z.record(z.unknown()),
+  settings: z.record(z.string(), z.unknown()),
+  stats: z.record(z.string(), z.unknown()),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 });
@@ -308,8 +308,8 @@ export const outboxResponseSchema = z.object({
   reviewed_by: z.string().uuid().nullable(),
   reviewed_at: z.string().datetime().nullable(),
   rejection_reason: z.string().nullable(),
-  edit_history: z.array(z.record(z.unknown())),
-  send_result: z.record(z.unknown()).nullable(),
+  edit_history: z.array(z.record(z.string(), z.unknown())),
+  send_result: z.record(z.string(), z.unknown()).nullable(),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
   created_by: z.string().uuid().nullable(),
@@ -321,7 +321,7 @@ export const outboxWithTargetSchema = outboxResponseSchema.extend({
   first_name: z.string().nullable().optional(),
   last_name: z.string().nullable().optional(),
   company: z.string().nullable().optional(),
-  metadata: z.record(z.unknown()).nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   delivered_at: z.string().datetime().nullable().optional(),
   opened_at: z.string().datetime().nullable().optional(),
   clicked_at: z.string().datetime().nullable().optional(),
@@ -370,7 +370,7 @@ export const sequenceStepResponseSchema = z.object({
   position: z.number().int(),
   default_delay_hours: z.number().int(),
   subject: z.string().nullable().optional(),
-  builder_content: z.record(z.unknown()).nullable().optional(),
+  builder_content: z.record(z.string(), z.unknown()).nullable().optional(),
   has_unpublished_changes: z.boolean().default(false),
   approval_required: z.boolean().default(true),
 });
@@ -409,7 +409,7 @@ export const sequenceStepUpdateSchema = z.object({
   position: z.number().int().min(1).nullable().optional(),
   default_delay_hours: z.number().int().min(0).nullable().optional(),
   subject: z.string().max(998).nullable().optional(),
-  builder_content: z.record(z.unknown()).nullable().optional(),
+  builder_content: z.record(z.string(), z.unknown()).nullable().optional(),
   has_unpublished_changes: z.boolean().nullable().optional(),
   approval_required: z.boolean().nullable().optional(),
 });
@@ -474,7 +474,7 @@ export type ListResponse = z.infer<typeof listResponseSchema>;
 export const designTemplateCreateSchema = z.object({
   name: z.string().min(1).max(255),
   description: z.string().nullable().optional(),
-  builder_content: z.record(z.unknown()).nullable().optional(),
+  builder_content: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 export type DesignTemplateCreate = z.infer<
   typeof designTemplateCreateSchema
@@ -483,7 +483,7 @@ export type DesignTemplateCreate = z.infer<
 export const designTemplateUpdateSchema = z.object({
   name: z.string().min(1).max(255).nullable().optional(),
   description: z.string().nullable().optional(),
-  builder_content: z.record(z.unknown()).nullable().optional(),
+  builder_content: z.record(z.string(), z.unknown()).nullable().optional(),
   html_compiled: z.string().nullable().optional(),
   archived: z.boolean().nullable().optional(),
 });
@@ -496,7 +496,7 @@ export const designTemplateResponseSchema = z.object({
   organization_id: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable().optional(),
-  builder_content: z.record(z.unknown()).nullable().optional(),
+  builder_content: z.record(z.string(), z.unknown()).nullable().optional(),
   html_compiled: z.string().nullable().optional(),
   archived: z.boolean(),
   created_at: z.string().datetime(),
@@ -507,8 +507,8 @@ export type DesignTemplateResponse = z.infer<
 >;
 
 export const designTemplatePreviewRequestSchema = z.object({
-  builder_content: z.record(z.unknown()).nullable().optional(),
-  sample_data: z.record(z.string()).nullable().optional(),
+  builder_content: z.record(z.string(), z.unknown()).nullable().optional(),
+  sample_data: z.record(z.string(), z.string()).nullable().optional(),
 });
 export type DesignTemplatePreviewRequest = z.infer<
   typeof designTemplatePreviewRequestSchema
@@ -544,7 +544,7 @@ export const targetTypeResponseSchema = z.object({
   organization_id: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable().optional(),
-  lifecycle_stages: z.array(z.record(z.unknown())).default([]),
+  lifecycle_stages: z.array(z.record(z.string(), z.unknown())).default([]),
   created_at: z.string().datetime(),
 });
 export type TargetTypeResponse = z.infer<typeof targetTypeResponseSchema>;
@@ -698,7 +698,7 @@ export const graduationRuleResponseSchema = z.object({
   destination_type_name: z.string().nullable().optional(),
   name: z.string(),
   description: z.string().nullable(),
-  conditions: z.array(z.record(z.unknown())),
+  conditions: z.array(z.record(z.string(), z.unknown())),
   enabled: z.boolean(),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
