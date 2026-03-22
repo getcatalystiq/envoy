@@ -17,34 +17,40 @@ import {
 } from '@getcatalystiq/agent-plane-ui';
 import { api } from '@/lib/api';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type Any = any;
 
 function useAgentData() {
-  const [agent, setAgent] = useState<Any>(null);
+  const [agent, setAgent] = useState<Any>({
+    skills: [],
+    connectors: [],
+    toolkits: [],
+    composioAllowedTools: [],
+    plugins: [],
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.get<Any>('/agentplane/skills')
-      .then((data) => {
-        // Fetch agent info to get toolkits and plugins
-        return api.get<Any>('/agentplane/connectors').then((connData) => {
-          setAgent({
-            skills: data?.skills ?? [],
-            connectors: connData?.connectors ?? [],
-            toolkits: [],
-            composioAllowedTools: [],
-            plugins: [],
-          });
+    Promise.all([
+      api.get<Any>('/agentplane/skills').catch(() => ({ skills: [] })),
+      api.get<Any>('/agentplane/connectors').catch(() => ({ connectors: [] })),
+      api.get<Any>('/agentplane/plugins').catch(() => ({ plugins: [] })),
+    ])
+      .then(([skillsData, connData, pluginsData]) => {
+        setAgent({
+          skills: skillsData?.skills ?? [],
+          connectors: connData?.connectors ?? [],
+          toolkits: [],
+          composioAllowedTools: [],
+          plugins: pluginsData?.plugins ?? [],
         });
       })
-      .catch(() => setAgent(null))
       .finally(() => setLoading(false));
   }, []);
 
   return { agent, loading, reload: () => {
-    api.get<Any>('/agentplane/skills').then((data) => {
-      setAgent((prev: Any) => prev ? { ...prev, skills: data?.skills ?? [] } : prev);
+    api.get<Any>('/agentplane/skills').catch(() => ({ skills: [] })).then((data) => {
+      setAgent((prev: Any) => ({ ...prev, skills: data?.skills ?? [] }));
     });
   }};
 }
@@ -123,7 +129,7 @@ export default function SettingsPage() {
 
         <AgentPlaneSettingsProvider>
           <TabsContent value="ai-skills" className="mt-6">
-            {!loading && agent && (
+            {!loading && (
               <AgentSkillManager
                 agentId=""
                 initialSkills={agent.skills}
@@ -132,7 +138,7 @@ export default function SettingsPage() {
           </TabsContent>
 
           <TabsContent value="plugins" className="mt-6">
-            {!loading && agent && (
+            {!loading && (
               <AgentPluginManager
                 agentId=""
                 initialPlugins={agent.plugins}
@@ -141,7 +147,7 @@ export default function SettingsPage() {
           </TabsContent>
 
           <TabsContent value="mcp-servers" className="mt-6">
-            {!loading && agent && (
+            {!loading && (
               <AgentConnectorsManager
                 agentId=""
                 toolkits={agent.toolkits}
