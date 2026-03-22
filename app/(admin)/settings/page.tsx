@@ -1,5 +1,6 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Component } from 'react';
+import type { ReactNode, ErrorInfo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Users, Tags, AtSign, Sparkles, Plug, Activity, ArrowRightLeft, Puzzle } from 'lucide-react';
@@ -16,6 +17,32 @@ import {
   AgentPluginManager,
 } from '@getcatalystiq/agent-plane-ui';
 import { api } from '@/lib/api';
+
+class TabErrorBoundary extends Component<{ children: ReactNode; fallback?: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode; fallback?: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Tab component error:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback ?? (
+        <div className="p-6 text-center text-muted-foreground">
+          <p>Failed to load this section. The AI service may be temporarily unavailable.</p>
+          <button className="mt-3 text-sm underline" onClick={() => this.setState({ hasError: false })}>
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
  
 type Any = any;
@@ -129,31 +156,37 @@ export default function SettingsPage() {
 
         <AgentPlaneSettingsProvider>
           <TabsContent value="ai-skills" className="mt-6">
-            {!loading && (
-              <AgentSkillManager
-                agentId=""
-                initialSkills={agent.skills}
-              />
-            )}
+            <TabErrorBoundary>
+              {!loading && (
+                <AgentSkillManager
+                  agentId=""
+                  initialSkills={agent.skills}
+                />
+              )}
+            </TabErrorBoundary>
           </TabsContent>
 
           <TabsContent value="plugins" className="mt-6">
-            {!loading && (
-              <AgentPluginManager
-                agentId=""
-                initialPlugins={agent.plugins}
-              />
-            )}
+            <TabErrorBoundary>
+              {!loading && (
+                <AgentPluginManager
+                  agentId=""
+                  initialPlugins={agent.plugins}
+                />
+              )}
+            </TabErrorBoundary>
           </TabsContent>
 
           <TabsContent value="mcp-servers" className="mt-6">
-            {!loading && (
-              <AgentConnectorsManager
-                agentId=""
-                toolkits={agent.toolkits}
-                composioAllowedTools={agent.composioAllowedTools}
-              />
-            )}
+            <TabErrorBoundary>
+              {!loading && (
+                <AgentConnectorsManager
+                  agentId=""
+                  toolkits={agent.toolkits}
+                  composioAllowedTools={agent.composioAllowedTools}
+                />
+              )}
+            </TabErrorBoundary>
           </TabsContent>
 
           <TabsContent value="ai-activity" className="mt-6">
