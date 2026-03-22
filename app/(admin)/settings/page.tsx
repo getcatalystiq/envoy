@@ -1,20 +1,59 @@
 'use client';
+import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Users, Tags, AtSign, Sparkles, Plug, Activity, ArrowRightLeft } from 'lucide-react';
+import { Users, Tags, AtSign, Sparkles, Plug, Activity, ArrowRightLeft, Puzzle } from 'lucide-react';
 import { MenuButton } from '@/components/Layout';
 import { TargetTypesList } from '@/components/settings/TargetTypesList';
 import { SegmentsList } from '@/components/settings/SegmentsList';
 import { EmailSettings } from '@/components/settings/EmailSettings';
-import { SkillsTab } from '@/components/settings/SkillsTab';
-import { ConnectorsTab } from '@/components/settings/ConnectorsTab';
-import { ActivityTab } from '@/components/settings/ActivityTab';
 import { GraduationRulesTab } from '@/components/settings/GraduationRulesTab';
+import { AgentPlaneSettingsProvider } from '@/components/settings/AgentPlaneSettingsProvider';
+import {
+  RunListPage,
+  AgentSkillManager,
+  AgentConnectorsManager,
+  AgentPluginManager,
+} from '@getcatalystiq/agent-plane-ui';
+import { api } from '@/lib/api';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Any = any;
+
+function useAgentData() {
+  const [agent, setAgent] = useState<Any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get<Any>('/agentplane/skills')
+      .then((data) => {
+        // Fetch agent info to get toolkits and plugins
+        return api.get<Any>('/agentplane/connectors').then((connData) => {
+          setAgent({
+            skills: data?.skills ?? [],
+            connectors: connData?.connectors ?? [],
+            toolkits: [],
+            composioAllowedTools: [],
+            plugins: [],
+          });
+        });
+      })
+      .catch(() => setAgent(null))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return { agent, loading, reload: () => {
+    api.get<Any>('/agentplane/skills').then((data) => {
+      setAgent((prev: Any) => prev ? { ...prev, skills: data?.skills ?? [] } : prev);
+    });
+  }};
+}
 
 export default function SettingsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const activeTab = searchParams.get('tab') || 'email';
+  const { agent, loading } = useAgentData();
 
   const handleTabChange = (value: string) => {
     router.push(`/settings?tab=${value}`);
@@ -22,7 +61,6 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center gap-3">
         <MenuButton />
         <div>
@@ -53,6 +91,10 @@ export default function SettingsPage() {
             <Sparkles className="w-4 h-4" />
             Skills
           </TabsTrigger>
+          <TabsTrigger value="plugins" className="flex items-center gap-2">
+            <Puzzle className="w-4 h-4" />
+            Plugins
+          </TabsTrigger>
           <TabsTrigger value="mcp-servers" className="flex items-center gap-2">
             <Plug className="w-4 h-4" />
             Connectors
@@ -79,17 +121,39 @@ export default function SettingsPage() {
           <GraduationRulesTab />
         </TabsContent>
 
-        <TabsContent value="ai-skills" className="mt-6">
-          <SkillsTab />
-        </TabsContent>
+        <AgentPlaneSettingsProvider>
+          <TabsContent value="ai-skills" className="mt-6">
+            {!loading && agent && (
+              <AgentSkillManager
+                agentId=""
+                initialSkills={agent.skills}
+              />
+            )}
+          </TabsContent>
 
-        <TabsContent value="mcp-servers" className="mt-6">
-          <ConnectorsTab />
-        </TabsContent>
+          <TabsContent value="plugins" className="mt-6">
+            {!loading && agent && (
+              <AgentPluginManager
+                agentId=""
+                initialPlugins={agent.plugins}
+              />
+            )}
+          </TabsContent>
 
-        <TabsContent value="ai-activity" className="mt-6">
-          <ActivityTab />
-        </TabsContent>
+          <TabsContent value="mcp-servers" className="mt-6">
+            {!loading && agent && (
+              <AgentConnectorsManager
+                agentId=""
+                toolkits={agent.toolkits}
+                composioAllowedTools={agent.composioAllowedTools}
+              />
+            )}
+          </TabsContent>
+
+          <TabsContent value="ai-activity" className="mt-6">
+            <RunListPage />
+          </TabsContent>
+        </AgentPlaneSettingsProvider>
       </Tabs>
     </div>
   );
