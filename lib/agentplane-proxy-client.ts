@@ -14,9 +14,9 @@ export function createProxyClient(): AgentPlaneClient {
   return {
     agents: {
       list: () =>
-        api.get<Any>(`/agentplane/agent`),
+        api.get<Any>(`/agentplane/agent`).catch(() => ({ skills: [], connectors: [], plugins: [] })),
       get: () =>
-        api.get<Any>(`/agentplane/agent`),
+        api.get<Any>(`/agentplane/agent`).catch(() => ({ skills: [], connectors: [], plugins: [] })),
       create: (params) =>
         api.post<Any>(`/agentplane/agent`, params),
       update: (_agentId, params) =>
