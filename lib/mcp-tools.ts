@@ -4,7 +4,7 @@ import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/proto
 import { sql, withTransaction } from "@/lib/db";
 import * as agentplane from "@/lib/agentplane";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type Extra = RequestHandlerExtra<any, any>;
 
 export const SERVER_INSTRUCTIONS = `You are Envoy, an AI sales and marketing agent. You help users manage leads, campaigns, sequences, and email outreach.

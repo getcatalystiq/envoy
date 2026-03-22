@@ -145,6 +145,7 @@ export function SequenceEmailBuilder({
 
       return () => clearTimeout(timeoutId);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStepId]);
 
   // Track document changes - only after loading completes and user has interacted

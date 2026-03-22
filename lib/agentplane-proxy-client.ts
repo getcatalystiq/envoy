@@ -7,7 +7,7 @@
 import type { AgentPlaneClient } from '@getcatalystiq/agent-plane-ui';
 import { api } from '@/lib/api';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type Any = any;
 
 export function createProxyClient(): AgentPlaneClient {

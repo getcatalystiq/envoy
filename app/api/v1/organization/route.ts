@@ -1,7 +1,7 @@
 import { requireAdmin, isErrorResponse } from "@/lib/admin-auth";
 import { jsonResponse } from "@/lib/utils";
 import * as org from "@/lib/queries/organization";
-import { verifyDomain, getDomainVerificationStatus as getSESStatus } from "@/lib/ses";
+import { verifyDomain } from "@/lib/ses";
 
 export async function GET(request: Request) {
   const auth = await requireAdmin(request);

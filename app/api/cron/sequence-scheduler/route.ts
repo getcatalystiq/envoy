@@ -20,7 +20,7 @@ const MAX_CONCURRENT_PROCESSING = 10;
 const AI_TIMEOUT_MS = 45_000; // 45s per AI call
 const GUARD_TIMEOUT_MS = 780_000; // 780s hard stop
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type Row = Record<string, any>;
 
 function checkExitConditions(

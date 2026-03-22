@@ -166,6 +166,7 @@ export default function SkillBuilderPage() {
     if (id) {
       loadSkill();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const loadSkill = async () => {

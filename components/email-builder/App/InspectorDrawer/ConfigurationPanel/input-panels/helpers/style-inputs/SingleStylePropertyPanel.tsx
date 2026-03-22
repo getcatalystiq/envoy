@@ -22,7 +22,7 @@ export default function SingleStylePropertyPanel({
   onChange,
 }: StylePropertyPanelProps) {
   const defaultValue = value[name] ?? null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const handleChange = (v: any) => {
     onChange({ ...value, [name]: v });
   };

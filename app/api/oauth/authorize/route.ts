@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import {
-  generateCsrfToken,
   verifyCsrfToken,
   isAllowedRedirectUri,
   AUTH_CODE_EXPIRE_MINUTES,

@@ -8,7 +8,7 @@
 
 import { marked } from "marked";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type AnyData = Record<string, any>;
 type BlockMap = Record<string, AnyData>;
 

@@ -76,7 +76,7 @@ export function useReaderDocument(): TReaderDocument {
 const READER_DICTIONARY = buildBlockConfigurationDictionary({
   ColumnsContainer: {
     schema: ColumnsContainerReaderPropsSchema,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     Component: (componentProps: any) => {
       const { style, props } = componentProps as z.infer<typeof ColumnsContainerReaderPropsSchema>;
       const { columns, ...restProps } = props ?? { columns: undefined };
@@ -93,7 +93,7 @@ const READER_DICTIONARY = buildBlockConfigurationDictionary({
   },
   Container: {
     schema: ContainerReaderPropsSchema,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     Component: (componentProps: any) => {
       const { style, props } = componentProps as z.infer<typeof ContainerReaderPropsSchema>;
       const childrenIds = props?.childrenIds ?? [];
@@ -108,7 +108,7 @@ const READER_DICTIONARY = buildBlockConfigurationDictionary({
   },
   EmailLayout: {
     schema: EmailLayoutPropsSchema,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     Component: (componentProps: any) => {
       const props = componentProps as z.infer<typeof EmailLayoutPropsSchema>;
       const childrenIds = props.childrenIds ?? [];
@@ -166,7 +166,7 @@ export function ReaderBlock({ id }: { id: string }): JSX.Element {
   if (!block) {
     return <></>;
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   return <BaseReaderBlock {...(block as any)} />;
 }
 

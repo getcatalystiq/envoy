@@ -78,10 +78,12 @@ export function SegmentsList() {
 
   useEffect(() => {
     loadData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     loadSegments();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterTypeId]);
 
   async function loadData() {

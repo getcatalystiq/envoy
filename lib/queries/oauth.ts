@@ -2,7 +2,7 @@ import { sql, withTransaction } from "@/lib/db";
 import { randomBytes, createHash } from "crypto";
 import bcrypt from "bcryptjs";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type Row = Record<string, any>;
 
 function generateToken(length: number): string {

@@ -54,6 +54,7 @@ export default function OutboxPage() {
   useEffect(() => {
     loadOutbox();
     loadStats();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
 
   const loadOutbox = async () => {

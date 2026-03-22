@@ -4,7 +4,6 @@
  * OAuth 2.1 with PKCE implementation for Envoy Admin UI (client-side)
  */
 
-const API_BASE = '';
 const OAUTH_BASE = '';
 
 const OAUTH_METADATA_BASE = `${OAUTH_BASE}/.well-known/oauth-authorization-server`;

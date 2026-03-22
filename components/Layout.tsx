@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { isEmbedded } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';

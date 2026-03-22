@@ -4,7 +4,7 @@
  */
 import { getEnv } from "@/lib/env";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type BlockMap = Record<string, Record<string, any>>;
 
 function replaceTemplatesInText(

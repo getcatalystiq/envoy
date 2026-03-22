@@ -123,12 +123,14 @@ export default function SequenceBuilderPage() {
       loadSequence();
       loadTargetTypes();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {
     if (id && activeTab === 'enrollments') {
       loadEnrollments();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, activeTab, enrollmentFilter]);
 
   useEffect(() => {
@@ -249,6 +251,7 @@ export default function SequenceBuilderPage() {
       setError('Failed to update step');
       await loadSequence();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const handleReorderSteps = useCallback(async (fromIndex: number, toIndex: number) => {
@@ -264,6 +267,7 @@ export default function SequenceBuilderPage() {
       setError('Failed to reorder steps');
       await loadSequence();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, steps]);
 
   const handleDeleteStep = async (stepId: string) => {

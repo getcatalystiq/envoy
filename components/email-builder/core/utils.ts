@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export type BaseZodDictionary = { [name: string]: z.ZodObject<any> };
 export type DocumentBlocksDictionary<T extends BaseZodDictionary> = {
   [K in keyof T]: {

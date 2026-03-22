@@ -1,6 +1,6 @@
 import { sql, getPool } from "@/lib/db";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type Row = Record<string, any>;
 
 /** Columns allowed in dynamic UPDATE SET clauses — prevents SQL injection via key names. */

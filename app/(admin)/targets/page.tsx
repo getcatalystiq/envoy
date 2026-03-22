@@ -60,10 +60,12 @@ export default function TargetsPage() {
     loadTargets();
     loadTargetTypes();
     loadSegments();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     loadTargets();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, pageSize]);
 
   const loadTargets = async () => {

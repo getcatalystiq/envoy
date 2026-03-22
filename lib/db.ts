@@ -30,10 +30,7 @@ export const sql: NeonQueryFunction<false, false> = new Proxy(
   ),
   {
     apply(_target, _thisArg, args) {
-      return getDb().apply(
-        null,
-        args as Parameters<NeonQueryFunction<false, false>>
-      );
+      return getDb()(...(args as Parameters<NeonQueryFunction<false, false>>));
     },
     get(_target, prop) {
       return Reflect.get(getDb(), prop);

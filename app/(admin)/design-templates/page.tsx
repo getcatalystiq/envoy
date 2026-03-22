@@ -70,6 +70,7 @@ export default function DesignTemplatesPage() {
 
   useEffect(() => {
     loadTemplates();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showArchived]);
 
   async function loadTemplates() {

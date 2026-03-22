@@ -75,6 +75,7 @@ export default function SequencesPage() {
   useEffect(() => {
     loadSequences();
     loadTargetTypes();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
 
   const loadSequences = async () => {
