@@ -84,12 +84,13 @@ function useAgentData() {
 
 export default function SettingsPage() {
   const searchParams = useSearchParams();
-  const router = useRouter();
-  const activeTab = searchParams.get('tab') || 'email';
+  const initialTab = searchParams.get('tab') || 'email';
+  const [activeTab, setActiveTab] = useState(initialTab);
   const { agent, loading } = useAgentData();
 
   const handleTabChange = (value: string) => {
-    router.push(`/settings?tab=${value}`);
+    setActiveTab(value);
+    window.history.replaceState(null, '', `/settings?tab=${value}`);
   };
 
   return (
