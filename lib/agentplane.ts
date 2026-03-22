@@ -1,7 +1,7 @@
-import { AgentPlane } from "@getcatalystiq/agentplane";
+import { AgentPlane } from "@getcatalystiq/agent-plane";
 import { getEnv } from "@/lib/env";
 
-export { AgentPlaneError } from "@getcatalystiq/agentplane";
+export { AgentPlaneError } from "@getcatalystiq/agent-plane";
 
 export interface RunResult {
   output: string;
