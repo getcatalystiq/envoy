@@ -22,8 +22,7 @@ export async function GET(request: Request) {
       unknown
     >;
     const skills = (agent.skills ?? []) as Record<string, unknown>[];
-    const parsed = skills.map(parseSkill);
-    return jsonResponse({ skills: parsed });
+    return jsonResponse({ skills });
   } catch {
     return jsonResponse({ error: "AgentPlane service unavailable" }, 503);
   }

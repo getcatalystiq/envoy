@@ -30,15 +30,7 @@ export async function GET(
     const found = findRawSkill(skills, skillSlug);
     if (!found) return jsonResponse({ error: "Skill not found" }, 404);
 
-    const parsed = parseSkill(found[1]);
-    return jsonResponse({
-      id: parsed.slug,
-      name: parsed.name,
-      slug: parsed.slug,
-      description: parsed.description,
-      prompt: null,
-      enabled: true,
-    });
+    return jsonResponse(found[1]);
   } catch {
     return jsonResponse({ error: "AgentPlane service unavailable" }, 503);
   }
