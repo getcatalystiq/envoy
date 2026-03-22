@@ -14,9 +14,9 @@ export function createProxyClient(): AgentPlaneClient {
   return {
     agents: {
       list: () =>
-        api.get<Any>(`/agentplane/agent`).catch(() => ({ skills: [], connectors: [], plugins: [] })),
+        api.get<Any>(`/agentplane/agent`).catch(() => ({ skills: [], connectors: [], plugins: [], toolkits: [], files: [] })),
       get: () =>
-        api.get<Any>(`/agentplane/agent`).catch(() => ({ skills: [], connectors: [], plugins: [] })),
+        api.get<Any>(`/agentplane/agent`).catch(() => ({ skills: [], connectors: [], plugins: [], toolkits: [], files: [] })),
       create: (params) =>
         api.post<Any>(`/agentplane/agent`, params),
       update: (_agentId, params) =>
@@ -124,12 +124,12 @@ export function createProxyClient(): AgentPlaneClient {
     },
     pluginMarketplaces: {
       list: () => Promise.resolve([]),
-      get: () => Promise.resolve({}),
+      get: () => Promise.resolve({ plugins: [] }),
       listPlugins: () => Promise.resolve([]),
-      getPlugin: () => Promise.resolve({}),
-      getPluginFiles: () => Promise.resolve({}),
-      savePluginFiles: () => Promise.resolve({}),
-      create: () => Promise.resolve({}),
+      getPlugin: () => Promise.resolve({ skills: [], files: [] }),
+      getPluginFiles: () => Promise.resolve({ skills: [], files: [] }),
+      savePluginFiles: () => Promise.resolve({ skills: [], files: [] }),
+      create: () => Promise.resolve({ plugins: [] }),
       delete: () => Promise.resolve(),
       updateToken: () => Promise.resolve({}),
     },
