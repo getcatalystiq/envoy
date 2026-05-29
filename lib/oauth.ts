@@ -194,6 +194,16 @@ export function verifyCsrfToken(token: string): boolean {
 export function isAllowedRedirectUri(redirectUri: string): boolean {
   try {
     const url = new URL(redirectUri);
+    // The app's own origin is ALWAYS allowed — first-party client registration
+    // (the admin UI registering itself) must work regardless of the
+    // ALLOWED_DCR_DOMAINS list, which exists to gate THIRD-PARTY OAuth clients.
+    let appHost: string | null = null;
+    try {
+      appHost = new URL(getIssuer()).hostname;
+    } catch {
+      appHost = null;
+    }
+    if (appHost && url.hostname === appHost) return true;
     return getAllowedDcrDomains().some(
       (domain) =>
         url.hostname === domain || url.hostname.endsWith(`.${domain}`)
