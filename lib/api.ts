@@ -44,7 +44,7 @@ async function request<T>(
       }
     }
     const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-    throw new Error(error.detail || 'Request failed');
+    throw new Error(error.error || error.detail || error.message || 'Request failed');
   }
 
   // Handle 204 No Content responses
@@ -53,6 +53,10 @@ async function request<T>(
   }
 
   return response.json();
+}
+
+export function formatApiError(err: unknown): string {
+  return err instanceof Error ? err.message : 'Unknown error';
 }
 
 export const api = {

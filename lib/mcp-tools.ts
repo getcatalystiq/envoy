@@ -2,7 +2,9 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { sql, withTransaction } from "@/lib/db";
-import * as agentplane from "@/lib/agentplane";
+import * as twin from "@/lib/twin";
+import { TwinError } from "@/lib/twin";
+import { getTwinAgentId, resolveTwinApiKey } from "@/lib/queries/organization";
 
  
 type Extra = RequestHandlerExtra<any, any>;
@@ -47,12 +49,7 @@ function errorResult(message: string) {
   };
 }
 
-async function getAgentId(orgId: string): Promise<string | null> {
-  const rows = await sql`
-    SELECT agentplane_agent_id FROM organizations WHERE id = ${orgId}
-  `;
-  return rows.length > 0 ? rows[0].agentplane_agent_id : null;
-}
+const getAgentId = getTwinAgentId;
 
 export function registerTools(server: McpServer) {
   // --- search_targets ---
@@ -249,14 +246,26 @@ export function registerTools(server: McpServer) {
       if (targets.length === 0) return errorResult("Target not found.");
 
       const target = targets[0];
-      const agentId = await getAgentId(tenantId);
-      if (!agentId) return errorResult("AgentPlane not configured.");
+      const [agentId, apiKey] = await Promise.all([
+        getAgentId(tenantId),
+        resolveTwinApiKey(tenantId),
+      ]);
+      if (!agentId) return errorResult("Twin agent not configured.");
 
-      const result = await agentplane.generateContent(
-        agentId,
-        target as Record<string, unknown>,
-        args.content_type,
-      );
+      let result: Record<string, unknown>;
+      try {
+        result = await twin.generateContent(
+          agentId,
+          target as Record<string, unknown>,
+          args.content_type,
+          { apiKey },
+        );
+      } catch (err) {
+        if (err instanceof TwinError) {
+          return errorResult(`AI generation failed: ${err.message}`);
+        }
+        throw err;
+      }
 
       const content = await sql`
         INSERT INTO content (organization_id, name, content_type, channel, subject, body, lifecycle_stage, status)
@@ -987,19 +996,27 @@ export function registerTools(server: McpServer) {
         return errorResult("Personalization is not enabled for this block.");
       }
 
-      const agentId = await getAgentId(tenantId);
-      if (!agentId) return errorResult("AgentPlane not configured.");
+      const [agentId, apiKey] = await Promise.all([
+        getAgentId(tenantId),
+        resolveTwinApiKey(tenantId),
+      ]);
+      if (!agentId) return errorResult("Twin agent not configured.");
 
-      const result = await agentplane.invokeSkill(
-        agentId,
-        "envoy-content-generation",
-        {
-          target: target as Record<string, unknown>,
-          block_content: block,
-          prompt: personalization.prompt,
-          mode: "preview",
-        },
-      );
+      const message =
+        `Preview personalization for this email block.\n\n` +
+        `Target:\n${JSON.stringify(target, null, 2)}\n\n` +
+        `Block content:\n${JSON.stringify(block, null, 2)}\n\n` +
+        `Additional instructions:\n${personalization.prompt ?? ""}\n\n` +
+        `Respond with JSON containing a "body" field with the personalized preview.`;
+      let result: Record<string, unknown>;
+      try {
+        result = await twin.runAgentJson(agentId, message, { apiKey });
+      } catch (err) {
+        if (err instanceof TwinError) {
+          return errorResult(`AI generation failed: ${err.message}`);
+        }
+        throw err;
+      }
 
       return {
         content: [

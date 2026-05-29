@@ -1,26 +1,42 @@
 import { z } from "zod";
 
-const envSchema = z.object({
-  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
-  JWT_SECRET: z
-    .string()
-    .min(32, "JWT_SECRET must be at least 32 characters"),
-  NEXT_PUBLIC_URL: z.string().url("NEXT_PUBLIC_URL must be a valid URL"),
-  ENVIRONMENT: z.enum(["dev", "staging", "prod"]).default("dev"),
-  CRON_SECRET: z.string().optional(),
-  SES_ACCESS_KEY_ID: z.string().min(1, "SES_ACCESS_KEY_ID is required"),
-  SES_SECRET_ACCESS_KEY: z
-    .string()
-    .min(1, "SES_SECRET_ACCESS_KEY is required"),
-  AWS_SES_REGION: z.string().default("us-east-1"),
-  AGENTPLANE_API_URL: z.string().min(1, "AGENTPLANE_API_URL is required"),
-  AGENTPLANE_API_KEY: z.string().min(1, "AGENTPLANE_API_KEY is required"),
-  SES_NOTIFICATION_TOPIC_ARN: z.string().optional(),
-  ALLOWED_DCR_DOMAINS: z
-    .string()
-    .default("claude.ai,chatgpt.com,localhost,127.0.0.1")
-    .transform((s) => s.split(",").map((d) => d.trim())),
-});
+const envSchema = z
+  .object({
+    DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+    JWT_SECRET: z
+      .string()
+      .min(32, "JWT_SECRET must be at least 32 characters"),
+    NEXT_PUBLIC_URL: z.string().url("NEXT_PUBLIC_URL must be a valid URL"),
+    ENVIRONMENT: z.enum(["dev", "staging", "prod"]).default("dev"),
+    CRON_SECRET: z.string().optional(),
+    SES_ACCESS_KEY_ID: z.string().min(1, "SES_ACCESS_KEY_ID is required"),
+    SES_SECRET_ACCESS_KEY: z
+      .string()
+      .min(1, "SES_SECRET_ACCESS_KEY is required"),
+    AWS_SES_REGION: z.string().default("us-east-1"),
+    TWIN_API_URL: z
+      .string()
+      .url("TWIN_API_URL must be a valid URL")
+      .default("https://build.twin.so"),
+    TWIN_API_KEY: z.string().min(1, "TWIN_API_KEY is required"),
+    SES_NOTIFICATION_TOPIC_ARN: z.string().optional(),
+    ALLOWED_DCR_DOMAINS: z
+      .string()
+      .default("claude.ai,chatgpt.com,localhost,127.0.0.1")
+      .transform((s) => s.split(",").map((d) => d.trim())),
+  })
+  .superRefine((data, ctx) => {
+    if (
+      data.ENVIRONMENT !== "dev" &&
+      !data.TWIN_API_URL.startsWith("https://")
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["TWIN_API_URL"],
+        message: "TWIN_API_URL must use https outside dev",
+      });
+    }
+  });
 
 export type Env = z.infer<typeof envSchema>;
 

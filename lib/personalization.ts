@@ -1,9 +1,8 @@
 /**
  * Parallel personalization processing for sequence blocks.
- * Port of functions/sequence_scheduler/personalization.py
  */
 
-import { invokeSkill } from "@/lib/agentplane";
+import { runAgentJson } from "@/lib/twin";
 
  
 type AnyData = Record<string, any>;
@@ -122,6 +121,7 @@ async function personalizeBlock(
   block: AnyData,
   targetData: AnyData,
   agentId: string,
+  apiKey: string | undefined,
   timeoutMs: number
 ): Promise<{
   blockId: string;
@@ -142,43 +142,33 @@ async function personalizeBlock(
   }
 
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const message = buildPersonalizationPrompt({
+      originalContent,
+      additionalInstructions: prompt,
+      target: sanitizeTargetData(targetData),
+      blockType,
+    });
+    const aiResult = await runAgentJson(agentId, message, { timeoutMs, apiKey });
 
-    try {
-      const aiResult = await invokeSkill(agentId, "envoy-content-generation", {
-        mode: "block_personalization",
-        original_content: originalContent,
-        additional_instructions: prompt,
-        target: sanitizeTargetData(targetData),
-        block_type: blockType,
-      });
+    const personalized =
+      (aiResult.body as string | undefined) ??
+      (aiResult.content as string | undefined) ??
+      originalContent;
 
-      const personalized =
-        (aiResult.body as string) ||
-        (aiResult.content as string) ||
-        (aiResult.raw as string) ||
-        originalContent;
-
-      if (personalized === originalContent) {
-        console.warn(
-          `Block ${blockId}: AI returned no usable content, keeping original. Keys: ${Object.keys(aiResult)}`
-        );
-      } else {
-        console.log(
-          `Block ${blockId}: personalized (${originalContent.length} chars -> ${personalized.length} chars)`
-        );
-      }
-
-      const updatedBlock = applyPersonalizedContent(block, personalized);
-      return { blockId, result: updatedBlock, error: null };
-    } finally {
-      clearTimeout(timer);
+    if (personalized === originalContent) {
+      console.warn(
+        `Block ${blockId}: AI returned no usable content, keeping original. Keys: ${Object.keys(aiResult)}`
+      );
+    } else {
+      console.log(
+        `Block ${blockId}: personalized (${originalContent.length} chars -> ${personalized.length} chars)`
+      );
     }
+
+    const updatedBlock = applyPersonalizedContent(block, personalized);
+    return { blockId, result: updatedBlock, error: null };
   } catch (err) {
-    const message = err instanceof Error && err.name === "AbortError"
-      ? "Timeout"
-      : String(err);
+    const message = String(err);
     console.warn(`Personalization failed for block ${blockId}: ${message}`);
     return {
       blockId,
@@ -186,6 +176,28 @@ async function personalizeBlock(
       error: { blockId, error: message },
     };
   }
+}
+
+function buildPersonalizationPrompt(args: {
+  originalContent: string;
+  additionalInstructions: string;
+  target: AnyData;
+  blockType: string;
+}): string {
+  return [
+    `Personalize this ${args.blockType} email block for the given target.`,
+    "",
+    `Original content:\n${args.originalContent}`,
+    "",
+    args.additionalInstructions
+      ? `Additional instructions:\n${args.additionalInstructions}`
+      : "",
+    `Target:\n${JSON.stringify(args.target, null, 2)}`,
+    "",
+    `Respond with JSON containing a "body" field with the personalized content. Keep the same format and tone as the original.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function hasPersonalizedBlocks(builderContent: BlockMap | null | undefined): boolean {
@@ -201,6 +213,7 @@ export async function processPersonalization(
   builderContent: BlockMap,
   targetData: AnyData,
   agentId: string,
+  apiKey: string | undefined,
   opts: { maxConcurrent?: number; timeoutMs?: number } = {}
 ): Promise<{ content: BlockMap; errors: PersonalizationError[] }> {
   if (!builderContent) {
@@ -213,20 +226,36 @@ export async function processPersonalization(
   // Collect blocks that need personalization
   const blockEntries = Object.entries(modifiedContent);
 
+  // Promise-based semaphore: callers awaiting acquire() join a FIFO queue
+  // and resolve as slots free up in release().
+  const semaphore = (() => {
+    let permits = maxConcurrent;
+    const waiters: Array<() => void> = [];
+    return {
+      acquire(): Promise<void> {
+        if (permits > 0) {
+          permits--;
+          return Promise.resolve();
+        }
+        return new Promise<void>((resolve) => waiters.push(resolve));
+      },
+      release(): void {
+        const next = waiters.shift();
+        if (next) next();
+        else permits++;
+      },
+    };
+  })();
+
   // Process with bounded concurrency
   const errors: PersonalizationError[] = [];
-  let active = 0;
 
   const promises = blockEntries.map(async ([blockId, block]) => {
-    while (active >= maxConcurrent) {
-      await new Promise((r) => setTimeout(r, 10));
-    }
-    active++;
-
+    await semaphore.acquire();
     try {
-      return await personalizeBlock(blockId, block, targetData, agentId, timeoutMs);
+      return await personalizeBlock(blockId, block, targetData, agentId, apiKey, timeoutMs);
     } finally {
-      active--;
+      semaphore.release();
     }
   });
 

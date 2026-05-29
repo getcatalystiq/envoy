@@ -30,7 +30,7 @@ Open source. Self-host or deploy to Vercel in minutes.
 - **TypeScript 5.9**, **React 19**, **Tailwind 4**
 - **PostgreSQL** (Neon serverless)
 - **AWS SES v2** for email delivery with SNS event webhooks
-- **AgentPlane** for AI content personalization
+- **Twin** for AI content personalization
 - **Tiptap** rich text editor, **Recharts** charts, **dnd-kit** drag-and-drop
 
 ## Getting Started
@@ -52,7 +52,7 @@ See [`.env.example`](.env.example) for all configuration options.
 - Node.js 18+
 - PostgreSQL database ([Neon](https://neon.tech) recommended)
 - AWS SES account for email delivery
-- [AgentPlane](https://agentplane.vercel.app) account for AI personalization (optional)
+- [Twin](https://builder.twin.so) account for AI personalization (optional)
 
 ## Project Structure
 
@@ -80,7 +80,7 @@ lib/
   schemas.ts        Zod request/response schemas
   mcp-tools.ts      MCP tool definitions
   ses.ts            AWS SES email delivery
-  agentplane.ts     AgentPlane AI client
+  twin.ts           Twin REST API client
   oauth.ts          OAuth 2.1 server
 migrations/         Sequential SQL migration files
 ```
@@ -89,7 +89,7 @@ migrations/         Sequential SQL migration files
 
 ### REST API (`/api/v1/`)
 
-All endpoints require OAuth 2.1 bearer token authentication. Resources: agentplane, analytics, campaigns, content, design-templates, graduation-rules, organization, outbox, segments, send, sequences, setup, target-types, targets.
+All endpoints require OAuth 2.1 bearer token authentication. Resources: analytics, campaigns, content, design-templates, graduation-rules, organization, outbox, segments, send, sequences, setup, target-types, targets, twin.
 
 ### MCP Endpoint (`/mcp`)
 
@@ -125,8 +125,8 @@ All endpoints require OAuth 2.1 bearer token authentication. Resources: agentpla
    | `NEXT_PUBLIC_URL` | Your Vercel deployment URL (e.g., `https://your-app.vercel.app`) |
    | `SES_ACCESS_KEY_ID` | AWS IAM access key (see step 3) |
    | `SES_SECRET_ACCESS_KEY` | AWS IAM secret key |
-   | `AGENTPLANE_API_URL` | AgentPlane service URL |
-   | `AGENTPLANE_API_KEY` | AgentPlane API key |
+   | `TWIN_API_KEY` | Twin API key (`x-api-key`) — get one from https://builder.twin.so |
+   | `TWIN_API_URL` | (optional) Twin base URL, defaults to `https://build.twin.so` |
    | `CRON_SECRET` | Random string for cron auth (e.g., `openssl rand -hex 16`) |
 
 3. Deploy. Vercel will build and start serving the app.
@@ -186,13 +186,14 @@ To track email delivery status, set up the SES → SNS → Webhook pipeline:
 
 > **Note:** SES starts in sandbox mode, which limits you to verified email addresses only. [Request production access](https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html) when ready to send to real recipients.
 
-### 4. AgentPlane (optional)
+### 4. Twin (optional)
 
-AgentPlane provides AI-powered content personalization. Without it, emails send without AI personalization.
+Twin provides AI-powered content personalization. Without it, emails send without AI personalization.
 
-1. Sign up at [agentplane.vercel.app](https://agentplane.vercel.app)
-2. Create a tenant and agent
-3. Add `AGENTPLANE_API_URL` and `AGENTPLANE_API_KEY` to Vercel
+1. Sign up at [builder.twin.so](https://builder.twin.so)
+2. Build and deploy an agent that knows how to generate the email content you want
+3. Add `TWIN_API_KEY` to Vercel (use Settings → API Keys in Twin to create one)
+4. Set each organization's `twin_agent_id` to the deployed agent's ID
 
 ## Contributing
 

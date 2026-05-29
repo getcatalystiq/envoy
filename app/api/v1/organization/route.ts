@@ -29,12 +29,44 @@ export async function PATCH(request: Request) {
   if (isErrorResponse(auth)) return auth;
 
   const body = await request.json();
-  const { email_from_name, email_domain } = body;
+  const { email_from_name, email_domain, twin_agent_id, twin_api_key } = body;
 
   const updates: Record<string, unknown> = {};
 
   if (email_from_name !== undefined) {
     updates.email_from_name = email_from_name;
+  }
+
+  if (twin_api_key !== undefined) {
+    // null or empty string unconfigures (falls back to env var).
+    if (twin_api_key === null || twin_api_key === "") {
+      updates.twin_api_key = null;
+    } else if (
+      typeof twin_api_key === "string" &&
+      twin_api_key.trim().length > 0
+    ) {
+      updates.twin_api_key = twin_api_key.trim();
+    } else {
+      return jsonResponse(
+        { error: "twin_api_key must be a non-empty string or null" },
+        400,
+      );
+    }
+  }
+
+  if (twin_agent_id !== undefined) {
+    // Accept null / empty string to unconfigure; otherwise require a non-empty
+    // trimmed string.
+    if (twin_agent_id === null || twin_agent_id === "") {
+      updates.twin_agent_id = null;
+    } else if (typeof twin_agent_id === "string" && twin_agent_id.trim().length > 0) {
+      updates.twin_agent_id = twin_agent_id.trim();
+    } else {
+      return jsonResponse(
+        { error: "twin_agent_id must be a non-empty string or null" },
+        400,
+      );
+    }
   }
 
   if (email_domain !== undefined) {
@@ -51,7 +83,14 @@ export async function PATCH(request: Request) {
   }
 
   if (Object.keys(updates).length > 0) {
-    await org.updateOrganization(auth.tenantId, updates);
+    try {
+      await org.updateOrganization(auth.tenantId, updates);
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith("Unknown field:")) {
+        return jsonResponse({ error: err.message }, 400);
+      }
+      throw err;
+    }
   }
 
   // Refetch and return

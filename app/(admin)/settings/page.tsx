@@ -1,89 +1,21 @@
 'use client';
-import { useState, useEffect, Component } from 'react';
-import type { ReactNode, ErrorInfo } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Users, Tags, AtSign, Sparkles, Plug, Activity, ArrowRightLeft, Puzzle } from 'lucide-react';
+import { Users, Tags, AtSign, Sparkles, Activity, ArrowRightLeft } from 'lucide-react';
 import { MenuButton } from '@/components/Layout';
 import { TargetTypesList } from '@/components/settings/TargetTypesList';
 import { SegmentsList } from '@/components/settings/SegmentsList';
 import { EmailSettings } from '@/components/settings/EmailSettings';
 import { GraduationRulesTab } from '@/components/settings/GraduationRulesTab';
-import { AgentPlaneSettingsProvider } from '@/components/settings/AgentPlaneSettingsProvider';
-import {
-  RunListPage,
-  AgentSkillManager,
-  AgentConnectorsManager,
-  AgentPluginManager,
-} from '@getcatalystiq/agent-plane-ui';
-import { api } from '@/lib/api';
-
-class TabErrorBoundary extends Component<{ children: ReactNode; fallback?: ReactNode }, { hasError: boolean }> {
-  constructor(props: { children: ReactNode; fallback?: ReactNode }) {
-    super(props);
-    this.state = { hasError: false };
-  }
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('Tab component error:', error, info);
-  }
-  render() {
-    if (this.state.hasError) {
-      return this.props.fallback ?? (
-        <div className="p-6 text-center text-muted-foreground">
-          <p>Failed to load this section. The AI service may be temporarily unavailable.</p>
-          <button className="mt-3 text-sm underline" onClick={() => this.setState({ hasError: false })}>
-            Try again
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
- 
-type Any = any;
-
-function useAgentData() {
-  const [agent, setAgent] = useState<Any>({
-    skills: [],
-    connectors: [],
-    toolkits: [],
-    composioAllowedTools: [],
-    plugins: [],
-  });
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.get<Any>('/agentplane/agent')
-      .catch(() => ({ skills: [], connectors: [], plugins: [], composio_toolkits: [], composio_allowed_tools: [] }))
-      .then((agentData) => {
-        setAgent({
-          skills: agentData?.skills ?? [],
-          connectors: agentData?.connectors ?? [],
-          toolkits: agentData?.composio_toolkits ?? [],
-          composioAllowedTools: agentData?.composio_allowed_tools ?? [],
-          plugins: agentData?.plugins ?? [],
-        });
-      })
-      .finally(() => setLoading(false));
-  }, []);
-
-  return { agent, loading, reload: () => {
-    api.get<Any>('/agentplane/skills').catch(() => ({ skills: [] })).then((data) => {
-      setAgent((prev: Any) => ({ ...prev, skills: data?.skills ?? [] }));
-    });
-  }};
-}
+import { TwinRunsList } from '@/components/settings/TwinRunsList';
+import { TwinInstructions } from '@/components/settings/TwinInstructions';
+import { TwinAgentConfig } from '@/components/settings/TwinAgentConfig';
 
 export default function SettingsPage() {
   const searchParams = useSearchParams();
   const initialTab = searchParams.get('tab') || 'email';
   const [activeTab, setActiveTab] = useState(initialTab);
-  const { agent, loading } = useAgentData();
 
   const handleTabChange = (value: string) => {
     setActiveTab(value);
@@ -118,17 +50,9 @@ export default function SettingsPage() {
             <ArrowRightLeft className="w-4 h-4" />
             Graduation Rules
           </TabsTrigger>
-          <TabsTrigger value="ai-skills" className="flex items-center gap-2">
+          <TabsTrigger value="instructions" className="flex items-center gap-2">
             <Sparkles className="w-4 h-4" />
-            Skills
-          </TabsTrigger>
-          <TabsTrigger value="plugins" className="flex items-center gap-2">
-            <Puzzle className="w-4 h-4" />
-            Plugins
-          </TabsTrigger>
-          <TabsTrigger value="mcp-servers" className="flex items-center gap-2">
-            <Plug className="w-4 h-4" />
-            Connectors
+            Twin agent
           </TabsTrigger>
           <TabsTrigger value="ai-activity" className="flex items-center gap-2">
             <Activity className="w-4 h-4" />
@@ -152,45 +76,17 @@ export default function SettingsPage() {
           <GraduationRulesTab />
         </TabsContent>
 
-        <AgentPlaneSettingsProvider>
-          <TabsContent value="ai-skills" className="mt-6">
-            <TabErrorBoundary>
-              {!loading && (
-                <AgentSkillManager
-                  agentId=""
-                  initialSkills={agent.skills}
-                />
-              )}
-            </TabErrorBoundary>
-          </TabsContent>
+        <TabsContent value="instructions" className="mt-6 space-y-8">
+          <TwinAgentConfig />
+          <div className="border-t pt-6">
+            <h2 className="text-lg font-medium mb-1">Instructions</h2>
+            <TwinInstructions />
+          </div>
+        </TabsContent>
 
-          <TabsContent value="plugins" className="mt-6">
-            <TabErrorBoundary>
-              {!loading && (
-                <AgentPluginManager
-                  agentId=""
-                  initialPlugins={agent.plugins}
-                />
-              )}
-            </TabErrorBoundary>
-          </TabsContent>
-
-          <TabsContent value="mcp-servers" className="mt-6">
-            <TabErrorBoundary>
-              {!loading && (
-                <AgentConnectorsManager
-                  agentId=""
-                  toolkits={agent.toolkits}
-                  composioAllowedTools={agent.composioAllowedTools}
-                />
-              )}
-            </TabErrorBoundary>
-          </TabsContent>
-
-          <TabsContent value="ai-activity" className="mt-6">
-            <RunListPage />
-          </TabsContent>
-        </AgentPlaneSettingsProvider>
+        <TabsContent value="ai-activity" className="mt-6">
+          <TwinRunsList />
+        </TabsContent>
       </Tabs>
     </div>
   );

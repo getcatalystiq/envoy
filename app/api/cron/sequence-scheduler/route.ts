@@ -1,13 +1,14 @@
 import { verifyCronSecret } from "@/lib/cron-utils";
 import { sql } from "@/lib/db";
-import { invokeSkill } from "@/lib/agentplane";
+import * as twin from "@/lib/twin";
+import { runAgentJson, startRun } from "@/lib/twin";
 import { compileBuilderContent } from "@/lib/block-compiler";
 import { wrapEmailBody } from "@/lib/email";
 import {
   hasPersonalizedBlocks,
   processPersonalization,
 } from "@/lib/personalization";
-import { getDueEnrollments } from "@/lib/queries/system";
+import { getDueEnrollments, resetSkippedEnrollments } from "@/lib/queries/system";
 import * as outboxQueries from "@/lib/queries/outbox";
 import * as seqQueries from "@/lib/queries/sequences";
 import { replaceTemplatesInBlocks } from "@/lib/template-engine";
@@ -16,8 +17,10 @@ import { jsonResponse } from "@/lib/utils";
 export const maxDuration = 800;
 
 const BATCH_SIZE = 100;
-const MAX_CONCURRENT_PROCESSING = 10;
-const AI_TIMEOUT_MS = 45_000; // 45s per AI call
+// Lower fan-out to reduce concurrent polling pressure on Twin.
+const MAX_CONCURRENT_PROCESSING = 5;
+// Give polling realistic budget headroom; per-block AI calls poll Twin.
+const AI_TIMEOUT_MS = 90_000;
 const GUARD_TIMEOUT_MS = 780_000; // 780s hard stop
 
  
@@ -38,7 +41,8 @@ function checkExitConditions(
 
 async function processEnrollment(
   enrollment: Row,
-  agentId: string | null
+  agentId: string | null,
+  apiKey: string | undefined,
 ): Promise<Row> {
   const orgId = String(enrollment.organization_id);
   const enrollmentId = String(enrollment.id);
@@ -167,6 +171,7 @@ async function processEnrollment(
         builderContent,
         targetData,
         agentId,
+        apiKey,
         { maxConcurrent: 5, timeoutMs: AI_TIMEOUT_MS }
       );
       builderContent = personalizationResult.content;
@@ -181,7 +186,7 @@ async function processEnrollment(
       }
     } else if (hasPersonalized && !agentId) {
       console.warn(
-        `Enrollment ${enrollmentId} has personalized blocks but AgentPlane not configured for org ${orgId}`
+        `Enrollment ${enrollmentId} has personalized blocks but Twin agent not configured for org ${orgId}`
       );
     }
 
@@ -194,31 +199,127 @@ async function processEnrollment(
     console.log(`Enrollment ${enrollmentId}: using legacy content_body`);
   }
 
-  // If AI agent is configured and we still have no body, try generating
+  // If AI agent is configured and we still have no body, try generating.
+  // The output is unreviewed raw AI text, so we HTML-escape it and wrap it
+  // through the same email body pipeline used for builder_content.
+  //
+  // Idempotency: if a prior cron tick already kicked off a Twin run for this
+  // (enrollment, step), resume polling that run instead of starting a new one.
+  // Otherwise startRun ourselves and persist the run_id BEFORE the long poll
+  // so a crash mid-poll doesn't double-bill on the next tick.
   if (agentId && !body) {
     try {
-      const aiResult = await invokeSkill(
-        agentId,
-        "envoy-content-generation",
-        {
-          mode: "block_personalization",
-          target: {
-            email: enrollment.target_email,
-            first_name: enrollment.target_first_name,
-            last_name: enrollment.target_last_name,
-            company: enrollment.target_company,
-          },
-          context: { content_type: "sequence_step" },
-        }
+      const target = {
+        email: enrollment.target_email,
+        first_name: enrollment.target_first_name,
+        last_name: enrollment.target_last_name,
+        company: enrollment.target_company,
+      };
+      const message =
+        `Generate the next sequence step email for this target.\n\n` +
+        `Target:\n${JSON.stringify(target, null, 2)}\n\n` +
+        `Respond with JSON containing a "body" field with the email content.`;
+
+      const stepPosition = enrollment.current_step_position;
+      let runId = await seqQueries.getInflightTwinRunId(
+        orgId,
+        enrollmentId,
+        stepPosition
       );
-      body =
+
+      if (runId) {
+        console.log(
+          `Resuming inflight Twin run ${runId} for enrollment ${enrollmentId} step ${stepPosition}`
+        );
+      } else {
+        const startedRun = await startRun(agentId, {
+          runMode: "run",
+          userMessage: message,
+          apiKey,
+        });
+        runId = startedRun.run_id;
+        try {
+          await seqQueries.setStepExecutionTwinRunId(
+            orgId,
+            enrollmentId,
+            stepPosition,
+            runId
+          );
+        } catch (persistErr) {
+          // DB couldn't track us — cancel the started run so it doesn't keep
+          // running on the Twin side. We re-throw so the outer catch logs.
+          await twin
+            .cancelRun(agentId, runId, "persist-failed", { apiKey })
+            .catch(() => {});
+          throw persistErr;
+        }
+      }
+
+      const aiResult = await runAgentJson(agentId, message, {
+        existingRunId: runId,
+        apiKey,
+      });
+      const rawBody =
         (aiResult.body as string) || (aiResult.content as string) || "";
+      if (rawBody) {
+        const escaped = rawBody
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\n/g, "<br>");
+        body = wrapEmailBody(escaped);
+      }
+      // Note: the inflight marker is cleared at the end of processEnrollment
+      // (after outbox.create + recordExecution succeed). This way a crash
+      // between AI generation and outbox persistence leaves the marker in
+      // place so the next tick resumes the same Twin run instead of
+      // double-billing.
     } catch (err) {
       console.error(
         `AI content generation failed for enrollment ${enrollmentId}:`,
         err
       );
+      // Leave the twin_run_id in place so the next tick can resume it.
     }
+  }
+
+  // If we used the AI path but it produced no body, skip the send and
+  // advance the enrollment rather than queuing an empty email.
+  if (agentId && !body) {
+    console.warn(
+      `Enrollment ${enrollmentId} has empty body after AI generation — skipping send and advancing step`
+    );
+    await seqQueries.recordExecution(
+      orgId,
+      enrollmentId,
+      enrollment.current_step_position,
+      { status: "skipped" }
+    );
+    // Clear the inflight marker; the AI run produced no usable output.
+    await seqQueries.clearStepExecutionTwinRunId(
+      orgId,
+      enrollmentId,
+      enrollment.current_step_position
+    );
+    const nextStepSkip = await seqQueries.getStepByPosition(
+      orgId,
+      String(enrollment.sequence_id),
+      enrollment.current_step_position + 1
+    );
+    if (nextStepSkip) {
+      await seqQueries.advanceEnrollment(
+        orgId,
+        enrollmentId,
+        nextStepSkip.default_delay_hours
+      );
+    } else {
+      await seqQueries.completeEnrollment(orgId, enrollmentId, "completed");
+    }
+    return {
+      enrollment_id: enrollmentId,
+      action: "skipped",
+      reason: "empty_ai_output",
+    };
   }
 
   // Determine approval status
@@ -262,6 +363,15 @@ async function processEnrollment(
     enrollmentId,
     enrollment.current_step_position,
     { outboxId: String(outboxItem.id), status: "executed" }
+  );
+
+  // Outbox + execution successfully persisted: now safe to clear any
+  // inflight Twin run marker. The clear is a no-op when no tracking row
+  // exists (DELETE WHERE matches zero rows).
+  await seqQueries.clearStepExecutionTwinRunId(
+    orgId,
+    enrollmentId,
+    enrollment.current_step_position
   );
 
   // Check for next step
@@ -312,26 +422,37 @@ export async function GET(request: Request) {
   }
 
   const results: Row[] = [];
+  const skippedIds: string[] = [];
+  const orgEntries = Object.entries(orgEnrollments);
+  let stoppedAtOrgIndex = orgEntries.length;
 
-  for (const [orgId, orgEnrollmentList] of Object.entries(orgEnrollments)) {
+  for (let orgIdx = 0; orgIdx < orgEntries.length; orgIdx++) {
+    const [orgId, orgEnrollmentList] = orgEntries[orgIdx];
     // 780s guard: stop processing if approaching timeout
     if (Date.now() - startTime > GUARD_TIMEOUT_MS) {
       console.warn(
         `Approaching timeout after ${Date.now() - startTime}ms, stopping processing`
       );
+      stoppedAtOrgIndex = orgIdx;
       break;
     }
 
     const first = orgEnrollmentList[0];
-    const agentId = first.agentplane_agent_id || null;
+    const agentId = first.twin_agent_id || null;
+    // Per-org Twin API key overrides the env-var fallback. Pass undefined and
+    // let lib/twin's twinFetch read env.TWIN_API_KEY when this is null/empty.
+    const apiKey =
+      (typeof first.twin_api_key === "string" && first.twin_api_key.length > 0)
+        ? (first.twin_api_key as string)
+        : undefined;
 
     if (agentId) {
       console.log(
-        `AgentPlane configured for org ${orgId} (agent=${agentId})`
+        `Twin agent configured for org ${orgId} (agent=${agentId})`
       );
     } else {
       console.warn(
-        `AgentPlane NOT configured for org ${orgId} - AI personalization disabled`
+        `Twin agent NOT configured for org ${orgId} - AI personalization disabled`
       );
     }
 
@@ -353,7 +474,7 @@ export async function GET(request: Request) {
       active++;
 
       try {
-        return await processEnrollment(enrollment, agentId);
+        return await processEnrollment(enrollment, agentId, apiKey);
       } catch (err) {
         console.error(
           `Error processing enrollment ${enrollment.id}:`,
@@ -373,12 +494,44 @@ export async function GET(request: Request) {
     for (const settled of orgResults) {
       if (settled.status === "fulfilled") {
         results.push(settled.value);
+        if (
+          settled.value.action === "skipped" &&
+          settled.value.reason === "timeout_guard" &&
+          settled.value.enrollment_id
+        ) {
+          skippedIds.push(String(settled.value.enrollment_id));
+        }
       } else {
         results.push({
           action: "error",
           error: String(settled.reason),
         });
       }
+    }
+  }
+
+  // Capture any orgs we never reached because of the outer-loop guard break.
+  for (let orgIdx = stoppedAtOrgIndex; orgIdx < orgEntries.length; orgIdx++) {
+    const [, orgEnrollmentList] = orgEntries[orgIdx];
+    for (const e of orgEnrollmentList) {
+      const id = String(e.id);
+      skippedIds.push(id);
+      results.push({
+        enrollment_id: id,
+        action: "skipped",
+        reason: "timeout_guard",
+      });
+    }
+  }
+
+  if (skippedIds.length > 0) {
+    try {
+      await resetSkippedEnrollments(skippedIds);
+    } catch (err) {
+      console.error(
+        `Failed to reset next_evaluation_at for ${skippedIds.length} skipped enrollment(s):`,
+        err
+      );
     }
   }
 

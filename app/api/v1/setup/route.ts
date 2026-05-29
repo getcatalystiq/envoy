@@ -1,22 +1,32 @@
 import { requireAdmin, isErrorResponse } from "@/lib/admin-auth";
 import { sql } from "@/lib/db";
-import { jsonResponse } from "@/lib/utils";
 
 export async function GET(request: Request) {
   const auth = await requireAdmin(request);
   if (isErrorResponse(auth)) return auth;
 
   const rows = await sql`
-    SELECT agentplane_tenant_id, agentplane_agent_id
+    SELECT twin_agent_id
     FROM organizations
     WHERE id = ${auth.tenantId}::uuid
   `;
 
   const org = rows[0];
+  const configured = Boolean(org && org.twin_agent_id);
 
-  return jsonResponse({
-    agentplane_configured: Boolean(
-      org && org.agentplane_tenant_id && org.agentplane_agent_id
-    ),
-  });
+  return new Response(
+    JSON.stringify({
+      twin_configured: configured,
+      // Deprecated alias — kept for one release for OAuth clients still on the
+      // pre-rename surface. Will be removed in v2.
+      agentplane_configured: configured,
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Deprecation": "agentplane_configured will be removed in v2",
+      },
+    }
+  );
 }

@@ -60,7 +60,7 @@ export async function getDueEnrollments(
               t.company as target_company, t.custom_fields as target_custom_fields,
               t.phone_normalized as target_phone, t.metadata as target_metadata,
               t.status as target_status,
-              o.agentplane_tenant_id, o.agentplane_agent_id
+              o.twin_agent_id, o.twin_api_key
        FROM sequence_enrollments e
        JOIN sequences s ON s.id = e.sequence_id
        JOIN targets t ON t.id = e.target_id
@@ -157,7 +157,7 @@ export async function claimScheduledCampaigns(
       JOIN organizations o ON o.id = c.organization_id
       WHERE c.status = 'scheduled'
         AND c.scheduled_at <= NOW()
-        AND o.agentplane_agent_id IS NOT NULL
+        AND o.twin_agent_id IS NOT NULL
         AND (c.processing_started_at IS NULL
              OR c.processing_started_at < NOW() - INTERVAL '15 minutes')
       ORDER BY c.scheduled_at ASC
@@ -171,7 +171,7 @@ export async function claimScheduledCampaigns(
       WHERE id IN (SELECT id FROM claimable)
       RETURNING *
     )
-    SELECT cl.*, o.agentplane_tenant_id, o.agentplane_agent_id
+    SELECT cl.*, o.twin_agent_id, o.twin_api_key
     FROM claimed cl
     JOIN organizations o ON o.id = cl.organization_id
   `;
@@ -267,6 +267,22 @@ export async function incrementSoftBounce(email: string): Promise<number> {
     RETURNING soft_bounce_count
   `;
   return rows[0]?.soft_bounce_count ?? 0;
+}
+
+/**
+ * Reset next_evaluation_at on enrollments that were skipped by the
+ * guard-timeout in the scheduler. Without this, they'd remain locked
+ * until the +10 min lease (from getDueEnrollments) expires.
+ */
+export async function resetSkippedEnrollments(
+  enrollmentIds: string[],
+): Promise<void> {
+  if (enrollmentIds.length === 0) return;
+  await sql`
+    UPDATE sequence_enrollments
+    SET next_evaluation_at = NOW() + INTERVAL '1 minute'
+    WHERE id = ANY(${enrollmentIds}::uuid[])
+  `;
 }
 
 /**
