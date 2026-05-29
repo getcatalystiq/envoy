@@ -117,6 +117,32 @@ describe("withTwinAgent — gating behaviour (via /instructions route)", () => {
     expect(res.status).toBe(503);
   });
 
+  it("remaps a Twin 401 to 502 so a bad TWIN_API_KEY never triggers a logout loop", async () => {
+    (twin.getInstructions as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new TwinError("Unauthorized", 401, "invalid api key"),
+    );
+    const res = await instructionsRoute.GET(
+      authedRequest("http://x/api/v1/twin/instructions"),
+    );
+    // Must NOT be 401 — the admin UI treats any 401 as an expired session.
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error).toBe("Twin authentication failed");
+    expect(body.detail).toBe("invalid api key");
+  });
+
+  it("still passes a Twin 403 (plan gate) through unchanged", async () => {
+    (twin.getInstructions as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new TwinError("Forbidden", 403, "REST API requires a paid plan"),
+    );
+    const res = await instructionsRoute.GET(
+      authedRequest("http://x/api/v1/twin/instructions"),
+    );
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.detail).toBe("REST API requires a paid plan");
+  });
+
   it("resolves and forwards the per-org apiKey to the Twin client", async () => {
     resolveApiKeyMock.mockResolvedValueOnce("org-specific-key");
     (twin.getInstructions as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
