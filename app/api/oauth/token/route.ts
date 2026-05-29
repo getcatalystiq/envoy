@@ -15,8 +15,19 @@ import {
   verifyRefreshToken,
   revokeRefreshToken,
 } from "@/lib/queries/oauth";
+import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
+  // Throttle per IP to blunt brute force against codes / refresh tokens.
+  const ipLimit = await checkRateLimit(`oauth_token_ip:${clientIp(request)}`, 60, 60);
+  if (!ipLimit.allowed) {
+    return oauthError(
+      "invalid_request",
+      "Too many requests. Please retry shortly.",
+      429,
+    );
+  }
+
   const formData = await request.formData();
   const grantType = formData.get("grant_type") as string;
   const body: Record<string, string> = {};
@@ -166,17 +177,33 @@ async function handleRefreshTokenGrant(
 
   await revokeRefreshToken(refreshToken);
 
+  // Re-derive scopes as the intersection of what this token was granted and the
+  // user's CURRENT scopes, so a privilege downgrade takes effect on refresh
+  // rather than the token retaining its original (possibly elevated) scopes.
+  // verifyRefreshToken already rejected deactivated users.
+  const currentScopes = tokenData.user_scopes as string[];
+  const effectiveScopes = tokenData.scopes.filter((s: string) =>
+    currentScopes.includes(s)
+  );
+  if (effectiveScopes.length === 0) {
+    return oauthError(
+      "invalid_grant",
+      "User no longer holds any of the token's scopes"
+    );
+  }
+  const scopeString = effectiveScopes.join(" ");
+
   const accessToken = await signAccessToken({
     userId: tokenData.user_id,
     tenantId: tokenData.org_id,
-    scope: tokenData.scopes.join(" "),
+    scope: scopeString,
     clientId,
   });
 
   const { token: newRefreshToken } = await createRefreshToken(
     clientId,
     tokenData.user_id,
-    tokenData.scopes.join(" "),
+    scopeString,
     REFRESH_TOKEN_EXPIRE_DAYS
   );
 
@@ -186,7 +213,7 @@ async function handleRefreshTokenGrant(
       token_type: "Bearer",
       expires_in: ACCESS_TOKEN_EXPIRE_SECONDS,
       refresh_token: newRefreshToken,
-      scope: tokenData.scopes.join(" "),
+      scope: scopeString,
     }),
     {
       headers: {

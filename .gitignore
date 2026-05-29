@@ -36,3 +36,5 @@ secrets/
 
 # Claude Code
 .claude/
+# ...but DO commit the project security policy the security-guidance plugin reads
+!.claude/claude-security-guidance.md

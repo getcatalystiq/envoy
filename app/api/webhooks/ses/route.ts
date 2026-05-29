@@ -135,15 +135,27 @@ async function processSesEvent(event: Record<string, unknown>) {
           bounced_at: timestamp,
           bounce_type: "soft",
         });
-        // Track soft bounces
-        const result = await sql`
-          UPDATE email_sends
-          SET soft_bounce_count = soft_bounce_count + 1
-          WHERE email = ${email} AND status NOT IN ('bounced', 'failed')
-          RETURNING soft_bounce_count
+        // Track soft bounces — SCOPED to the org that owns this message. Matching
+        // on email alone would let one tenant's soft bounces increment (and
+        // eventually hard-bounce) another tenant's sends to the same address.
+        const ownerRows = await sql`
+          SELECT organization_id FROM email_sends
+          WHERE ses_message_id = ${sesMessageId}
+          LIMIT 1
         `;
-        if (result.length > 0 && Number(result[0].soft_bounce_count) >= 3) {
-          await updateTargetStatus(sesMessageId, email, "bounced");
+        const ownerOrgId = ownerRows[0]?.organization_id;
+        if (ownerOrgId) {
+          const result = await sql`
+            UPDATE email_sends
+            SET soft_bounce_count = soft_bounce_count + 1
+            WHERE email = ${email}
+              AND organization_id = ${ownerOrgId}
+              AND status NOT IN ('bounced', 'failed')
+            RETURNING soft_bounce_count
+          `;
+          if (result.length > 0 && Number(result[0].soft_bounce_count) >= 3) {
+            await updateTargetStatus(sesMessageId, email, "bounced");
+          }
         }
       }
     }

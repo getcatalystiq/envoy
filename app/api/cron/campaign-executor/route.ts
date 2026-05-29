@@ -1,6 +1,7 @@
 import { verifyCronSecret } from "@/lib/cron-utils";
 import { sql } from "@/lib/db";
 import { generateContent } from "@/lib/twin";
+import { sanitizeEmailHtml } from "@/lib/html-sanitize";
 import { claimScheduledCampaigns } from "@/lib/queries/system";
 import { jsonResponse } from "@/lib/utils";
 
@@ -114,7 +115,8 @@ async function executeCampaign(
           target_id: String(target.id),
           email: target.email as string,
           subject: (content.subject as string) || "",
-          body: (content.body as string) || "",
+          // AI output is untrusted — sanitize before it is stored/sent.
+          body: sanitizeEmailHtml((content.body as string) || ""),
         };
       } catch (err) {
         failedCount++;

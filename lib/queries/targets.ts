@@ -156,18 +156,6 @@ export async function update(
   return rows[0] ?? null;
 }
 
-export async function updateStatus(
-  email: string,
-  status: string
-): Promise<number> {
-  const rows = await sql`
-    UPDATE targets
-    SET status = ${status}, updated_at = NOW()
-    WHERE email = ${email} AND status = 'active'
-  `;
-  return rows.length;
-}
-
 export async function deleteTarget(
   orgId: string,
   targetId: string

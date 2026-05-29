@@ -141,7 +141,11 @@ export async function getTimeSeries(
   const hoursDiff =
     (new Date(endDate).getTime() - new Date(startDate).getTime()) /
     (1000 * 3600);
-  const granularity = hoursDiff <= 48 ? "hour" : "day";
+  // Map to a fixed literal so only a known-safe token is ever interpolated into
+  // SQL — even if a future change lets a caller influence the granularity, the
+  // lookup can only ever yield 'hour' or 'day' (no SQL injection surface).
+  const TRUNC_UNITS: Record<string, "hour" | "day"> = { hour: "hour", day: "day" };
+  const granularity = TRUNC_UNITS[hoursDiff <= 48 ? "hour" : "day"];
 
   // Use raw query since we need dynamic granularity
   const query = `

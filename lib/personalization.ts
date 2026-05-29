@@ -3,7 +3,7 @@
  */
 
 import { runAgentJson } from "@/lib/twin";
-import { sanitizeTargetForTwin } from "@/lib/twin-sanitize";
+import { formatTargetForPrompt } from "@/lib/twin-sanitize";
 
 
 type AnyData = Record<string, any>;
@@ -69,7 +69,7 @@ async function personalizeBlock(
     const message = buildPersonalizationPrompt({
       originalContent,
       additionalInstructions: prompt,
-      target: sanitizeTargetForTwin(targetData),
+      target: targetData,
       blockType,
     });
     const aiResult = await runAgentJson(agentId, message, { timeoutMs, apiKey });
@@ -116,7 +116,7 @@ function buildPersonalizationPrompt(args: {
     args.additionalInstructions
       ? `Additional instructions:\n${args.additionalInstructions}`
       : "",
-    `Target:\n${JSON.stringify(args.target, null, 2)}`,
+    formatTargetForPrompt(args.target),
     "",
     `Respond with JSON containing a "body" field with the personalized content. Keep the same format and tone as the original.`,
   ]

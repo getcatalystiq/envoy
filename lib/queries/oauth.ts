@@ -278,12 +278,14 @@ export async function verifyRefreshToken(
   const tokenHash = sha256(token);
 
   const rows = await sql`
-    SELECT rt.user_id, rt.client_id, rt.scope, u.organization_id as org_id, u.role
+    SELECT rt.user_id, rt.client_id, rt.scope, u.organization_id as org_id,
+           u.role, u.scopes as user_scopes
     FROM oauth_refresh_tokens rt
     JOIN users u ON rt.user_id = u.id
     WHERE rt.token_hash = ${tokenHash}
       AND rt.expires_at > NOW()
       AND rt.revoked_at IS NULL
+      AND u.status = 'active'
   `;
 
   if (rows.length === 0) return null;
@@ -292,7 +294,11 @@ export async function verifyRefreshToken(
   return {
     user_id: String(row.user_id),
     org_id: String(row.org_id),
-    scopes: (row.scope || "").split(" "),
+    // scopes originally granted to this token
+    scopes: (row.scope || "").split(" ").filter(Boolean),
+    // the user's CURRENT scopes — caller intersects so a downgrade takes effect
+    // on the next refresh instead of the token keeping its old privileges
+    user_scopes: Array.isArray(row.user_scopes) ? row.user_scopes : [],
     client_id: row.client_id,
     role: row.role,
   };
@@ -323,12 +329,15 @@ export async function revokeAllUserTokens(userId: string): Promise<number> {
 // =========================================================================
 
 export async function getUserById(userId: string): Promise<Row | null> {
+  // Only active users — this gates the authorization_code token grant and the
+  // userinfo endpoint so a user deactivated within the auth-code window (or
+  // holding a still-valid token) cannot mint new tokens or read their profile.
   const rows = await sql`
     SELECT u.id, u.organization_id, u.email, u.first_name, u.last_name,
            u.role, u.scopes, u.status, u.created_at, o.name as org_name
     FROM users u
     JOIN organizations o ON u.organization_id = o.id
-    WHERE u.id = ${userId}::uuid
+    WHERE u.id = ${userId}::uuid AND u.status = 'active'
   `;
 
   if (rows.length === 0) return null;

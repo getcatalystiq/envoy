@@ -34,7 +34,15 @@ export async function DELETE(
   if (isErrorResponse(auth)) return auth;
 
   const { id, contentId } = await params;
-  const removed = await campaigns.removeContent(id, contentId);
+
+  // Verify the campaign belongs to the caller's org before mutating its content
+  // links (mirrors the POST handler).
+  const campaign = await campaigns.getById(auth.tenantId, id);
+  if (!campaign) {
+    return jsonResponse({ error: "Campaign not found" }, 404);
+  }
+
+  const removed = await campaigns.removeContent(auth.tenantId, id, contentId);
   if (!removed) {
     return jsonResponse({ error: "Content not found in campaign" }, 404);
   }

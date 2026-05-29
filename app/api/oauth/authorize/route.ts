@@ -12,8 +12,32 @@ import {
   createAuthorizationCode,
 } from "@/lib/queries/oauth";
 import { renderLoginForm } from "@/lib/oauth-html";
+import { checkRateLimit, clientIp } from "@/lib/rate-limit";
+
+function tooManyAttempts(retryAfter: number): Response {
+  return new Response(
+    "<!DOCTYPE html><html><body style=\"font-family:sans-serif;text-align:center;padding:60px\"><h1>Too many attempts</h1><p>Please wait a minute and try again.</p></body></html>",
+    {
+      status: 429,
+      headers: {
+        "Content-Type": "text/html",
+        "Retry-After": String(retryAfter),
+      },
+    },
+  );
+}
 
 export async function GET(request: Request) {
+  // The GET handler auto-registers OAuth clients (INSERT) for unknown/missing
+  // client_id, so throttle per IP to prevent unauthenticated client-table
+  // flooding (the same DoS the /register POST limit guards against).
+  const ipLimit = await checkRateLimit(
+    `oauth_authorize_get_ip:${clientIp(request)}`,
+    30,
+    60,
+  );
+  if (!ipLimit.allowed) return tooManyAttempts(ipLimit.retryAfterSeconds);
+
   const url = new URL(request.url);
   const clientId = url.searchParams.get("client_id");
   const redirectUri = url.searchParams.get("redirect_uri");
@@ -40,6 +64,17 @@ export async function GET(request: Request) {
       JSON.stringify({
         error: "unsupported_response_type",
         error_description: "Only 'code' response type is supported",
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  // OAuth 2.1 mandates PKCE with S256; do not accept plain or unknown methods.
+  if (codeChallengeMethod !== "S256") {
+    return new Response(
+      JSON.stringify({
+        error: "invalid_request",
+        error_description: "Only S256 code_challenge_method is supported",
       }),
       { status: 400, headers: { "Content-Type": "application/json" } }
     );
@@ -111,6 +146,14 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  // Throttle credential submission per IP to blunt password spraying.
+  const ipLimit = await checkRateLimit(
+    `oauth_authorize_ip:${clientIp(request)}`,
+    10,
+    60,
+  );
+  if (!ipLimit.allowed) return tooManyAttempts(ipLimit.retryAfterSeconds);
+
   const formData = await request.formData();
   const csrfToken = formData.get("csrf_token") as string;
   const clientId = formData.get("client_id") as string;
@@ -138,6 +181,44 @@ export async function POST(request: Request) {
       headers: { "Content-Type": "text/html" },
     });
   }
+
+  // Re-validate redirect_uri server-side before issuing a code — never trust the
+  // round-tripped hidden form field. Without this, a tampered POST body could
+  // 302 the authorization code to an attacker-controlled origin (code theft /
+  // open redirect). We return a 400 (not a redirect) so a bad URI never becomes
+  // a redirect target.
+  const postClient = await getClient(clientId);
+  const redirectAllowed = postClient
+    ? await validateRedirectUri(clientId, redirectUri)
+    : isAllowedRedirectUri(redirectUri);
+  if (!redirectAllowed) {
+    return new Response(
+      JSON.stringify({
+        error: "invalid_request",
+        error_description: "Invalid redirect_uri for this client",
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  // Enforce PKCE S256 at code issuance too.
+  if (codeChallengeMethod !== "S256" || !codeChallenge) {
+    return new Response(
+      JSON.stringify({
+        error: "invalid_request",
+        error_description: "code_challenge with S256 method is required",
+      }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  // Throttle per account to slow targeted password guessing.
+  const emailLimit = await checkRateLimit(
+    `oauth_authorize_email:${(email || "").toLowerCase()}`,
+    5,
+    300,
+  );
+  if (!emailLimit.allowed) return tooManyAttempts(emailLimit.retryAfterSeconds);
 
   const user = await authenticateUser(email, password);
   if (!user) {

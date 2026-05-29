@@ -25,7 +25,6 @@ import {
   getByEmail,
   getByPhone,
   create,
-  updateStatus,
   deleteTarget,
   count,
 } from "@/lib/queries/targets";
@@ -112,20 +111,6 @@ describe("lib/queries/targets", () => {
       expect((strings as TemplateStringsArray).join("")).toContain("INSERT INTO targets");
       expect(values[0]).toBe("org-1");
       expect(result.email).toBe("a@b.com");
-    });
-  });
-
-  describe("updateStatus", () => {
-    it("UPDATEs status by email globally (cross-tenant intentional for bounce/complaint flow)", async () => {
-      sqlMock.mockResolvedValueOnce([{ id: "t1" }]);
-      const n = await updateStatus("x@y.com", "bounced");
-      const [strings, ...values] = sqlMock.mock.calls[0];
-      const text = (strings as TemplateStringsArray).join("");
-      expect(text).toContain("UPDATE targets");
-      expect(text).toContain("email =");
-      expect(values).toContain("bounced");
-      expect(values).toContain("x@y.com");
-      expect(n).toBe(1);
     });
   });
 

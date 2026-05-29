@@ -1,7 +1,8 @@
 import { verifyWebhookSecret } from "@/lib/webhook-auth";
-import { jsonResponse } from "@/lib/utils";
+import { jsonResponse, readJsonBody } from "@/lib/utils";
 import { sql } from "@/lib/db";
 import { autoEnrollInDefaultSequences } from "@/lib/queries/sequences";
+import { targetWebhookBulkSchema } from "@/lib/schemas";
 
 interface TargetPayload {
   email?: string;
@@ -138,15 +139,18 @@ export async function POST(request: Request) {
   const authError = await verifyWebhookSecret(orgId, webhookSecret);
   if (authError) return authError;
 
-  const body = await request.json();
-  const targets: TargetPayload[] = body.targets;
+  // ~100 targets * 16KB blobs + fields, with headroom.
+  const parsedBody = await readJsonBody(request, 2_000_000);
+  if ("error" in parsedBody) return parsedBody.error;
 
-  if (!Array.isArray(targets) || targets.length === 0) {
-    return jsonResponse({ error: "targets array is required" }, 400);
+  const validated = targetWebhookBulkSchema.safeParse(parsedBody.data);
+  if (!validated.success) {
+    return jsonResponse(
+      { error: "Invalid payload", details: validated.error.issues },
+      400,
+    );
   }
-  if (targets.length > 100) {
-    return jsonResponse({ error: "Maximum 100 targets per bulk request" }, 400);
-  }
+  const targets: TargetPayload[] = validated.data.targets;
 
   let created = 0;
   let updated = 0;

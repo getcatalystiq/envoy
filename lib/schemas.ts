@@ -16,6 +16,36 @@ export const targetCreateSchema = z.object({
 });
 export type TargetCreate = z.infer<typeof targetCreateSchema>;
 
+// ---------------------------------------------------------------------------
+// Webhook ingestion schemas (untrusted external input — bound every field)
+// ---------------------------------------------------------------------------
+
+// Cap arbitrary JSON blobs so a webhook can't store multi-MB payloads (DoS)
+// or oversized prompt input for the AI.
+const boundedJsonObject = z
+  .record(z.string(), z.unknown())
+  .refine((o) => JSON.stringify(o).length <= 16_000, {
+    message: "object exceeds 16KB limit",
+  });
+
+export const targetWebhookSchema = z.object({
+  email: z.string().email().max(320).optional(),
+  phone: z.string().max(40).optional(),
+  target_type: z.string().max(200).optional(),
+  segment: z.string().max(200).optional(),
+  first_name: z.string().max(200).optional(),
+  last_name: z.string().max(200).optional(),
+  company: z.string().max(200).optional(),
+  lifecycle_stage: z.number().int().min(0).max(6).optional(),
+  custom_fields: boundedJsonObject.optional(),
+  metadata: boundedJsonObject.optional(),
+});
+export type TargetWebhook = z.infer<typeof targetWebhookSchema>;
+
+export const targetWebhookBulkSchema = z.object({
+  targets: z.array(targetWebhookSchema).min(1).max(100),
+});
+
 export const targetUpdateSchema = z.object({
   email: z.string().email().nullable().optional(),
   first_name: z.string().max(100).nullable().optional(),

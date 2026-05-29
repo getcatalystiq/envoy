@@ -7,8 +7,9 @@
  */
 
 import { marked } from "marked";
+import { sanitizeEmailHtml } from "@/lib/html-sanitize";
 
- 
+
 type AnyData = Record<string, any>;
 type BlockMap = Record<string, AnyData>;
 
@@ -80,23 +81,10 @@ function sanitizeUrl(url: string | null | undefined): string {
   return escapeHtml(url);
 }
 
-function sanitizeHtml(content: string): string {
-  if (!content) return "";
-  // Remove script and style tags
-  content = content.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "");
-  content = content.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "");
-  // Remove event handlers
-  content = content.replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, "");
-  content = content.replace(/\s+on\w+\s*=\s*\S+/gi, "");
-  // Remove javascript: URLs
-  content = content.replace(/href\s*=\s*["']javascript:[^"']*["']/gi, 'href=""');
-  return content;
-}
-
 function renderMarkdown(text: string): string {
   if (!text) return "";
   const rendered = marked.parse(text, { async: false }) as string;
-  return sanitizeHtml(rendered);
+  return sanitizeEmailHtml(rendered);
 }
 
 function renderChildren(
@@ -405,7 +393,7 @@ function renderHtmlBlock(
 ): string {
   const styleData = data.style ?? {};
   const props = data.props ?? {};
-  const contents = sanitizeHtml(props.contents || "");
+  const contents = sanitizeEmailHtml(props.contents || "");
 
   const styles = {
     color: styleData.color || context.textColor,

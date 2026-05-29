@@ -154,12 +154,22 @@ export async function addContent(
 }
 
 export async function removeContent(
+  orgId: string,
   campaignId: string,
   contentId: string
 ): Promise<boolean> {
+  // Scope the delete to the caller's org by joining to campaigns. campaign_content
+  // has no organization_id of its own, so deleting by (campaign_id, content_id)
+  // alone is a cross-tenant IDOR. RETURNING also fixes the row-count check — a
+  // bare DELETE returns no rows.
   const rows = await sql`
-    DELETE FROM campaign_content
-    WHERE campaign_id = ${campaignId}::uuid AND content_id = ${contentId}::uuid
+    DELETE FROM campaign_content cc
+    USING campaigns c
+    WHERE cc.campaign_id = c.id
+      AND c.id = ${campaignId}::uuid
+      AND cc.content_id = ${contentId}::uuid
+      AND c.organization_id = ${orgId}
+    RETURNING cc.content_id
   `;
   return rows.length === 1;
 }

@@ -1,5 +1,5 @@
 import { getEnv } from "@/lib/env";
-import { sanitizeTargetForTwin } from "@/lib/twin-sanitize";
+import { formatTargetForPrompt } from "@/lib/twin-sanitize";
 
 export class TwinError extends Error {
   readonly status: number;
@@ -647,11 +647,11 @@ export async function generateContent(
   contentType: string,
   opts: TwinCallOpts = {},
 ): Promise<Record<string, unknown>> {
-  // Allowlist gate: never ship the raw target row to Twin (see twin-sanitize).
-  const safeTarget = sanitizeTargetForTwin(target);
+  // Allowlist gate + prompt-injection delimiters: never ship the raw target row
+  // to Twin, and frame it as untrusted data (see twin-sanitize).
   const message =
     `Generate ${contentType} email content for this target.\n\n` +
-    `Target:\n${JSON.stringify(safeTarget, null, 2)}\n\n` +
+    `${formatTargetForPrompt(target)}\n\n` +
     `Respond with JSON containing "subject" and "body" fields. ` +
     `Optionally include a "confidence_score" between 0 and 1.`;
   return runAgentJson(agentId, message, { apiKey: opts.apiKey });

@@ -4,7 +4,7 @@ import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/proto
 import { sql, withTransaction } from "@/lib/db";
 import * as twin from "@/lib/twin";
 import { TwinError } from "@/lib/twin";
-import { sanitizeTargetForTwin } from "@/lib/twin-sanitize";
+import { formatTargetForPrompt } from "@/lib/twin-sanitize";
 import { getTwinAgentId, resolveTwinApiKey } from "@/lib/queries/organization";
 
  
@@ -31,14 +31,32 @@ const LIFECYCLE_STAGES: Record<number, string> = {
   6: "Advocate",
 };
 
-function getAuth(extra: Extra) {
-  const authExtra = (
-    extra.authInfo as Record<string, unknown> | undefined
-  )?.extra as { userId: string; tenantId: string } | undefined;
+function getAuth(extra: Extra, requiredScope?: "write" | "admin") {
+  const authInfo = extra.authInfo as Record<string, unknown> | undefined;
+  const authExtra = authInfo?.extra as
+    | { userId: string; tenantId: string }
+    | undefined;
   const userId = authExtra?.userId;
   const tenantId = authExtra?.tenantId;
   if (!userId || !tenantId) {
     throw new Error("Authentication required");
+  }
+  // Authentication is not authorization: mutating tools must enforce OAuth
+  // scope so a read-only token can't create leads, start campaigns, approve
+  // sends, or spend AI budget. `admin` implies `write`.
+  if (requiredScope) {
+    const scopes = Array.isArray(authInfo?.scopes)
+      ? (authInfo.scopes as string[])
+      : [];
+    const ok =
+      requiredScope === "admin"
+        ? scopes.includes("admin")
+        : scopes.includes("write") || scopes.includes("admin");
+    if (!ok) {
+      throw new Error(
+        `Insufficient scope: this action requires '${requiredScope}' scope`,
+      );
+    }
   }
   return { userId, tenantId };
 }
@@ -141,7 +159,7 @@ export function registerTools(server: McpServer) {
       lifecycle_stage: z.number().int().min(0).max(6).default(0),
     },
     async (args, extra) => {
-      const { tenantId } = getAuth(extra);
+      const { tenantId } = getAuth(extra, "write");
 
       const existing = await sql`
         SELECT id FROM targets WHERE organization_id = ${tenantId} AND email = ${args.email}
@@ -239,7 +257,7 @@ export function registerTools(server: McpServer) {
         .describe("Type of email content to generate"),
     },
     async (args, extra) => {
-      const { tenantId } = getAuth(extra);
+      const { tenantId } = getAuth(extra, "write");
 
       const targets = await sql`
         SELECT * FROM targets WHERE id = ${args.target_id} AND organization_id = ${tenantId}
@@ -371,7 +389,7 @@ export function registerTools(server: McpServer) {
       campaign_id: z.string().uuid().describe("Campaign ID to start"),
     },
     async (args, extra) => {
-      const { tenantId } = getAuth(extra);
+      const { tenantId } = getAuth(extra, "write");
 
       const campaigns = await sql`
         SELECT id, name, status FROM campaigns WHERE id = ${args.campaign_id} AND organization_id = ${tenantId}
@@ -646,7 +664,7 @@ export function registerTools(server: McpServer) {
       outbox_id: z.string().uuid().describe("Outbox item ID to approve"),
     },
     async (args, extra) => {
-      const { tenantId } = getAuth(extra);
+      const { tenantId } = getAuth(extra, "write");
 
       return withTransaction(async (client) => {
         const { rows } = await client.query(
@@ -698,7 +716,7 @@ export function registerTools(server: McpServer) {
       reason: z.string().optional().describe("Rejection reason"),
     },
     async (args, extra) => {
-      const { tenantId } = getAuth(extra);
+      const { tenantId } = getAuth(extra, "write");
 
       return withTransaction(async (client) => {
         const { rows } = await client.query(
@@ -890,7 +908,7 @@ export function registerTools(server: McpServer) {
         .describe("Personalization instructions for AI"),
     },
     async (args, extra) => {
-      const { tenantId } = getAuth(extra);
+      const { tenantId } = getAuth(extra, "write");
 
       const rows = await sql`
         SELECT ss.* FROM sequence_steps ss
@@ -958,7 +976,7 @@ export function registerTools(server: McpServer) {
         .describe("Target/lead ID to personalize for"),
     },
     async (args, extra) => {
-      const { tenantId } = getAuth(extra);
+      const { tenantId } = getAuth(extra, "write");
 
       const [stepRows, targetRows] = await Promise.all([
         sql`
@@ -1005,7 +1023,7 @@ export function registerTools(server: McpServer) {
 
       const message =
         `Preview personalization for this email block.\n\n` +
-        `Target:\n${JSON.stringify(sanitizeTargetForTwin(target), null, 2)}\n\n` +
+        `${formatTargetForPrompt(target)}\n\n` +
         `Block content:\n${JSON.stringify(block, null, 2)}\n\n` +
         `Additional instructions:\n${personalization.prompt ?? ""}\n\n` +
         `Respond with JSON containing a "body" field with the personalized preview.`;

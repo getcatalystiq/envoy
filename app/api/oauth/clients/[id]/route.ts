@@ -1,4 +1,4 @@
-import { requireAdmin, isErrorResponse } from "@/lib/admin-auth";
+import { requireScope, isErrorResponse } from "@/lib/admin-auth";
 import { sql } from "@/lib/db";
 import { jsonResponse } from "@/lib/utils";
 
@@ -6,7 +6,8 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireAdmin(request);
+  // OAuth client deletion is administrative — require admin scope, not merely write.
+  const auth = await requireScope(request, "admin");
   if (isErrorResponse(auth)) return auth;
 
   const { id } = await params;

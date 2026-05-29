@@ -1,7 +1,8 @@
 import { verifyWebhookSecret } from "@/lib/webhook-auth";
-import { jsonResponse } from "@/lib/utils";
+import { jsonResponse, readJsonBody } from "@/lib/utils";
 import { sql } from "@/lib/db";
 import { autoEnrollInDefaultSequences } from "@/lib/queries/sequences";
+import { targetWebhookSchema } from "@/lib/schemas";
 
 interface TargetPayload {
   email?: string;
@@ -153,7 +154,17 @@ export async function POST(request: Request) {
   const authError = await verifyWebhookSecret(orgId, webhookSecret);
   if (authError) return authError;
 
-  const payload: TargetPayload = await request.json();
+  const parsedBody = await readJsonBody(request, 64_000);
+  if ("error" in parsedBody) return parsedBody.error;
+
+  const validated = targetWebhookSchema.safeParse(parsedBody.data);
+  if (!validated.success) {
+    return jsonResponse(
+      { error: "Invalid payload", details: validated.error.issues },
+      400,
+    );
+  }
+  const payload: TargetPayload = validated.data;
 
   if (!payload.email && !payload.phone) {
     return jsonResponse(

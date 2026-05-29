@@ -19,9 +19,23 @@ export function proxy(request: NextRequest) {
   // Security headers
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set("X-DNS-Prefetch-Control", "off");
 
-  // Allow OAuth authorize page to be framed (for ChatGPT/Claude.ai OAuth popup)
-  if (!pathname.startsWith("/api/oauth/authorize")) {
+  // HSTS only in production (the header is ignored over http anyway, but we
+  // avoid asserting includeSubDomains/preload from preview/staging domains).
+  if (process.env.ENVIRONMENT === "prod") {
+    response.headers.set(
+      "Strict-Transport-Security",
+      "max-age=63072000; includeSubDomains; preload",
+    );
+  }
+
+  // Deny framing everywhere EXCEPT pages designed to be embedded: the OAuth
+  // authorize page (ChatGPT/Claude.ai OAuth popup) and the /embed views.
+  if (
+    !pathname.startsWith("/api/oauth/authorize") &&
+    !pathname.startsWith("/embed")
+  ) {
     response.headers.set("X-Frame-Options", "DENY");
   }
 

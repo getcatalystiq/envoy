@@ -28,7 +28,9 @@ async function sendOneEmail(
   }
 
   const baseUrl = getEnv().NEXT_PUBLIC_URL;
-  const unsubscribeUrl = `${baseUrl}/api/unsubscribe/${send.target_id}`;
+  // Route lives at /unsubscribe/[targetId] (no /api prefix) — matches
+  // template-engine's unsubscribe_link. The previous /api/unsubscribe path 404'd.
+  const unsubscribeUrl = `${baseUrl}/unsubscribe/${send.target_id}`;
 
   const bodyHtml = wrapEmailBody((send.body as string) || "");
 
