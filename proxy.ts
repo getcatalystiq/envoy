@@ -32,12 +32,28 @@ export function proxy(request: NextRequest) {
 
   // Deny framing everywhere EXCEPT pages designed to be embedded: the OAuth
   // authorize page (ChatGPT/Claude.ai OAuth popup) and the /embed views.
-  if (
-    !pathname.startsWith("/api/oauth/authorize") &&
-    !pathname.startsWith("/embed")
-  ) {
+  const framable =
+    pathname.startsWith("/api/oauth/authorize") ||
+    pathname.startsWith("/embed");
+  if (!framable) {
     response.headers.set("X-Frame-Options", "DENY");
   }
+
+  // Content-Security-Policy — conservative directives that harden without
+  // risking breakage: no script-src/style-src restriction (the app's bundled
+  // scripts/styles keep working), but block plugins, <base> hijacking, and
+  // cross-origin form posts, and use frame-ancestors as the modern clickjacking
+  // control. (A strict nonce-based script-src — the full XSS mitigation — is a
+  // staged follow-up; it needs preview testing of Next's chunk loading.)
+  const csp = [
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    framable ? "" : "frame-ancestors 'none'",
+  ]
+    .filter(Boolean)
+    .join("; ");
+  response.headers.set("Content-Security-Policy", csp);
 
   // CORS only for routes that require cross-origin access
   if (

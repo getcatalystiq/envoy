@@ -9,6 +9,7 @@ import {
   type SendEmailCommandInput,
 } from "@aws-sdk/client-sesv2";
 import { getEnv } from "@/lib/env";
+import { wrapEmailBody } from "@/lib/email";
 
 let client: SESv2Client | null = null;
 
@@ -109,7 +110,8 @@ export async function sendBulkEmails(
     const result = await sendEmail({
       toEmail: email.toEmail,
       subject: email.subject,
-      bodyHtml: email.bodyHtml,
+      // Sanitize like every other send path (wrapEmailBody is the gate).
+      bodyHtml: wrapEmailBody(email.bodyHtml),
       bodyText: email.bodyText,
       fromEmail: email.fromEmail,
       configurationSet,
