@@ -4,6 +4,7 @@ import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/proto
 import { sql, withTransaction } from "@/lib/db";
 import * as twin from "@/lib/twin";
 import { TwinError } from "@/lib/twin";
+import { sanitizeTargetForTwin } from "@/lib/twin-sanitize";
 import { getTwinAgentId, resolveTwinApiKey } from "@/lib/queries/organization";
 
  
@@ -1004,7 +1005,7 @@ export function registerTools(server: McpServer) {
 
       const message =
         `Preview personalization for this email block.\n\n` +
-        `Target:\n${JSON.stringify(target, null, 2)}\n\n` +
+        `Target:\n${JSON.stringify(sanitizeTargetForTwin(target), null, 2)}\n\n` +
         `Block content:\n${JSON.stringify(block, null, 2)}\n\n` +
         `Additional instructions:\n${personalization.prompt ?? ""}\n\n` +
         `Respond with JSON containing a "body" field with the personalized preview.`;

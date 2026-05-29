@@ -3,91 +3,15 @@
  */
 
 import { runAgentJson } from "@/lib/twin";
+import { sanitizeTargetForTwin } from "@/lib/twin-sanitize";
 
- 
+
 type AnyData = Record<string, any>;
 type BlockMap = Record<string, AnyData>;
 
 export interface PersonalizationError {
   blockId: string;
   error: string;
-}
-
-const ALLOWED_TARGET_FIELDS = new Set([
-  "first_name",
-  "last_name",
-  "company",
-  "role",
-  "email",
-  "phone",
-]);
-
-function parseMetadata(metadata: unknown): AnyData | null {
-  if (typeof metadata === "object" && metadata !== null && !Array.isArray(metadata)) {
-    return metadata as AnyData;
-  }
-
-  if (typeof metadata === "string") {
-    let value: string = metadata;
-    for (let i = 0; i < 3; i++) {
-      try {
-        const parsed = JSON.parse(value);
-        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-          return parsed as AnyData;
-        }
-        if (typeof parsed === "string") {
-          value = parsed;
-        } else {
-          return null;
-        }
-      } catch {
-        return null;
-      }
-    }
-  }
-
-  return null;
-}
-
-function sanitizeTargetData(target: AnyData): AnyData {
-  const result: AnyData = {};
-  for (const field of ALLOWED_TARGET_FIELDS) {
-    if (field in target && target[field]) {
-      result[field] = String(target[field]).slice(0, 100);
-    }
-  }
-
-  const metadata = parseMetadata(target.metadata);
-  if (metadata) {
-    const sanitized: AnyData = {};
-    for (const [key, value] of Object.entries(metadata)) {
-      if (typeof value === "string") {
-        sanitized[key] = value.slice(0, 500);
-      } else if (
-        typeof value === "number" ||
-        typeof value === "boolean" ||
-        value === null
-      ) {
-        sanitized[key] = value;
-      } else if (Array.isArray(value)) {
-        sanitized[key] = value
-          .slice(0, 20)
-          .filter(
-            (v) =>
-              typeof v === "string" ||
-              typeof v === "number" ||
-              typeof v === "boolean" ||
-              v === null
-          )
-          .map((v) => (typeof v === "string" ? v.slice(0, 500) : v));
-      }
-    }
-    if (Object.keys(sanitized).length > 0) {
-      result.metadata = sanitized;
-    }
-  }
-
-  return result;
 }
 
 function extractBlockContent(block: AnyData): string | null {
@@ -145,7 +69,7 @@ async function personalizeBlock(
     const message = buildPersonalizationPrompt({
       originalContent,
       additionalInstructions: prompt,
-      target: sanitizeTargetData(targetData),
+      target: sanitizeTargetForTwin(targetData),
       blockType,
     });
     const aiResult = await runAgentJson(agentId, message, { timeoutMs, apiKey });

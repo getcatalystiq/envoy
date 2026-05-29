@@ -2,6 +2,7 @@ import { verifyCronSecret } from "@/lib/cron-utils";
 import { sql } from "@/lib/db";
 import * as twin from "@/lib/twin";
 import { runAgentJson, startRun } from "@/lib/twin";
+import { sanitizeTargetForTwin } from "@/lib/twin-sanitize";
 import { compileBuilderContent } from "@/lib/block-compiler";
 import { wrapEmailBody } from "@/lib/email";
 import {
@@ -217,7 +218,7 @@ async function processEnrollment(
       };
       const message =
         `Generate the next sequence step email for this target.\n\n` +
-        `Target:\n${JSON.stringify(target, null, 2)}\n\n` +
+        `Target:\n${JSON.stringify(sanitizeTargetForTwin(target), null, 2)}\n\n` +
         `Respond with JSON containing a "body" field with the email content.`;
 
       const stepPosition = enrollment.current_step_position;
