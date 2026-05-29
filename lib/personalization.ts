@@ -130,7 +130,7 @@ export async function processPersonalization(
     return { content: builderContent, errors: [] };
   }
 
-  const { maxConcurrent = 5, timeoutMs = 300_000 } = opts;
+  const { maxConcurrent = 5, timeoutMs = 600_000 } = opts;
   const modifiedContent: BlockMap = JSON.parse(JSON.stringify(builderContent));
 
   // Collect blocks that need personalization
