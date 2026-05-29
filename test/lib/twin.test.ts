@@ -306,17 +306,60 @@ describe("lib/twin", () => {
     });
   });
 
+  // --- Real Twin event-shape builders ----------------------------------
+  // Twin nests events as events[i].event.event.event = { <Type>: payload }, with
+  // capitalized type keys (Started, ToolCallResolved, Finished, …).
+  function evt(index: number, type: string, payload: Record<string, unknown>) {
+    return {
+      event_index: index,
+      recorded_at: `t${index}`,
+      event: {
+        agent_id: { id: "a1" },
+        event: { event: { [type]: payload } },
+        run_id: { id: "r1" },
+        user_id: null,
+      },
+    };
+  }
+  // An `llm` tool result whose decoded output is the object `obj`, encoded in
+  // Twin's StructValue/StringValue Value tree (how real outputs arrive).
+  function llmObj(index: number, obj: Record<string, string>) {
+    const fields: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) fields[k] = { kind: { StringValue: v } };
+    return evt(index, "ToolCallResolved", {
+      tool_name: "llm",
+      output: { kind: { StructValue: { fields } } },
+    });
+  }
+  // An `llm` tool result whose decoded output is a raw string.
+  function llmStr(index: number, text: string) {
+    return evt(index, "ToolCallResolved", {
+      tool_name: "llm",
+      output: { kind: { StringValue: text } },
+    });
+  }
+  // A generic assistant-message event (non-llm-tool agents).
+  function assistantMsg(index: number, text: string) {
+    return evt(index, "MessageAdded", { message: { text } });
+  }
+  const finished = (index: number) => evt(index, "Finished", { outcome: 1 });
+  const RECONCILE = {
+    body: {
+      runs: [{ run_id: "r1", agent_id: "a1", is_finished: true, status: "finished", run_number: 1, started_at: "", last_event_at: "", event_count: 2, step_count: 1 }],
+      total_runs: 1, page: 1, page_size: 1,
+    },
+  };
+  const START_RUN = { body: { run: { run_id: "r1", agent_id: "a1", is_finished: false, run_number: 1, started_at: "", last_event_at: "", event_count: 0, step_count: 0 } } };
+
   describe("runAgent — happy path", () => {
-    it("startRun, polls events, finds terminal event, returns final output", async () => {
+    it("startRun, polls events, finds nested terminal event, returns final output", async () => {
       mockFetchQueue([
-        // startRun
-        { body: { run: { run_id: "r1", agent_id: "a1", is_finished: false, run_number: 1, started_at: "2026-01-01", last_event_at: "2026-01-01", event_count: 0, step_count: 0 } } },
-        // first listRunEvents — returns one in-progress event
-        { body: { events: [{ event_index: 1, recorded_at: "t1", event: { started: {} } }], total_count: 1 } },
-        // second listRunEvents — terminal event with message
-        { body: { events: [{ event_index: 2, recorded_at: "t2", event: { completed: {}, message: { text: "Hello world" } } }], total_count: 2 } },
-        // final getRun reconciliation
-        { body: { runs: [{ run_id: "r1", agent_id: "a1", is_finished: true, status: "finished", run_number: 1, started_at: "2026-01-01", last_event_at: "2026-01-01", event_count: 2, step_count: 1 }], total_runs: 1, page: 1, page_size: 1 } },
+        START_RUN,
+        // first poll — in-progress
+        { body: { events: [evt(1, "Started", {})], total_count: 1 } },
+        // second poll — assistant message + nested Finished terminal
+        { body: { events: [assistantMsg(2, "Hello world"), finished(3)], total_count: 3 } },
+        RECONCILE,
       ]);
 
       vi.useFakeTimers();
@@ -417,19 +460,16 @@ describe("lib/twin", () => {
   });
 
   describe("runAgentJson — JSON parsing", () => {
-    function mockSingleEvent(text: string) {
-      return [
-        // startRun
-        { body: { run: { run_id: "r1", agent_id: "a1", is_finished: false, run_number: 1, started_at: "", last_event_at: "", event_count: 0, step_count: 0 } } },
-        // terminal event with the text
-        { body: { events: [{ event_index: 1, recorded_at: "t", event: { completed: {}, message: { text } } }], total_count: 1 } },
-        // final reconcile
-        { body: { runs: [{ run_id: "r1", agent_id: "a1", is_finished: true, status: "finished", run_number: 1, started_at: "", last_event_at: "", event_count: 1, step_count: 1 }], total_runs: 1, page: 1, page_size: 1 } },
-      ];
+    // A run that yields a single llm tool result (object or string) + Finished.
+    function runWithLlmObj(obj: Record<string, string>) {
+      return [START_RUN, { body: { events: [llmObj(1, obj), finished(2)], total_count: 2 } }, RECONCILE];
+    }
+    function runWithLlmStr(text: string) {
+      return [START_RUN, { body: { events: [llmStr(1, text), finished(2)], total_count: 2 } }, RECONCILE];
     }
 
-    it("parses plain JSON object", async () => {
-      mockFetchQueue(mockSingleEvent(JSON.stringify({ subject: "S", body: "B" })));
+    it("parses the llm tool-result object (StructValue-decoded)", async () => {
+      mockFetchQueue(runWithLlmObj({ subject: "S", body: "B" }));
       vi.useFakeTimers();
       const p = runAgentJson("a1", "msg");
       await vi.runAllTimersAsync();
@@ -437,8 +477,8 @@ describe("lib/twin", () => {
       vi.useRealTimers();
     });
 
-    it("parses fenced ```json``` block", async () => {
-      mockFetchQueue(mockSingleEvent('Sure! Here:\n```json\n{"subject":"S","body":"B"}\n```\nDone.'));
+    it("parses a fenced ```json``` block from a string llm output", async () => {
+      mockFetchQueue(runWithLlmStr('Sure! Here:\n```json\n{"subject":"S","body":"B"}\n```\nDone.'));
       vi.useFakeTimers();
       const p = runAgentJson("a1", "msg");
       await vi.runAllTimersAsync();
@@ -446,12 +486,8 @@ describe("lib/twin", () => {
       vi.useRealTimers();
     });
 
-    it("throws TwinError on empty output (502)", async () => {
-      mockFetchQueue([
-        { body: { run: { run_id: "r1", agent_id: "a1", is_finished: false, run_number: 1, started_at: "", last_event_at: "", event_count: 0, step_count: 0 } } },
-        { body: { events: [{ event_index: 1, recorded_at: "t", event: { completed: {} } }], total_count: 1 } },
-        { body: { runs: [{ run_id: "r1", agent_id: "a1", is_finished: true, status: "finished", run_number: 1, started_at: "", last_event_at: "", event_count: 1, step_count: 1 }], total_runs: 1, page: 1, page_size: 1 } },
-      ]);
+    it("throws TwinError on empty output (no usable event) (502)", async () => {
+      mockFetchQueue([START_RUN, { body: { events: [finished(1)], total_count: 1 } }, RECONCILE]);
       vi.useFakeTimers();
       const p = runAgentJson("a1", "msg");
       const captured: { err?: unknown } = {};
@@ -464,7 +500,7 @@ describe("lib/twin", () => {
     });
 
     it("throws TwinError on malformed JSON output (502)", async () => {
-      mockFetchQueue(mockSingleEvent("this is just prose, no json"));
+      mockFetchQueue(runWithLlmStr("this is just prose, no json"));
       vi.useFakeTimers();
       const p = runAgentJson("a1", "msg");
       const captured: { err?: unknown } = {};
@@ -477,7 +513,7 @@ describe("lib/twin", () => {
     });
 
     it("wraps non-object JSON (string, array, number) as { raw }", async () => {
-      mockFetchQueue(mockSingleEvent('"just a string"'));
+      mockFetchQueue(runWithLlmStr('"just a string"'));
       vi.useFakeTimers();
       const p = runAgentJson("a1", "msg");
       await vi.runAllTimersAsync();
@@ -485,14 +521,23 @@ describe("lib/twin", () => {
       vi.useRealTimers();
       expect(result.raw).toBeDefined();
     });
+
+    it("returns the body from a personalization run ({body} only)", async () => {
+      mockFetchQueue(runWithLlmObj({ body: "Personalized text for Acme." }));
+      vi.useFakeTimers();
+      const p = runAgentJson("a1", "msg");
+      await vi.runAllTimersAsync();
+      expect(await p).toEqual({ body: "Personalized text for Acme." });
+      vi.useRealTimers();
+    });
   });
 
   describe("generateContent", () => {
     it("includes content type and target JSON in prompt", async () => {
       const { calls } = mockFetchQueue([
-        { body: { run: { run_id: "r1", agent_id: "a1", is_finished: false, run_number: 1, started_at: "", last_event_at: "", event_count: 0, step_count: 0 } } },
-        { body: { events: [{ event_index: 1, recorded_at: "t", event: { completed: {}, message: { text: '{"subject":"S","body":"B"}' } } }], total_count: 1 } },
-        { body: { runs: [{ run_id: "r1", agent_id: "a1", is_finished: true, status: "finished", run_number: 1, started_at: "", last_event_at: "", event_count: 1, step_count: 1 }], total_runs: 1, page: 1, page_size: 1 } },
+        START_RUN,
+        { body: { events: [llmObj(1, { subject: "S", body: "B" }), finished(2)], total_count: 2 } },
+        RECONCILE,
       ]);
       vi.useFakeTimers();
       const p = generateContent("a1", { email: "x@y.com", first_name: "X" }, "educational");

@@ -391,62 +391,128 @@ export async function listRunEvents(
 }
 
 const TERMINAL_EVENT_NAMES = new Set([
-  "completed",
   "finished",
+  "completed",
   "failed",
   "errored",
   "cancelled",
   "canceled",
-  "run_completed",
-  "run_finished",
-  "run_failed",
-  "run_cancelled",
 ]);
 
-function eventLooksTerminal(event: Record<string, unknown>): boolean {
-  for (const key of Object.keys(event)) {
-    if (TERMINAL_EVENT_NAMES.has(key.toLowerCase())) return true;
+/**
+ * Twin run events are deeply nested and typed-by-key:
+ *   events[i].event = { agent_id, event: { event: { <EventType>: {...} } }, run_id, user_id }
+ * Descend through the `event` wrappers to the single capitalized type key and
+ * return `{ type, data }`. Returns null if the shape isn't recognized.
+ */
+function unwrapEventPayload(
+  raw: unknown,
+): { type: string; data: Record<string, unknown> } | null {
+  let node: unknown = raw;
+  for (
+    let i = 0;
+    i < 8 &&
+    node &&
+    typeof node === "object" &&
+    !Array.isArray(node) &&
+    "event" in (node as Record<string, unknown>) &&
+    typeof (node as Record<string, unknown>).event === "object";
+    i++
+  ) {
+    node = (node as Record<string, unknown>).event;
   }
-  const type = (event as { type?: unknown }).type;
-  if (typeof type === "string" && TERMINAL_EVENT_NAMES.has(type.toLowerCase())) {
-    return true;
-  }
-  const status = (event as { status?: unknown }).status;
-  if (typeof status === "string" && TERMINAL_EVENT_NAMES.has(status.toLowerCase())) {
-    return true;
-  }
-  return false;
+  if (!node || typeof node !== "object" || Array.isArray(node)) return null;
+  const keys = Object.keys(node as Record<string, unknown>);
+  if (keys.length === 0) return null;
+  const type = keys[0];
+  const data = (node as Record<string, unknown>)[type];
+  return {
+    type,
+    data:
+      data && typeof data === "object" && !Array.isArray(data)
+        ? (data as Record<string, unknown>)
+        : {},
+  };
 }
 
 /**
- * Extract the final user-facing message from a list of run events.
- * Twin events are opaque — we look for common shapes: assistant messages,
- * outputs, completion events. Returns empty string when no recognisable
- * output is present so callers can detect empty-output failures.
+ * Decode Twin's protobuf-style `Value` tree (StructValue / StringValue /
+ * ListValue / kind wrappers) into a plain JS value. Tool-call outputs arrive in
+ * this encoding, e.g. { kind: { StructValue: { fields: { body: { kind: {
+ * StringValue: "..." } } } } } } -> { body: "..." }.
+ */
+function decodeTwinValue(v: unknown): unknown {
+  if (v == null || typeof v !== "object") return v;
+  const o = v as Record<string, unknown>;
+  if ("kind" in o) return decodeTwinValue(o.kind);
+  if ("StringValue" in o) return o.StringValue;
+  if ("BoolValue" in o) return o.BoolValue;
+  if ("NumberValue" in o) return o.NumberValue;
+  if ("NullValue" in o) return null;
+  if ("StructValue" in o) return decodeTwinValue(o.StructValue);
+  if ("ListValue" in o) return decodeTwinValue(o.ListValue);
+  if ("fields" in o && o.fields && typeof o.fields === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(o.fields as Record<string, unknown>)) {
+      out[k] = decodeTwinValue(val);
+    }
+    return out;
+  }
+  if ("values" in o && Array.isArray(o.values)) {
+    return (o.values as unknown[]).map(decodeTwinValue);
+  }
+  return v;
+}
+
+function eventLooksTerminal(rawEvent: Record<string, unknown>): boolean {
+  const p = unwrapEventPayload(rawEvent);
+  if (!p) return false;
+  return TERMINAL_EVENT_NAMES.has(p.type.toLowerCase());
+}
+
+/**
+ * Extract the agent's final output text from a run's events.
+ *
+ * Twin agents that emit structured JSON do so as an `llm` tool result — the
+ * latest `ToolCallResolved` (tool_name "llm") whose decoded output is an object
+ * carrying `body`/`subject`. We return that object re-serialized so callers'
+ * JSON parsing (runAgentJson) yields `{ body, subject, ... }`. Falls back to
+ * generic assistant-message / text shapes for other agent types. Returns ""
+ * when nothing recognizable is present so callers can detect empty output.
  */
 function extractFinalOutput(events: TwinRunEvent[]): string {
+  // Primary: the most recent llm tool result that produced a JSON object.
   for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i].event;
-    if (!e || typeof e !== "object") continue;
+    const p = unwrapEventPayload(events[i].event);
+    if (!p || p.type !== "ToolCallResolved") continue;
+    if (p.data.tool_name !== "llm") continue;
+    const decoded = decodeTwinValue(p.data.output);
+    if (decoded && typeof decoded === "object" && !Array.isArray(decoded)) {
+      const obj = decoded as Record<string, unknown>;
+      if (typeof obj.body === "string" || typeof obj.subject === "string") {
+        return JSON.stringify(obj);
+      }
+    }
+    if (typeof decoded === "string" && decoded.trim().length > 0) return decoded;
+  }
 
-    // Look for assistant-message-shaped events
+  // Fallback: generic assistant-message / text shapes (non-llm-tool agents).
+  for (let i = events.length - 1; i >= 0; i--) {
+    const p = unwrapEventPayload(events[i].event);
+    if (!p) continue;
+    const d = p.data;
     const message =
-      ((e as Record<string, unknown>).message as Record<string, unknown> | undefined) ??
-      ((e as Record<string, unknown>).assistant_message as Record<string, unknown> | undefined) ??
-      ((e as Record<string, unknown>).output as Record<string, unknown> | undefined);
-    if (message) {
+      (d.message as Record<string, unknown> | undefined) ??
+      (d.assistant_message as Record<string, unknown> | undefined) ??
+      (d.output as Record<string, unknown> | undefined);
+    if (message && typeof message === "object") {
       const text =
         (message.text as string) ??
         (message.content as string) ??
         (message.body as string);
       if (typeof text === "string" && text.length > 0) return text;
     }
-
-    // Look for completion events with a text/output field
-    const direct =
-      (e as Record<string, unknown>).text ??
-      (e as Record<string, unknown>).content ??
-      (e as Record<string, unknown>).output;
+    const direct = d.text ?? d.content ?? d.output;
     if (typeof direct === "string" && direct.length > 0) return direct;
   }
 

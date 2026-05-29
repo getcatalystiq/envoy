@@ -3,7 +3,7 @@
  */
 
 import { runAgentJson } from "@/lib/twin";
-import { formatTargetForPrompt } from "@/lib/twin-sanitize";
+import { sanitizeTargetForTwin } from "@/lib/twin-sanitize";
 
 
 type AnyData = Record<string, any>;
@@ -66,13 +66,21 @@ async function personalizeBlock(
   }
 
   try {
-    const message = buildPersonalizationPrompt({
-      originalContent,
-      additionalInstructions: prompt,
-      target: targetData,
-      blockType,
+    // The Twin personalization agent reads the run's user_message as a STRUCTURED
+    // JSON "goal override" (mode, original_content, prompt, target, block_type)
+    // and returns { "body": "..." }. It does NOT accept free-text prose — sending
+    // prose makes its goal-parse fail and the run returns no usable content.
+    const goal = {
+      mode: "personalize",
+      original_content: originalContent,
+      prompt,
+      target: sanitizeTargetForTwin(targetData),
+      block_type: blockType,
+    };
+    const aiResult = await runAgentJson(agentId, JSON.stringify(goal), {
+      timeoutMs,
+      apiKey,
     });
-    const aiResult = await runAgentJson(agentId, message, { timeoutMs, apiKey });
 
     const personalized =
       (aiResult.body as string | undefined) ??
@@ -100,28 +108,6 @@ async function personalizeBlock(
       error: { blockId, error: message },
     };
   }
-}
-
-function buildPersonalizationPrompt(args: {
-  originalContent: string;
-  additionalInstructions: string;
-  target: AnyData;
-  blockType: string;
-}): string {
-  return [
-    `Personalize this ${args.blockType} email block for the given target.`,
-    "",
-    `Original content:\n${args.originalContent}`,
-    "",
-    args.additionalInstructions
-      ? `Additional instructions:\n${args.additionalInstructions}`
-      : "",
-    formatTargetForPrompt(args.target),
-    "",
-    `Respond with JSON containing a "body" field with the personalized content. Keep the same format and tone as the original.`,
-  ]
-    .filter(Boolean)
-    .join("\n");
 }
 
 export function hasPersonalizedBlocks(builderContent: BlockMap | null | undefined): boolean {

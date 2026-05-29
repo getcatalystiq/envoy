@@ -1,24 +1,32 @@
 /**
- * Twin integration diagnostic — exercises the real run lifecycle and dumps the
- * actual event shapes so we can see whether the platform is calling Twin
- * correctly and where the final output text lives.
+ * Twin integration diagnostic — drives a real run the way Envoy does and shows
+ * the extracted output, so you can verify the platform invokes Twin correctly.
  *
- * Usage (does NOT need DATABASE_URL — only the Twin creds):
+ * Usage (needs only the Twin creds, not DATABASE_URL):
  *   TWIN_API_KEY=twin_xxx TWIN_AGENT_ID=019e... npx tsx scripts/twin-diagnose.ts
- *   # optional: TWIN_API_URL (default https://build.twin.so),
- *   #           TWIN_PROMPT ("Generate ... JSON subject/body" by default)
+ *   # optional: TWIN_API_URL (default https://build.twin.so)
  *
- * It prints every step (auth, agent, start run, poll events) and the RAW event
- * JSON, then shows what lib/twin.ts's extractFinalOutput WOULD return vs. the
- * real output, so we can fix the extractor if it's looking in the wrong place.
+ * By default it sends the block-personalization agent's STRUCTURED goal override
+ * ({mode, original_content, prompt, target, block_type}) as `user_message`, polls
+ * to the nested `Finished` event, decodes the `llm` tool result, and prints the
+ * resulting {"body": ...}. Mirrors lib/twin.ts's runAgent/extractFinalOutput.
  */
 
 const API_URL = (process.env.TWIN_API_URL || "https://build.twin.so").replace(/\/$/, "");
 const API_KEY = process.env.TWIN_API_KEY || "";
 const AGENT_ID = process.env.TWIN_AGENT_ID || process.argv[2] || "";
-const PROMPT =
-  process.env.TWIN_PROMPT ||
-  'Generate educational email content for this target.\n\n<target_data>\n{"first_name":"Pat","company":"Acme","email":"pat@acme.test"}\n</target_data>\n\nRespond with JSON containing "subject" and "body" fields. Optionally include a "confidence_score" between 0 and 1.';
+
+// Default: a personalization goal override (the agent reads user_message as JSON).
+const GOAL = {
+  mode: "personalize",
+  original_content: "We help businesses move equipment across borders with ATA Carnets.",
+  prompt: "Make it warmer and reference the recipient's company.",
+  target: { first_name: "Pat", last_name: "Lee", company: "Acme Logistics", email: "pat@acme.test", role: "Operations Manager" },
+  block_type: "Text",
+};
+const USER_MESSAGE = process.env.TWIN_PROMPT || JSON.stringify(GOAL);
+
+const TERMINAL = new Set(["finished", "completed", "failed", "errored", "cancelled", "canceled"]);
 
 function hr(label: string) {
   console.log(`\n${"=".repeat(8)} ${label} ${"=".repeat(8)}`);
@@ -32,27 +40,51 @@ async function twin(path: string, init: RequestInit = {}): Promise<{ status: num
   const text = await res.text();
   let body: any = null;
   if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = text;
-    }
+    try { body = JSON.parse(text); } catch { body = text; }
   }
   return { status: res.status, body };
 }
 
-// Replica of lib/twin.ts extractFinalOutput so we can see if it finds the output.
+// Descend events[i].event.event.event -> { <Type>: payload }
+function unwrap(raw: any): { type: string; data: any } | null {
+  let node = raw;
+  for (let i = 0; i < 8 && node && typeof node === "object" && !Array.isArray(node) && "event" in node && typeof node.event === "object"; i++) {
+    node = node.event;
+  }
+  if (!node || typeof node !== "object" || Array.isArray(node)) return null;
+  const keys = Object.keys(node);
+  if (!keys.length) return null;
+  return { type: keys[0], data: node[keys[0]] };
+}
+
+// Decode Twin's Value tree (StructValue/StringValue/...) to plain JS.
+function decode(v: any): any {
+  if (v == null || typeof v !== "object") return v;
+  if ("kind" in v) return decode(v.kind);
+  if ("StringValue" in v) return v.StringValue;
+  if ("BoolValue" in v) return v.BoolValue;
+  if ("NumberValue" in v) return v.NumberValue;
+  if ("NullValue" in v) return null;
+  if ("StructValue" in v) return decode(v.StructValue);
+  if ("ListValue" in v) return decode(v.ListValue);
+  if ("fields" in v && v.fields && typeof v.fields === "object") {
+    const o: any = {};
+    for (const [k, val] of Object.entries(v.fields)) o[k] = decode(val);
+    return o;
+  }
+  if ("values" in v && Array.isArray(v.values)) return v.values.map(decode);
+  return v;
+}
+
 function extractFinalOutput(events: any[]): string {
   for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i].event;
-    if (!e || typeof e !== "object") continue;
-    const message = e.message ?? e.assistant_message ?? e.output;
-    if (message) {
-      const text = message.text ?? message.content ?? message.body;
-      if (typeof text === "string" && text.length > 0) return text;
+    const p = unwrap(events[i].event);
+    if (!p || p.type !== "ToolCallResolved" || p.data?.tool_name !== "llm") continue;
+    const decoded = decode(p.data.output);
+    if (decoded && typeof decoded === "object" && !Array.isArray(decoded)) {
+      if (typeof decoded.body === "string" || typeof decoded.subject === "string") return JSON.stringify(decoded);
     }
-    const direct = e.text ?? e.content ?? e.output;
-    if (typeof direct === "string" && direct.length > 0) return direct;
+    if (typeof decoded === "string" && decoded.trim()) return decoded;
   }
   return "";
 }
@@ -66,94 +98,49 @@ async function main() {
 
   hr("1. auth: GET /v1/me");
   const me = await twin("/v1/me");
-  console.log("status:", me.status, "| body:", JSON.stringify(me.body)?.slice(0, 300));
-  if (me.status !== 200) {
-    console.error("Auth failed — key invalid or plan-gated. Stopping.");
-    process.exit(1);
-  }
+  console.log("status:", me.status, JSON.stringify(me.body)?.slice(0, 200));
+  if (me.status !== 200) { console.error("Auth failed."); process.exit(1); }
 
-  hr("2. agent: GET /v1/agents/{id}");
-  const agent = await twin(`/v1/agents/${encodeURIComponent(AGENT_ID)}`);
-  console.log("status:", agent.status);
-  console.log("agent:", JSON.stringify(agent.body?.agent ?? agent.body, null, 2)?.slice(0, 800));
-  if (agent.status !== 200) {
-    console.error("Agent not reachable. Stopping.");
-    process.exit(1);
-  }
-
-  hr("3. start run: POST /v1/agents/{id}/runs");
+  hr("2. start run (structured goal as user_message)");
+  console.log("user_message:", USER_MESSAGE.slice(0, 200));
   const started = await twin(`/v1/agents/${encodeURIComponent(AGENT_ID)}/runs`, {
     method: "POST",
-    body: JSON.stringify({ run_mode: "run", user_message: PROMPT }),
+    body: JSON.stringify({ run_mode: "run", user_message: USER_MESSAGE }),
   });
-  console.log("status:", started.status, "| body:", JSON.stringify(started.body, null, 2)?.slice(0, 600));
-  const run = started.body?.run ?? started.body;
-  const runId = run?.run_id;
-  if (started.status >= 400 || !runId) {
-    console.error("Could not start run. Stopping.");
-    process.exit(1);
-  }
-  console.log("run_id:", runId, "| initial status:", run.status, "| is_finished:", run.is_finished);
+  const runId = started.body?.run?.run_id;
+  console.log("status:", started.status, "run_id:", runId);
+  if (!runId) { console.error("Could not start run."); process.exit(1); }
 
-  hr("4. poll events: GET /v1/agents/{id}/runs/{run_id}/events");
-  const deadline = Date.now() + 5 * 60 * 1000;
+  hr("3. poll events to the nested Finished event");
   const all: any[] = [];
   let afterIndex: number | undefined;
+  let stable = 0;
   let finished = false;
-  let poll = 0;
+  const deadline = Date.now() + 5 * 60 * 1000;
   while (Date.now() < deadline) {
-    poll++;
-    const qs = afterIndex !== undefined ? `?after_index=${afterIndex}&limit=200` : `?limit=200`;
+    const qs = afterIndex !== undefined ? `?after_index=${afterIndex}&limit=500` : `?limit=500`;
     const ev = await twin(`/v1/agents/${encodeURIComponent(AGENT_ID)}/runs/${encodeURIComponent(runId)}/events${qs}`);
-    if (ev.status >= 400) {
-      console.log(`poll ${poll}: events error ${ev.status}:`, JSON.stringify(ev.body)?.slice(0, 200));
-      break;
-    }
-    const events = ev.body?.events ?? [];
+    const events = ev.body?.events || [];
     if (events.length) {
       all.push(...events);
-      // Show BOTH possible index field names so we know which one is real.
-      const last = events[events.length - 1];
-      const idx = last.event_index ?? last.index;
-      afterIndex = typeof idx === "number" ? idx : afterIndex;
-      console.log(
-        `poll ${poll}: +${events.length} events (total ${all.length}); last index field: ` +
-          `event_index=${last.event_index} index=${last.index}; event keys=[${Object.keys(last.event || {})}]`,
-      );
+      afterIndex = events[events.length - 1].event_index;
+      stable = 0;
+      console.log(`+${events.length} (total ${all.length}): ${events.map((e: any) => unwrap(e.event)?.type).join(",")}`);
     } else {
-      console.log(`poll ${poll}: no new events (total ${all.length})`);
+      stable++;
     }
-    // terminal check (key-based + status)
-    const term = events.some((e: any) => {
-      const k = Object.keys(e.event || {}).map((s) => s.toLowerCase());
-      return ["completed", "finished", "failed", "errored", "cancelled", "canceled"].some((t) => k.includes(t));
-    });
-    // also reconcile via run status
-    const r = await twin(`/v1/agents/${encodeURIComponent(AGENT_ID)}/runs?filter_run_id=${encodeURIComponent(runId)}&page_size=1`);
-    const cur = r.body?.runs?.[0];
-    if (term || cur?.is_finished) {
-      finished = true;
-      console.log(`finished: terminal_event=${term} run.is_finished=${cur?.is_finished} status=${cur?.status} outcome=${cur?.outcome}`);
-      break;
-    }
-    await new Promise((res) => setTimeout(res, 2000));
+    if (all.some((e) => TERMINAL.has((unwrap(e.event)?.type || "").toLowerCase()))) { finished = true; console.log(">>> nested terminal event seen"); break; }
+    if (stable >= 8 && all.length > 4) { console.log(">>> events stable, stopping"); break; }
+    await new Promise((r) => setTimeout(r, 2000));
   }
 
-  hr("5. RAW events (full JSON)");
-  console.log(JSON.stringify(all, null, 2));
-
-  hr("6. extraction analysis");
+  hr("4. extracted output");
   console.log("finished:", finished, "| total events:", all.length);
-  const extracted = extractFinalOutput(all);
-  console.log("extractFinalOutput() returned:", extracted.length, "chars");
-  console.log("---- extracted text ----\n" + (extracted || "(EMPTY — extractor did not find the output)"));
-  console.log("\n---- last event.event keys (where output likely lives) ----");
-  for (const e of all.slice(-5)) {
-    console.log("event keys:", Object.keys(e.event || {}), "| sample:", JSON.stringify(e.event)?.slice(0, 400));
+  const output = extractFinalOutput(all);
+  console.log("extractFinalOutput():", output || "(EMPTY)");
+  if (output) {
+    try { console.log("parsed:", JSON.stringify(JSON.parse(output))); } catch { /* not json */ }
   }
 }
 
-main().catch((e) => {
-  console.error("DIAGNOSTIC ERROR:", e);
-  process.exit(1);
-});
+main().catch((e) => { console.error("DIAGNOSTIC ERROR:", e); process.exit(1); });
