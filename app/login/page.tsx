@@ -6,10 +6,14 @@ import { AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
-  const { isLoggedIn, login } = useAuth();
+  const { isLoggedIn, isLoading, login } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
+    // Wait for the cookie-based session bootstrap before deciding — otherwise we
+    // would start a fresh OAuth redirect even when a valid session exists.
+    if (isLoading) return;
+
     if (isLoggedIn) {
       router.push('/dashboard');
       return;
@@ -24,7 +28,7 @@ export default function LoginPage() {
     };
 
     initiateLogin();
-  }, [isLoggedIn, login, router]);
+  }, [isLoading, isLoggedIn, login, router]);
 
   if (error) {
     return (

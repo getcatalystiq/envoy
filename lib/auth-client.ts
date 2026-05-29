@@ -1,12 +1,19 @@
 'use client';
 
 /**
- * OAuth 2.1 with PKCE implementation for Envoy Admin UI (client-side)
+ * First-party auth for the Envoy Admin UI.
+ *
+ * Security model (httpOnly-cookie session):
+ *  - PUBLIC PKCE client (no client_secret stored in the browser).
+ *  - The 30-day refresh token lives ONLY in an httpOnly cookie set by the server
+ *    (/api/session/*) — never in JS-readable storage, so XSS can't steal it.
+ *  - The access token is held in MEMORY (this module) and sent as a Bearer
+ *    header on API calls. It is re-obtained from the cookie on page load.
+ *  - Only the public client_id (and the transient PKCE verifier/state) touch
+ *    web storage.
  */
 
-const OAUTH_BASE = '';
-
-const OAUTH_METADATA_BASE = `${OAUTH_BASE}/.well-known/oauth-authorization-server`;
+const OAUTH_METADATA_BASE = `/.well-known/oauth-authorization-server`;
 
 interface OAuthMetadata {
   issuer: string;
@@ -19,11 +26,10 @@ interface OAuthMetadata {
   code_challenge_methods_supported: string[];
 }
 
-interface TokenResponse {
+interface SessionTokenResponse {
   access_token: string;
   token_type: string;
   expires_in: number;
-  refresh_token?: string;
   scope: string;
 }
 
@@ -39,30 +45,37 @@ export interface UserInfo {
 }
 
 const STORAGE_KEYS = {
-  ACCESS_TOKEN: 'envoy_access_token',
-  REFRESH_TOKEN: 'envoy_refresh_token',
-  TOKEN_EXPIRY: 'envoy_token_expiry',
-  CODE_VERIFIER: 'envoy_code_verifier',
   CLIENT_ID: 'envoy_client_id',
-  CLIENT_SECRET: 'envoy_client_secret',
-  USER_INFO: 'envoy_user_info',
+  CODE_VERIFIER: 'envoy_code_verifier',
+  OAUTH_STATE: 'oauth_state',
 };
 
-// Auth debugging - only logs in development (Next.js inlines NODE_ENV at build time)
+// Legacy localStorage keys from the pre-cookie token model — cleared on logout
+// and on first login so old tokens don't linger.
+const LEGACY_KEYS = [
+  'envoy_access_token',
+  'envoy_refresh_token',
+  'envoy_token_expiry',
+  'envoy_user_info',
+  'envoy_client_secret',
+];
+
+// --- In-memory session state (per tab) ---
+let accessToken: string | null = null;
+let accessTokenExpiry: number | null = null; // epoch ms
+let externalToken: string | null = null; // embed mode
+let cachedUser: UserInfo | null = null;
+let refreshPromise: Promise<string> | null = null;
+let tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
 function authLog(message: string, data?: unknown) {
   if (process.env.NODE_ENV === 'production') return;
-  const timestamp = new Date().toISOString();
-  if (data !== undefined) {
-    console.log(`[Auth ${timestamp}] ${message}`, data);
-  } else {
-    console.log(`[Auth ${timestamp}] ${message}`);
-  }
+  if (data !== undefined) console.log(`[Auth] ${message}`, data);
+  else console.log(`[Auth] ${message}`);
 }
 
-function authError(message: string, error?: unknown) {
-  if (process.env.NODE_ENV === 'production') return;
-  const timestamp = new Date().toISOString();
-  console.error(`[Auth ${timestamp}] ${message}`, error);
+function delay(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 function generateRandomString(length: number): string {
@@ -86,15 +99,13 @@ export async function generateCodeChallenge(verifier: string): Promise<string> {
 
 export async function fetchOAuthMetadata(): Promise<OAuthMetadata> {
   const response = await fetch(OAUTH_METADATA_BASE, { cache: 'no-store' });
-  if (!response.ok) {
-    throw new Error('Failed to fetch OAuth metadata');
-  }
+  if (!response.ok) throw new Error('Failed to fetch OAuth metadata');
   return response.json();
 }
 
-export async function registerClient(): Promise<{ client_id: string; client_secret: string }> {
+// Register a PUBLIC (PKCE, no secret) client and remember only its client_id.
+export async function registerClient(): Promise<{ client_id: string }> {
   const metadata = await fetchOAuthMetadata();
-
   const response = await fetch(metadata.registration_endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -103,53 +114,57 @@ export async function registerClient(): Promise<{ client_id: string; client_secr
       redirect_uris: [window.location.origin + '/callback'],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
-      token_endpoint_auth_method: 'client_secret_basic',
+      token_endpoint_auth_method: 'none',
     }),
   });
-
-  if (!response.ok) {
-    throw new Error('Failed to register OAuth client');
-  }
-
+  if (!response.ok) throw new Error('Failed to register OAuth client');
   const data = await response.json();
-
   localStorage.setItem(STORAGE_KEYS.CLIENT_ID, data.client_id);
-  localStorage.setItem(STORAGE_KEYS.CLIENT_SECRET, data.client_secret);
-
-  return { client_id: data.client_id, client_secret: data.client_secret };
+  return { client_id: data.client_id };
 }
 
-async function getClientCredentials(): Promise<{ client_id: string; client_secret: string }> {
-  const clientId = localStorage.getItem(STORAGE_KEYS.CLIENT_ID);
-  const clientSecret = localStorage.getItem(STORAGE_KEYS.CLIENT_SECRET);
+async function getClientId(): Promise<string> {
+  // A leftover client_secret marks an OLD confidential client; the cookie flow
+  // needs a PUBLIC client, so re-register and drop the legacy secret.
+  const hadLegacySecret = localStorage.getItem('envoy_client_secret');
+  const existing = localStorage.getItem(STORAGE_KEYS.CLIENT_ID);
+  if (existing && !hadLegacySecret) return existing;
+  LEGACY_KEYS.forEach((k) => localStorage.removeItem(k));
+  const { client_id } = await registerClient();
+  return client_id;
+}
 
-  if (clientId && clientSecret) {
-    return { client_id: clientId, client_secret: clientSecret };
-  }
+function setAccessToken(token: string, expiresIn: number) {
+  accessToken = token;
+  accessTokenExpiry = Date.now() + expiresIn * 1000;
+}
 
-  return registerClient();
+function clearMemory() {
+  accessToken = null;
+  accessTokenExpiry = null;
+  cachedUser = null;
+  stopTokenRefreshTimer();
 }
 
 export async function startAuthFlow(): Promise<void> {
   const metadata = await fetchOAuthMetadata();
-  const { client_id } = await getClientCredentials();
+  const client_id = await getClientId();
 
   const codeVerifier = generateCodeVerifier();
   sessionStorage.setItem(STORAGE_KEYS.CODE_VERIFIER, codeVerifier);
-
   const codeChallenge = await generateCodeChallenge(codeVerifier);
+  const state = generateRandomString(16);
+  sessionStorage.setItem(STORAGE_KEYS.OAUTH_STATE, state);
 
   const params = new URLSearchParams({
     response_type: 'code',
-    client_id: client_id,
+    client_id,
     redirect_uri: window.location.origin + '/callback',
     scope: 'read write admin',
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
-    state: generateRandomString(16),
+    state,
   });
-
-  sessionStorage.setItem('oauth_state', params.get('state')!);
 
   window.location.href = `${metadata.authorization_endpoint}?${params}`;
 }
@@ -160,127 +175,63 @@ export async function handleCallback(): Promise<UserInfo> {
   const state = params.get('state');
   const error = params.get('error');
 
-  if (error) {
-    throw new Error(params.get('error_description') || error);
-  }
-
-  if (!code) {
-    throw new Error('No authorization code received');
-  }
-
-  const savedState = sessionStorage.getItem('oauth_state');
-  if (state !== savedState) {
+  if (error) throw new Error(params.get('error_description') || error);
+  if (!code) throw new Error('No authorization code received');
+  if (state !== sessionStorage.getItem(STORAGE_KEYS.OAUTH_STATE)) {
     throw new Error('Invalid state parameter');
   }
-
   const codeVerifier = sessionStorage.getItem(STORAGE_KEYS.CODE_VERIFIER);
-  if (!codeVerifier) {
-    throw new Error('No code verifier found');
-  }
+  if (!codeVerifier) throw new Error('No code verifier found');
 
-  const metadata = await fetchOAuthMetadata();
-  const { client_id, client_secret } = await getClientCredentials();
+  const client_id = await getClientId();
 
-  const response = await fetch(metadata.token_endpoint, {
+  // Exchange SERVER-SIDE: the server sets the refresh token as an httpOnly
+  // cookie and returns only the access token to us.
+  const response = await fetch('/api/session/exchange', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': 'Basic ' + btoa(`${client_id}:${client_secret}`),
-    },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code: code,
-      redirect_uri: window.location.origin + '/callback',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      client_id,
+      code,
       code_verifier: codeVerifier,
+      redirect_uri: window.location.origin + '/callback',
     }),
   });
 
   if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error_description || 'Token exchange failed');
+    const e = await response.json().catch(() => ({}));
+    throw new Error(e.error_description || e.error || 'Token exchange failed');
   }
 
-  const tokens: TokenResponse = await response.json();
-
-  authLog('handleCallback: Received tokens', {
-    hasAccessToken: !!tokens.access_token,
-    hasRefreshToken: !!tokens.refresh_token,
-    expiresIn: tokens.expires_in,
-    scope: tokens.scope,
-  });
-
-  localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, tokens.access_token);
-  if (tokens.refresh_token) {
-    localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, tokens.refresh_token);
-    authLog('handleCallback: Stored refresh token', { length: tokens.refresh_token.length });
-  } else {
-    authError('handleCallback: No refresh token received from server!');
-  }
-  localStorage.setItem(STORAGE_KEYS.TOKEN_EXPIRY, String(Date.now() + tokens.expires_in * 1000));
-
+  const tokens: SessionTokenResponse = await response.json();
+  setAccessToken(tokens.access_token, tokens.expires_in);
+  LEGACY_KEYS.forEach((k) => localStorage.removeItem(k));
   sessionStorage.removeItem(STORAGE_KEYS.CODE_VERIFIER);
-  sessionStorage.removeItem('oauth_state');
+  sessionStorage.removeItem(STORAGE_KEYS.OAUTH_STATE);
 
   const userInfo = await fetchUserInfo();
-
-  // Start proactive token refresh timer after successful login
   startTokenRefreshTimer();
-
-  authLog('handleCallback: Auth complete', { email: userInfo.email });
+  authLog('Login complete', { email: userInfo.email });
   return userInfo;
 }
 
 export async function fetchUserInfo(): Promise<UserInfo> {
-  const accessToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
-  if (!accessToken) {
-    throw new Error('No access token');
-  }
-
+  const token = externalToken || accessToken;
+  if (!token) throw new Error('No access token');
   const metadata = await fetchOAuthMetadata();
-
   const response = await fetch(metadata.userinfo_endpoint, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-    },
+    headers: { Authorization: `Bearer ${token}` },
   });
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch user info');
-  }
-
+  if (!response.ok) throw new Error('Failed to fetch user info');
   const userInfo: UserInfo = await response.json();
-  localStorage.setItem(STORAGE_KEYS.USER_INFO, JSON.stringify(userInfo));
-
+  cachedUser = userInfo;
   return userInfo;
 }
 
 export async function refreshToken(): Promise<string> {
-  // If a refresh is already in progress, wait for it instead of starting a new one
-  // This prevents race conditions where concurrent refreshes revoke each other's tokens
-  if (refreshPromise) {
-    authLog('Refresh already in progress, waiting for existing refresh');
-    return refreshPromise;
-  }
-
-  const storedRefreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-  const storedClientId = localStorage.getItem(STORAGE_KEYS.CLIENT_ID);
-
-  authLog('Attempting token refresh', {
-    hasRefreshToken: !!storedRefreshToken,
-    refreshTokenLength: storedRefreshToken?.length,
-    hasClientId: !!storedClientId,
-    clientId: storedClientId,
-  });
-
-  if (!storedRefreshToken) {
-    authError('No refresh token found in localStorage');
-    throw new Error('No refresh token');
-  }
-
-  // Set up the refresh promise so concurrent callers can wait on it
-  // Pass the initial refresh token to detect cross-tab updates
-  refreshPromise = doRefresh(storedRefreshToken);
-
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = doRefresh();
   try {
     return await refreshPromise;
   } finally {
@@ -288,297 +239,151 @@ export async function refreshToken(): Promise<string> {
   }
 }
 
-async function doRefresh(initialRefreshToken: string): Promise<string> {
-  let metadata: OAuthMetadata;
-  let client_id: string;
-  let client_secret: string;
+async function doRefresh(): Promise<string> {
+  const maxAttempts = 2;
+  let lastStatus: number | null = null;
 
-  try {
-    metadata = await fetchOAuthMetadata();
-    const creds = await getClientCredentials();
-    client_id = creds.client_id;
-    client_secret = creds.client_secret;
-    authLog('Got metadata and credentials', { tokenEndpoint: metadata.token_endpoint, client_id });
-  } catch (err) {
-    authError('Failed to get metadata or credentials', err);
-    throw err;
-  }
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch('/api/session/refresh', {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (err) {
+      if (attempt < maxAttempts) {
+        await delay(attempt * 500);
+        continue;
+      }
+      clearMemory();
+      throw err instanceof Error ? err : new Error('Refresh network error');
+    }
 
-  const maxRetries = 3;
-  let lastError: Error | null = null;
-  let lastResponseStatus: number | null = null;
-  let lastResponseBody: unknown = null;
+    lastStatus = response.status;
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    // Re-read refresh token before each attempt - another tab may have updated it
-    const currentRefreshToken = localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-    if (!currentRefreshToken) {
-      authError('Refresh token disappeared from storage');
+    if (response.ok) {
+      const tokens: SessionTokenResponse = await response.json();
+      setAccessToken(tokens.access_token, tokens.expires_in);
+      return tokens.access_token;
+    }
+
+    // 401 = no/invalid session. A concurrent tab may have rotated the cookie
+    // between our request and the server's read — retry once with the (now
+    // updated) shared cookie before giving up.
+    if (response.status === 401) {
+      if (attempt < maxAttempts) {
+        await delay(300);
+        continue;
+      }
       break;
     }
 
-    // If token changed, another tab refreshed successfully - use the new access token directly
-    if (currentRefreshToken !== initialRefreshToken) {
-      authLog('Refresh token changed by another tab, using updated tokens');
-      const newAccessToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
-      if (newAccessToken) {
-        // Restart our refresh timer to sync with the new expiry
-        startTokenRefreshTimer();
-        return newAccessToken;
-      }
-      // Token changed but no access token? Continue with refresh using new token
-      authLog('Token changed but no access token found, continuing with new refresh token');
-    }
-
-    authLog(`Refresh attempt ${attempt}/${maxRetries}`);
-
-    try {
-      const response = await fetch(metadata.token_endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': 'Basic ' + btoa(`${client_id}:${client_secret}`),
-        },
-        body: new URLSearchParams({
-          grant_type: 'refresh_token',
-          refresh_token: currentRefreshToken,
-        }),
-      });
-
-      lastResponseStatus = response.status;
-
-      if (response.ok) {
-        const tokens: TokenResponse = await response.json();
-        authLog('Token refresh successful', {
-          hasNewAccessToken: !!tokens.access_token,
-          hasNewRefreshToken: !!tokens.refresh_token,
-          expiresIn: tokens.expires_in,
-        });
-
-        localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, tokens.access_token);
-        if (tokens.refresh_token) {
-          localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, tokens.refresh_token);
-        }
-        localStorage.setItem(STORAGE_KEYS.TOKEN_EXPIRY, String(Date.now() + tokens.expires_in * 1000));
-
-        return tokens.access_token;
-      }
-
-      // Response not OK - parse error details
-      try {
-        lastResponseBody = await response.json();
-      } catch {
-        lastResponseBody = await response.text().catch(() => 'Could not read response body');
-      }
-
-      authError(`Refresh attempt ${attempt} failed`, {
-        status: response.status,
-        statusText: response.statusText,
-        body: lastResponseBody,
-      });
-
-      // Don't retry on 400/401 - these are definitive failures
-      if (response.status === 400 || response.status === 401) {
-        authLog('Got 400/401, not retrying - token is invalid or expired');
-        break;
-      }
-
-      // For other errors (500, network issues), wait and retry
-      if (attempt < maxRetries) {
-        const delay = attempt * 1000; // 1s, 2s, 3s
-        authLog(`Waiting ${delay}ms before retry`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      authError(`Refresh attempt ${attempt} threw exception`, err);
-
-      if (attempt < maxRetries) {
-        const delay = attempt * 1000;
-        authLog(`Waiting ${delay}ms before retry`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
+    if (attempt < maxAttempts) await delay(attempt * 500);
   }
 
-  // All retries failed
-  authError('All refresh attempts failed', {
-    lastStatus: lastResponseStatus,
-    lastBody: lastResponseBody,
-    lastError: lastError?.message,
-  });
-
-  logout();
-  throw new Error(`Session expired (status: ${lastResponseStatus})`);
+  clearMemory();
+  throw new Error(`Session refresh failed (status: ${lastStatus})`);
 }
 
 export async function getAccessToken(): Promise<string | null> {
-  const accessToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
-  const expiry = localStorage.getItem(STORAGE_KEYS.TOKEN_EXPIRY);
-  const refreshTokenExists = !!localStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+  if (externalToken) return externalToken;
 
-  if (!accessToken) {
-    authLog('getAccessToken: No access token in storage');
+  const refreshThreshold = 5 * 60 * 1000;
+  if (
+    accessToken &&
+    accessTokenExpiry &&
+    Date.now() < accessTokenExpiry - refreshThreshold
+  ) {
+    return accessToken;
+  }
+
+  try {
+    return await refreshToken();
+  } catch {
     return null;
   }
+}
 
-  if (expiry) {
-    const expiryTime = parseInt(expiry);
-    const now = Date.now();
-    const timeUntilExpiry = expiryTime - now;
-    const refreshThreshold = 5 * 60 * 1000; // 5 minutes
-    const needsRefresh = now > expiryTime - refreshThreshold;
-
-    if (needsRefresh) {
-      const isExpired = now > expiryTime;
-      authLog('getAccessToken: Token needs refresh', {
-        isExpired,
-        expiredAgo: isExpired ? `${Math.round((now - expiryTime) / 1000)}s ago` : null,
-        expiresIn: !isExpired ? `${Math.round(timeUntilExpiry / 1000)}s` : null,
-        hasRefreshToken: refreshTokenExists,
-      });
-
-      try {
-        return await refreshToken();
-      } catch (err) {
-        authError('getAccessToken: Refresh failed', err);
-        return null;
-      }
-    }
+/**
+ * Bootstrap the session on app load: the access token is in memory (gone after
+ * a reload), so attempt a silent refresh using the httpOnly cookie. Returns the
+ * user if a session exists, else null.
+ */
+export async function bootstrapSession(): Promise<UserInfo | null> {
+  try {
+    await refreshToken();
+    const user = await fetchUserInfo();
+    startTokenRefreshTimer();
+    return user;
+  } catch {
+    clearMemory();
+    return null;
   }
-
-  return accessToken;
 }
 
 export function isAuthenticated(): boolean {
   if (typeof window === 'undefined') return false;
-  return !!localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+  return !!accessToken || !!externalToken;
 }
 
 export function getStoredUserInfo(): UserInfo | null {
-  if (typeof window === 'undefined') return null;
-  const stored = localStorage.getItem(STORAGE_KEYS.USER_INFO);
-  if (!stored) return null;
+  return cachedUser;
+}
+
+export async function logout(): Promise<void> {
+  clearMemory();
   try {
-    return JSON.parse(stored);
+    await fetch('/api/session/logout', { method: 'POST', credentials: 'include' });
   } catch {
-    return null;
+    // best-effort; cookie also expires on its own
+  }
+  if (typeof window !== 'undefined') {
+    LEGACY_KEYS.forEach((k) => localStorage.removeItem(k));
+    sessionStorage.removeItem(STORAGE_KEYS.CODE_VERIFIER);
+    sessionStorage.removeItem(STORAGE_KEYS.OAUTH_STATE);
   }
 }
 
-export function logout(): void {
-  // Log the call stack to see what triggered logout
-  const stack = new Error().stack;
-  authLog('logout() called', { stack: stack?.split('\n').slice(1, 4).join('\n') });
-
-  // Stop any running token refresh timer
-  stopTokenRefreshTimer();
-
-  localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
-  localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-  localStorage.removeItem(STORAGE_KEYS.TOKEN_EXPIRY);
-  localStorage.removeItem(STORAGE_KEYS.USER_INFO);
-  sessionStorage.removeItem(STORAGE_KEYS.CODE_VERIFIER);
-  sessionStorage.removeItem('oauth_state');
-}
-
-// Token refresh timer management
-let tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null;
-
-// Refresh mutex - prevents concurrent refresh attempts from racing
-let refreshPromise: Promise<string> | null = null;
-
-/**
- * Start a proactive token refresh timer.
- * This ensures tokens are refreshed before they expire, even if the user is idle.
- */
 export function startTokenRefreshTimer(): void {
-  // Clear any existing timer
   stopTokenRefreshTimer();
-
-  const expiry = localStorage.getItem(STORAGE_KEYS.TOKEN_EXPIRY);
-  if (!expiry) {
-    authLog('startTokenRefreshTimer: No token expiry found');
-    return;
-  }
-
-  const expiryTime = parseInt(expiry);
-  const now = Date.now();
-  const refreshThreshold = 5 * 60 * 1000; // 5 minutes before expiry
-  const timeUntilRefresh = expiryTime - now - refreshThreshold;
+  if (!accessTokenExpiry) return;
+  const refreshThreshold = 5 * 60 * 1000;
+  const timeUntilRefresh = accessTokenExpiry - Date.now() - refreshThreshold;
 
   if (timeUntilRefresh <= 0) {
-    // Token already needs refresh
-    authLog('startTokenRefreshTimer: Token needs immediate refresh');
     refreshToken()
       .then(() => startTokenRefreshTimer())
-      .catch((err) => authError('Proactive token refresh failed', err));
+      .catch(() => {});
     return;
   }
 
-  authLog('startTokenRefreshTimer: Scheduling refresh', {
-    refreshIn: `${Math.round(timeUntilRefresh / 1000 / 60)} minutes`,
-  });
-
-  tokenRefreshTimeoutId = setTimeout(async () => {
-    authLog('Proactive token refresh triggered');
-    try {
-      await refreshToken();
-      // Schedule the next refresh
-      startTokenRefreshTimer();
-    } catch (err) {
-      authError('Proactive token refresh failed', err);
-    }
+  tokenRefreshTimeoutId = setTimeout(() => {
+    refreshToken()
+      .then(() => startTokenRefreshTimer())
+      .catch(() => {});
   }, timeUntilRefresh);
 }
 
-/**
- * Stop the token refresh timer.
- */
 export function stopTokenRefreshTimer(): void {
   if (tokenRefreshTimeoutId) {
     clearTimeout(tokenRefreshTimeoutId);
     tokenRefreshTimeoutId = null;
-    authLog('Token refresh timer stopped');
   }
 }
 
 /**
- * Listen for storage changes from other tabs.
- * This handles cross-tab token synchronization to prevent logout race conditions.
- */
-if (typeof window !== 'undefined') {
-  window.addEventListener('storage', (event) => {
-    if (event.key === STORAGE_KEYS.ACCESS_TOKEN && event.newValue) {
-      authLog('Access token updated by another tab');
-      // Restart the refresh timer with the new expiry
-      startTokenRefreshTimer();
-    }
-    if (event.key === STORAGE_KEYS.ACCESS_TOKEN && !event.newValue) {
-      authLog('Access token cleared by another tab - logging out');
-      // Another tab logged out, sync this tab
-      stopTokenRefreshTimer();
-      window.location.href = '/login';
-    }
-  });
-}
-
-/**
- * Set token from external source (e.g., widget embedding)
- * Used when Envoy is embedded in another app that provides auth
+ * Set an access token from an external source (widget/embed mode). Held in
+ * memory; the embedding app is responsible for its lifecycle.
  */
 export function setExternalToken(token: string, expiresIn: number = 3600): void {
-  localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, token);
-  localStorage.setItem(STORAGE_KEYS.TOKEN_EXPIRY, String(Date.now() + expiresIn * 1000));
+  externalToken = token;
+  accessTokenExpiry = Date.now() + expiresIn * 1000;
 }
 
-/**
- * Check if we're running in embedded mode (iframe)
- */
 export function isEmbedded(): boolean {
   try {
     return window.self !== window.top;
   } catch {
-    return true; // Cross-origin iframe
+    return true; // cross-origin iframe
   }
 }

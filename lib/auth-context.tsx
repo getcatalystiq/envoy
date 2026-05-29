@@ -2,8 +2,8 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import {
+  bootstrapSession,
   isAuthenticated,
-  getStoredUserInfo,
   getAccessToken,
   startAuthFlow,
   logout as oauthLogout,
@@ -17,7 +17,7 @@ interface AuthContextType {
   isLoggedIn: boolean;
   isLoading: boolean;
   login: () => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   getToken: () => Promise<string | null>;
 }
 
@@ -28,33 +28,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (isAuthenticated()) {
-      const storedUser = getStoredUserInfo();
-      setUser(storedUser);
-      // Start proactive token refresh timer
-      startTokenRefreshTimer();
-    }
-    setIsLoading(false);
+    let mounted = true;
+
+    // The access token lives in memory and is gone after a reload — restore the
+    // session from the httpOnly refresh cookie.
+    bootstrapSession()
+      .then((u) => {
+        if (!mounted) return;
+        if (u) {
+          setUser(u);
+          startTokenRefreshTimer();
+        }
+      })
+      .finally(() => {
+        if (mounted) setIsLoading(false);
+      });
 
     // Handle tab visibility changes - refresh token when user returns to tab
     const handleVisibilityChange = async () => {
       if (document.visibilityState === 'visible' && isAuthenticated()) {
-        console.log(`[Auth ${new Date().toISOString()}] Tab became visible, checking token`);
         try {
           // getAccessToken will trigger refresh if needed
           const token = await getAccessToken();
           if (!token) {
-            console.log(`[Auth ${new Date().toISOString()}] No valid token after visibility check, logging out`);
-            oauthLogout();
+            await oauthLogout();
             setUser(null);
             window.location.href = '/login';
           } else {
-            // Restart the timer in case it was throttled
             startTokenRefreshTimer();
           }
-        } catch (err) {
-          console.error(`[Auth ${new Date().toISOString()}] Token check failed on visibility change`, err);
-          oauthLogout();
+        } catch {
+          await oauthLogout();
           setUser(null);
           window.location.href = '/login';
         }
@@ -65,6 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Cleanup on unmount
     return () => {
+      mounted = false;
       stopTokenRefreshTimer();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
@@ -74,8 +79,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await startAuthFlow();
   };
 
-  const logout = () => {
-    oauthLogout();
+  const logout = async () => {
+    await oauthLogout();
     setUser(null);
     window.location.href = '/';
   };

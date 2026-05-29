@@ -28,7 +28,7 @@ async function request<T>(
     if (response.status === 401) {
       // If this is already a retry, give up and logout
       if (isRetry) {
-        logout();
+        await logout();
         window.location.href = '/login';
         throw new Error('Session expired');
       }
@@ -38,7 +38,7 @@ async function request<T>(
         await refreshToken();
         return request<T>(endpoint, options, true);
       } catch {
-        logout();
+        await logout();
         window.location.href = '/login';
         throw new Error('Session expired');
       }
