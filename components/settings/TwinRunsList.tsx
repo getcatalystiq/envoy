@@ -30,11 +30,38 @@ export function TwinRunsList() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api
-      .get<RunsResponse>('/twin/runs?page=1&page_size=50')
-      .then((data) => setRuns(data.runs ?? []))
-      .catch((err) => setError(formatApiError(err)))
-      .finally(() => setLoading(false));
+    const PAGE_SIZE = 50;
+    const byNewest = (a: TwinRun, b: TwinRun) => {
+      const ta = Date.parse(a.started_at) || 0;
+      const tb = Date.parse(b.started_at) || 0;
+      if (tb !== ta) return tb - ta;
+      return (b.run_number ?? 0) - (a.run_number ?? 0);
+    };
+
+    // Twin returns runs OLDEST-first and offers no sort param, so page 1 is the
+    // oldest. To show the latest first, jump to the last page (the newest runs)
+    // and sort descending.
+    (async () => {
+      try {
+        const first = await api.get<RunsResponse>(
+          `/twin/runs?page=1&page_size=${PAGE_SIZE}`,
+        );
+        const pageSize = first.page_size || PAGE_SIZE;
+        const total = first.total_runs || first.runs?.length || 0;
+        const lastPage = Math.max(1, Math.ceil(total / pageSize));
+        const data =
+          lastPage > 1
+            ? await api.get<RunsResponse>(
+                `/twin/runs?page=${lastPage}&page_size=${pageSize}`,
+              )
+            : first;
+        setRuns([...(data.runs ?? [])].sort(byNewest));
+      } catch (err) {
+        setError(formatApiError(err));
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
   if (loading) {

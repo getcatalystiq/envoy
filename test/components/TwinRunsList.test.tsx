@@ -78,6 +78,46 @@ describe("<TwinRunsList />", () => {
     await waitFor(() => expect(screen.queryByText(/in_progress/)).toBeInTheDocument());
   });
 
+  it("orders runs newest-first by started_at", async () => {
+    const mk = (id: string, n: number, started: string) => ({
+      run_id: id, agent_id: "a", run_number: n, status: "finished", is_finished: true,
+      started_at: started, last_event_at: started, event_count: 1, step_count: 1,
+    });
+    apiGet.mockResolvedValueOnce({
+      runs: [
+        mk("run_old", 1, "2026-05-01T10:00:00Z"),
+        mk("run_new", 3, "2026-05-28T10:00:00Z"),
+        mk("run_mid", 2, "2026-05-10T10:00:00Z"),
+      ],
+      total_runs: 3, page: 1, page_size: 50,
+    });
+    render(<TwinRunsList />);
+    await waitFor(() => expect(screen.queryByText(/run_new/)).toBeInTheDocument());
+    const links = screen.getAllByRole("link");
+    expect(links[0]).toHaveTextContent("run_new");
+    expect(links[1]).toHaveTextContent("run_mid");
+    expect(links[2]).toHaveTextContent("run_old");
+  });
+
+  it("fetches the LAST page (newest runs) when results are paginated", async () => {
+    apiGet
+      .mockResolvedValueOnce({
+        // page 1 = oldest; never displayed
+        runs: [{ run_id: "run_oldest", agent_id: "a", run_number: 1, is_finished: true, status: "finished", started_at: "2026-01-01T00:00:00Z", last_event_at: "", event_count: 1, step_count: 1 }],
+        total_runs: 120, page: 1, page_size: 50,
+      })
+      .mockResolvedValueOnce({
+        runs: [{ run_id: "run_newest", agent_id: "a", run_number: 120, is_finished: true, status: "finished", started_at: "2026-05-28T00:00:00Z", last_event_at: "", event_count: 1, step_count: 1 }],
+        total_runs: 120, page: 3, page_size: 50,
+      });
+    render(<TwinRunsList />);
+    await waitFor(() => expect(screen.queryByText(/run_newest/)).toBeInTheDocument());
+    // ceil(120/50) = 3 → it must request page 3, and must NOT show the oldest page
+    expect(apiGet).toHaveBeenCalledWith("/twin/runs?page=1&page_size=50");
+    expect(apiGet).toHaveBeenCalledWith("/twin/runs?page=3&page_size=50");
+    expect(screen.queryByText(/run_oldest/)).not.toBeInTheDocument();
+  });
+
   it("displays error message on api.get failure", async () => {
     apiGet.mockRejectedValueOnce(new Error("Network down"));
     render(<TwinRunsList />);
