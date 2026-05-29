@@ -21,7 +21,9 @@ const BATCH_SIZE = 100;
 // Lower fan-out to reduce concurrent polling pressure on Twin.
 const MAX_CONCURRENT_PROCESSING = 5;
 // Give polling realistic budget headroom; per-block AI calls poll Twin.
-const AI_TIMEOUT_MS = 90_000;
+// 5 minutes — Twin personalization runs that do company/LinkedIn enrichment can
+// run well past a minute; the cron has maxDuration 800s of headroom.
+const AI_TIMEOUT_MS = 300_000;
 const GUARD_TIMEOUT_MS = 780_000; // 780s hard stop
 
  
