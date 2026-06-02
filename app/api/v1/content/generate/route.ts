@@ -5,7 +5,7 @@ import { generateContent } from "@/lib/agent-session";
 import { withAgent } from "../../agent/_helpers";
 
 export async function POST(request: Request) {
-  return withAgent(request, async ({ agentId, environmentId, tenantId }) => {
+  return withAgent(request, async ({ agentId, environmentId, vaultIds, tenantId }) => {
     const body = await request.json();
     const { target_id, content_type, channel } = body;
 
@@ -21,7 +21,9 @@ export async function POST(request: Request) {
       return jsonResponse({ error: "Target not found" }, 404);
     }
 
-    const result = await generateContent(agentId, environmentId, target, content_type);
+    const result = await generateContent(agentId, environmentId, target, content_type, {
+      vaultIds,
+    });
 
     const row = await content.create(tenantId, {
       name: `AI Generated - ${target.email} - ${content_type}`,

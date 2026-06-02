@@ -6,6 +6,7 @@ import { AgentError } from "@/lib/agent-session";
 export interface AgentRouteContext {
   agentId: string;
   environmentId: string;
+  vaultIds: string[];
   tenantId: string;
   auth: AuthContext;
 }
@@ -40,6 +41,7 @@ export async function withAgent(
     return await fn({
       agentId: config.agentId,
       environmentId: config.environmentId,
+      vaultIds: config.vaultIds,
       tenantId: auth.tenantId,
       auth,
     });

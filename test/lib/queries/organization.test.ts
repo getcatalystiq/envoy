@@ -30,12 +30,22 @@ describe("lib/queries/organization", () => {
   });
 
   describe("getAgentConfig", () => {
-    it("returns {agentId, environmentId} when both set", async () => {
-      sqlTemplate.mockResolvedValueOnce([{ agent_id: "agent-42", environment_id: "env-9" }]);
+    it("returns {agentId, environmentId, vaultIds} when set", async () => {
+      sqlTemplate.mockResolvedValueOnce([
+        { agent_id: "agent-42", environment_id: "env-9", vault_id: "vault-7" },
+      ]);
       expect(await getAgentConfig("org-1")).toEqual({
         agentId: "agent-42",
         environmentId: "env-9",
+        vaultIds: ["vault-7"],
       });
+    });
+
+    it("vaultIds is empty when vault_id is unset", async () => {
+      sqlTemplate.mockResolvedValueOnce([
+        { agent_id: "agent-42", environment_id: "env-9", vault_id: null },
+      ]);
+      expect((await getAgentConfig("org-1"))?.vaultIds).toEqual([]);
     });
 
     it("falls back to ANTHROPIC_DEFAULT_ENVIRONMENT_ID when environment_id is null", async () => {
@@ -43,6 +53,7 @@ describe("lib/queries/organization", () => {
       expect(await getAgentConfig("org-1")).toEqual({
         agentId: "agent-42",
         environmentId: ENV_FALLBACK_ENV,
+        vaultIds: [],
       });
     });
 
@@ -83,6 +94,7 @@ describe("lib/queries/organization", () => {
       const text = (strings as TemplateStringsArray).join("");
       expect(text).toContain("agent_id");
       expect(text).toContain("environment_id");
+      expect(text).toContain("vault_id");
       expect(text).not.toContain("twin_api_key");
     });
   });

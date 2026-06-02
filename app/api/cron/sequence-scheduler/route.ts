@@ -46,6 +46,7 @@ async function processEnrollment(
   enrollment: Row,
   agentId: string | null,
   environmentId: string | null,
+  vaultIds: string[],
 ): Promise<Row> {
   const orgId = String(enrollment.organization_id);
   const enrollmentId = String(enrollment.id);
@@ -175,6 +176,7 @@ async function processEnrollment(
         targetData,
         agentId,
         environmentId,
+        vaultIds,
         { maxConcurrent: 5, timeoutMs: AI_TIMEOUT_MS }
       );
       builderContent = personalizationResult.content;
@@ -259,6 +261,7 @@ async function processEnrollment(
       if (!aiResult) {
         aiResult = await runAgentJson(agentId, environmentId, message, {
           timeoutMs: AI_TIMEOUT_MS,
+          vaultIds,
           onSessionCreated: (sessionId) =>
             seqQueries.setStepExecutionAgentSessionId(
               orgId,
@@ -452,6 +455,11 @@ export async function GET(request: Request) {
       (typeof first.environment_id === "string" && first.environment_id.length > 0)
         ? (first.environment_id as string)
         : getEnv().ANTHROPIC_DEFAULT_ENVIRONMENT_ID ?? null;
+    // Per-tenant vault (for the agent's MCP credentials); empty when unset.
+    const vaultIds =
+      typeof first.vault_id === "string" && first.vault_id.length > 0
+        ? [first.vault_id as string]
+        : [];
 
     if (agentId && environmentId) {
       console.log(
@@ -481,7 +489,7 @@ export async function GET(request: Request) {
       active++;
 
       try {
-        return await processEnrollment(enrollment, agentId, environmentId);
+        return await processEnrollment(enrollment, agentId, environmentId, vaultIds);
       } catch (err) {
         console.error(
           `Error processing enrollment ${enrollment.id}:`,
