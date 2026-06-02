@@ -208,6 +208,14 @@ export async function GET(request: Request) {
       console.error(
         `Campaign ${campaign.id}: no environment_id and no ANTHROPIC_DEFAULT_ENVIRONMENT_ID — skipping`,
       );
+      // claimScheduledCampaigns already flipped this campaign to status='active';
+      // since the claim query only reclaims status='scheduled', leaving it active
+      // would strand it forever. Reset so it's retried once the env is configured.
+      await sql`
+        UPDATE campaigns
+        SET status = 'scheduled', processing_started_at = NULL, updated_at = NOW()
+        WHERE id = ${String(campaign.id)}::uuid
+      `;
       continue;
     }
     const result = await executeCampaign(

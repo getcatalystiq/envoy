@@ -237,6 +237,49 @@ describe("runAgentSession / runAgentJson", () => {
     });
   });
 
+  it("idle with stop_reason=requires_action throws 502 (no partial output emitted)", async () => {
+    mocks.stream.mockResolvedValue(
+      scriptedStream([
+        agentMessage('{"body":"half'),
+        { type: "session.status_idle", stop_reason: { type: "requires_action" } },
+      ]),
+    );
+    await expect(runAgentJson(AGENT, ENV, GOAL)).rejects.toMatchObject({ status: 502 });
+  });
+
+  it("idle with stop_reason=retries_exhausted throws 502", async () => {
+    mocks.stream.mockResolvedValue(
+      scriptedStream([
+        agentMessage('{"body":"x"}'),
+        { type: "session.status_idle", stop_reason: { type: "retries_exhausted" } },
+      ]),
+    );
+    await expect(runAgentJson(AGENT, ENV, GOAL)).rejects.toMatchObject({ status: 502 });
+  });
+
+  it("session.error with retry_status=retrying is NOT terminal — keeps reading to a successful idle", async () => {
+    mocks.stream.mockResolvedValue(
+      scriptedStream([
+        { type: "session.error", error: { retry_status: { type: "retrying" }, message: "transient" } },
+        agentMessage('{"body":"recovered"}'),
+        { type: "session.status_idle", stop_reason: { type: "end_turn" } },
+      ]),
+    );
+    expect(await runAgentJson(AGENT, ENV, GOAL)).toEqual({ body: "recovered" });
+  });
+
+  it("session.error with retry_status=terminal throws 502", async () => {
+    mocks.stream.mockResolvedValue(
+      scriptedStream([
+        { type: "session.error", error: { retry_status: { type: "terminal" }, message: "model gone" } },
+      ]),
+    );
+    await expect(runAgentSession(AGENT, ENV, GOAL)).rejects.toMatchObject({
+      status: 502,
+      detail: "model gone",
+    });
+  });
+
   // Note: 429 / transient-5xx retry is handled natively by the SDK's
   // `maxRetries` (the equivalent of the old twinFetch 429 backoff), so it is
   // exercised inside the SDK rather than re-tested here.
@@ -281,22 +324,41 @@ describe("harvestAgentSession", () => {
     };
   }
 
-  it("returns the parsed {body} from a completed (idle) session without sending", async () => {
+  it("completed: parses {body} from an idle session without sending", async () => {
     mocks.retrieve.mockResolvedValue({ id: "sess_9", status: "idle" });
     mocks.eventsList.mockReturnValue(eventList([agentMessage('{"body":"harvested"}')]));
-    expect(await harvestAgentSession("sess_9")).toEqual({ body: "harvested" });
+    expect(await harvestAgentSession("sess_9")).toEqual({
+      state: "completed",
+      output: { body: "harvested" },
+    });
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.send).not.toHaveBeenCalled();
   });
 
-  it("returns null when the session is not idle yet", async () => {
+  it("running: returns {state:'running'} when the session is still in progress (so the caller defers, not double-bills)", async () => {
     mocks.retrieve.mockResolvedValue({ id: "sess_9", status: "running" });
-    expect(await harvestAgentSession("sess_9")).toBeNull();
+    expect(await harvestAgentSession("sess_9")).toEqual({ state: "running" });
   });
 
-  it("returns null when retrieve throws", async () => {
+  it("unavailable: a terminated session is not usable", async () => {
+    mocks.retrieve.mockResolvedValue({ id: "sess_9", status: "terminated" });
+    expect(await harvestAgentSession("sess_9")).toEqual({ state: "unavailable" });
+  });
+
+  it("unavailable: an idle session that ended on requires_action is rejected (partial output not used)", async () => {
+    mocks.retrieve.mockResolvedValue({ id: "sess_9", status: "idle" });
+    mocks.eventsList.mockReturnValue(
+      eventList([
+        agentMessage('{"body":"half'),
+        { type: "session.status_idle", stop_reason: { type: "requires_action" } },
+      ]),
+    );
+    expect(await harvestAgentSession("sess_9")).toEqual({ state: "unavailable" });
+  });
+
+  it("unavailable: retrieve throwing yields unavailable (caller runs fresh)", async () => {
     mocks.retrieve.mockRejectedValue(new Error("gone"));
-    expect(await harvestAgentSession("sess_9")).toBeNull();
+    expect(await harvestAgentSession("sess_9")).toEqual({ state: "unavailable" });
   });
 });
 

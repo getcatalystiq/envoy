@@ -37,6 +37,9 @@ async function migrate() {
       .filter((f) => f.endsWith(".sql"))
       .sort();
 
+    const RECORD_MIGRATION =
+      "INSERT INTO schema_migrations (version, description) VALUES ($1, $2) ON CONFLICT (version) DO NOTHING";
+
     let ran = 0;
     for (const file of files) {
       const version = file.split("_")[0];
@@ -47,11 +50,31 @@ async function migrate() {
       const sql = readFileSync(join(migrationsDir, file), "utf-8");
       console.log(`Running migration: ${file}`);
 
-      await pool.query(sql);
-      await pool.query(
-        "INSERT INTO schema_migrations (version, description) VALUES ($1, $2) ON CONFLICT (version) DO NOTHING",
-        [version, file]
-      );
+      // Run each migration in its own transaction so a partial DDL failure rolls
+      // back atomically (and `SET LOCAL` inside the file actually takes effect —
+      // it is a no-op outside a transaction). Migrations that manage their own
+      // transaction (a standalone `BEGIN;` ... `COMMIT;` — distinct from a
+      // PL/pgSQL `DO $$ BEGIN ... END $$` block) are run as-is to avoid nesting.
+      const selfManaged = /^\s*BEGIN\s*;/im.test(sql);
+      const client = await pool.connect();
+      try {
+        if (selfManaged) {
+          await client.query(sql);
+          await client.query(RECORD_MIGRATION, [version, file]);
+        } else {
+          await client.query("BEGIN");
+          try {
+            await client.query(sql);
+            await client.query(RECORD_MIGRATION, [version, file]);
+            await client.query("COMMIT");
+          } catch (err) {
+            await client.query("ROLLBACK");
+            throw err;
+          }
+        }
+      } finally {
+        client.release();
+      }
       ran++;
     }
 

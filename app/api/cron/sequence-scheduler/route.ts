@@ -234,10 +234,27 @@ async function processEnrollment(
 
       let aiResult: Record<string, unknown> | null = null;
       if (inflightSessionId) {
-        console.log(
-          `Harvesting inflight session ${inflightSessionId} for enrollment ${enrollmentId} step ${stepPosition}`
-        );
-        aiResult = await harvestAgentSession(inflightSessionId);
+        const harvested = await harvestAgentSession(inflightSessionId);
+        if (harvested.state === "running") {
+          // The prior session is still in progress. Defer to the next tick with
+          // the marker intact — do NOT create a second (billed) session for the
+          // same (enrollment, step).
+          console.log(
+            `Inflight session ${inflightSessionId} still running for enrollment ${enrollmentId} step ${stepPosition}; deferring to next tick`
+          );
+          return {
+            enrollment_id: enrollmentId,
+            action: "deferred",
+            reason: "session_running",
+          };
+        }
+        if (harvested.state === "completed") {
+          console.log(
+            `Harvested inflight session ${inflightSessionId} for enrollment ${enrollmentId} step ${stepPosition}`
+          );
+          aiResult = harvested.output;
+        }
+        // state === "unavailable" → fall through to a fresh run
       }
       if (!aiResult) {
         aiResult = await runAgentJson(agentId, environmentId, message, {

@@ -149,25 +149,38 @@ export async function runAgentSession(
       ],
     });
 
+    let idleReason: string | undefined;
     for await (const event of stream as AsyncIterable<AnyEvent>) {
-      switch (event.type) {
-        case "agent.message":
-          messages.push(messageText(event));
-          break;
-        case "session.status_idle":
-          // Explicit terminal signal.
-          stream.controller.abort();
-          break;
-        case "session.error": {
-          const msg =
-            ((event.error as { message?: string } | undefined)?.message) ??
-            "Agent session error";
-          throw new AgentError(msg, 502, msg);
-        }
-        default:
-          break;
+      if (event.type === "agent.message") {
+        messages.push(messageText(event));
+        continue;
       }
-      if (event.type === "session.status_idle") break;
+      if (event.type === "session.error") {
+        // The server auto-recovers a `retrying` error — keep reading rather than
+        // aborting a turn it intends to finish. Only `exhausted`/`terminal` (or
+        // an unknown shape) is a real failure.
+        const retry = (event.error as { retry_status?: { type?: string } } | undefined)
+          ?.retry_status?.type;
+        if (retry === "retrying") continue;
+        const msg =
+          (event.error as { message?: string } | undefined)?.message ??
+          "Agent session error";
+        throw new AgentError(msg, 502, msg);
+      }
+      if (event.type === "session.status_idle") {
+        // Terminal signal. Only `end_turn` means the agent finished its turn with
+        // usable output; `requires_action` (awaiting input) and `retries_exhausted`
+        // (gave up) leave partial/no output we must not treat as the answer.
+        idleReason = (event.stop_reason as { type?: string } | undefined)?.type;
+        stream.controller.abort();
+        break;
+      }
+    }
+    if (idleReason && idleReason !== "end_turn") {
+      throw new AgentError(
+        `Agent ended without completing its turn (stop_reason=${idleReason})`,
+        502,
+      );
     }
   } catch (err) {
     await archiveQuietly(client, sessionId);
@@ -198,32 +211,63 @@ export async function runAgentJson(
 }
 
 /**
- * Crash-resume harvest: given a previously-created session id, fetch its
- * persisted events and return the parsed `{body|subject,...}` output if the
- * session reached `idle` with usable output — WITHOUT creating a new session or
- * sending a new (billed) turn. Returns null when the session can't be read,
- * isn't idle yet, or produced nothing usable (caller then runs fresh).
- * `events.list` defaults to chronological (`asc`); `pickOutput` seeks newest-
- * first regardless.
+ * Outcome of a crash-resume harvest:
+ *  - `completed`: the prior session finished (end_turn) with usable output — use it.
+ *  - `running`: the prior session is still in progress — the caller must DEFER
+ *    (leave the marker, retry next tick), NOT create a second billed session.
+ *  - `unavailable`: gone / terminated / ended without usable output — the caller
+ *    runs a fresh session.
+ */
+export type HarvestResult =
+  | { state: "completed"; output: Record<string, unknown> }
+  | { state: "running" }
+  | { state: "unavailable" };
+
+/**
+ * Crash-resume harvest: given a previously-created session id, decide whether it
+ * already produced usable output, is still running, or is unavailable — WITHOUT
+ * creating a new session or sending a new (billed) turn. Distinguishing `running`
+ * matters: returning "no result" for a still-running session would make the
+ * caller fork a second billed session (the timeout window can equal the cron
+ * re-claim window). Only an `idle` session that ended with `stop_reason=end_turn`
+ * and parseable output counts as completed. `events.list` defaults to
+ * chronological (`asc`); `pickOutput` seeks newest-first regardless.
  */
 export async function harvestAgentSession(
   sessionId: string,
-): Promise<Record<string, unknown> | null> {
+): Promise<HarvestResult> {
   const client = getClient();
+  let status: string | undefined;
   try {
     const session = await client.beta.sessions.retrieve(sessionId);
-    if ((session as { status?: string }).status !== "idle") return null;
+    status = (session as { status?: string }).status;
+  } catch (err) {
+    console.warn(`harvestAgentSession: retrieve failed for ${sessionId}:`, err);
+    return { state: "unavailable" };
+  }
+  if (status === "running" || status === "rescheduling") return { state: "running" };
+  if (status !== "idle") return { state: "unavailable" }; // terminated / unknown
+
+  try {
     const messages: string[] = [];
+    let idleReason: string | undefined;
     for await (const event of client.beta.sessions.events.list(
       sessionId,
     ) as AsyncIterable<AnyEvent>) {
       if (event.type === "agent.message") messages.push(messageText(event));
+      else if (event.type === "session.status_idle") {
+        idleReason = (event.stop_reason as { type?: string } | undefined)?.type;
+      }
     }
+    // Only accept a turn that ended naturally; requires_action/retries_exhausted
+    // leave partial output we must not send.
+    if (idleReason && idleReason !== "end_turn") return { state: "unavailable" };
     const output = pickOutput(messages);
-    if (!output.trim()) return null;
-    return parseJsonResponse(output);
-  } catch {
-    return null;
+    if (!output.trim()) return { state: "unavailable" };
+    return { state: "completed", output: parseJsonResponse(output) };
+  } catch (err) {
+    console.warn(`harvestAgentSession: failed to harvest ${sessionId}:`, err);
+    return { state: "unavailable" };
   }
 }
 

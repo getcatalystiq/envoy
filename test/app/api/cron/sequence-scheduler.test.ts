@@ -12,7 +12,7 @@ vi.mock("@/lib/db", () => {
 
 vi.mock("@/lib/agent-session", () => ({
   runAgentJson: vi.fn(),
-  harvestAgentSession: vi.fn(() => null),
+  harvestAgentSession: vi.fn(() => ({ state: "unavailable" })),
 }));
 
 vi.mock("@/lib/block-compiler", () => ({

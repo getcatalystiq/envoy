@@ -13,12 +13,17 @@ vi.mock("@/lib/agent-session", () => ({
   generateContent: vi.fn(),
 }));
 
+vi.mock("@/lib/env", () => ({
+  getEnv: vi.fn(() => ({ ANTHROPIC_DEFAULT_ENVIRONMENT_ID: "env_default" })),
+}));
+
 vi.mock("@/lib/queries/system", () => ({
   claimScheduledCampaigns: vi.fn(),
 }));
 
 import { verifyCronSecret } from "@/lib/cron-utils";
 import { sql } from "@/lib/db";
+import { getEnv } from "@/lib/env";
 import { generateContent } from "@/lib/agent-session";
 import { claimScheduledCampaigns } from "@/lib/queries/system";
 import { GET } from "@/app/api/cron/campaign-executor/route";
@@ -28,11 +33,41 @@ const sqlMock = sql as unknown as ReturnType<typeof vi.fn>;
 const sqlQuery = (sql as unknown as { query: ReturnType<typeof vi.fn> }).query;
 const claimMock = claimScheduledCampaigns as unknown as ReturnType<typeof vi.fn>;
 const generateContentMock = generateContent as unknown as ReturnType<typeof vi.fn>;
+const getEnvMock = getEnv as unknown as ReturnType<typeof vi.fn>;
 
 describe("/api/cron/campaign-executor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     verifyMock.mockReturnValue(null);
+    getEnvMock.mockReturnValue({ ANTHROPIC_DEFAULT_ENVIRONMENT_ID: "env_default" });
+  });
+
+  it("uses the per-org environment_id when present", async () => {
+    claimMock.mockResolvedValueOnce([
+      { id: "c1", organization_id: "org-1", agent_id: "agent-1", environment_id: "env-org" },
+    ]);
+    sqlMock.mockResolvedValueOnce([{ id: "t1", email: "a@b.com" }]);
+    generateContentMock.mockResolvedValue({ subject: "S", body: "B" });
+    sqlQuery.mockResolvedValueOnce({ rows: [] });
+    await GET(new Request("http://x/api/cron/campaign-executor"));
+    expect(generateContentMock.mock.calls[0][1]).toBe("env-org");
+  });
+
+  it("resets a campaign to 'scheduled' (not stranded 'active') when no environment_id resolves", async () => {
+    getEnvMock.mockReturnValue({ ANTHROPIC_DEFAULT_ENVIRONMENT_ID: undefined });
+    claimMock.mockResolvedValueOnce([
+      { id: "c1", organization_id: "org-1", agent_id: "agent-1" }, // no environment_id
+    ]);
+    const res = await GET(new Request("http://x/api/cron/campaign-executor"));
+    const body = await res.json();
+    expect(body.campaigns_processed).toBe(0);
+    expect(generateContentMock).not.toHaveBeenCalled();
+    // The claimed (active) campaign is reset to scheduled so it isn't stranded.
+    const resetCall = sqlMock.mock.calls.find((c) => {
+      const text = (c[0] as TemplateStringsArray | undefined)?.join?.("") ?? "";
+      return text.includes("UPDATE campaigns") && text.includes("'scheduled'");
+    });
+    expect(resetCall).toBeTruthy();
   });
 
   it("returns auth error when cron secret invalid", async () => {

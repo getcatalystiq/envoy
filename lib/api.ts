@@ -4,6 +4,20 @@ import { getAccessToken, logout, refreshToken } from '@/lib/auth-client';
 
 const API_URL = '/api/v1';
 
+/**
+ * Error thrown by the API client. Carries the HTTP `status` so callers can
+ * branch on it (e.g. 503 "not configured" vs 409 "already in use") instead of
+ * string-matching the message.
+ */
+export class ApiError extends Error {
+  readonly status?: number;
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 async function request<T>(
   endpoint: string,
   options: RequestInit = {},
@@ -44,9 +58,10 @@ async function request<T>(
       }
     }
     const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-    const e = new Error(error.error || error.detail || error.message || 'Request failed');
-    (e as Error & { status?: number }).status = response.status;
-    throw e;
+    throw new ApiError(
+      error.error || error.detail || error.message || 'Request failed',
+      response.status,
+    );
   }
 
   // Handle 204 No Content responses
@@ -438,6 +453,8 @@ export interface OrganizationSettings {
   email_domain: string | null;
   email_domain_verified: boolean;
   email_from_name: string | null;
+  agent_id: string | null;
+  environment_id: string | null;
   dns_records: DNSRecord[];
 }
 
