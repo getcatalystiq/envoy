@@ -744,26 +744,6 @@ export type ManualGraduationRequest = z.infer<
   typeof manualGraduationRequestSchema
 >;
 
-// ---------------------------------------------------------------------------
-// Twin schemas
-// ---------------------------------------------------------------------------
-
-export const twinUpdateInstructionsRequestSchema = z.object({
-  content: z.string().min(1).max(100_000),
-});
-export type TwinUpdateInstructionsRequest = z.infer<
-  typeof twinUpdateInstructionsRequestSchema
->;
-
-export const twinListRunsQuerySchema = z.object({
-  page: z.number().int().min(1).optional(),
-  page_size: z.number().int().min(1).max(200).optional(),
-  filter_status: z
-    .enum(["queued", "running", "finished", "failed", "cancelled", "canceled"])
-    .optional(),
-});
-export type TwinListRunsQuery = z.infer<typeof twinListRunsQuerySchema>;
-
 export const graduationEventResponseSchema = z.object({
   id: z.string().uuid(),
   target_id: z.string().uuid().nullable(),

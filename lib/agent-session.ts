@@ -328,14 +328,17 @@ export async function getAgentInstructions(agentId: string): Promise<string | nu
   }
 }
 
-/** Set the agent's system prompt. */
+/** Set the agent's system prompt. `agents.update` uses optimistic concurrency
+ * (it requires the agent's current `version`), so we read it first. */
 export async function updateAgentInstructions(
   agentId: string,
   system: string,
 ): Promise<void> {
   const client = getClient();
   try {
-    await client.beta.agents.update(agentId, { system });
+    const current = await client.beta.agents.retrieve(agentId);
+    const version = (current as { version: number }).version;
+    await client.beta.agents.update(agentId, { version, system });
   } catch (err) {
     throw toAgentError(err, "Failed to update agent instructions");
   }

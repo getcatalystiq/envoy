@@ -60,7 +60,7 @@ vi.mock("@/lib/queries/analytics", () => ({
 vi.mock("@/lib/queries/organization", () => ({
   getOrganization: vi.fn(),
   updateOrganization: vi.fn(),
-  getTwinAgentId: vi.fn(),
+  getAgentConfig: vi.fn(),
 }));
 
 import { requireAdmin } from "@/lib/admin-auth";

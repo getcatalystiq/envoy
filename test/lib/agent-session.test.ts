@@ -349,9 +349,13 @@ describe("agent instructions", () => {
     expect(await getAgentInstructions(AGENT)).toBe("Be helpful.");
   });
 
-  it("writes the agent system prompt via agents.update({ system })", async () => {
+  it("writes the agent system prompt via agents.update (with current version)", async () => {
+    mocks.agentsRetrieve.mockResolvedValue({ id: AGENT, version: 3, system: "old" });
     await updateAgentInstructions(AGENT, "New prompt");
-    expect(mocks.agentsUpdate).toHaveBeenCalledWith(AGENT, { system: "New prompt" });
+    expect(mocks.agentsUpdate).toHaveBeenCalledWith(AGENT, {
+      version: 3,
+      system: "New prompt",
+    });
   });
 });
 

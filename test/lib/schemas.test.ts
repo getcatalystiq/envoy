@@ -7,8 +7,6 @@ import {
   campaignCreateSchema,
   sendRequestSchema,
   analyticsQuerySchema,
-  twinUpdateInstructionsRequestSchema,
-  twinListRunsQuerySchema,
 } from "@/lib/schemas";
 
 describe("lib/schemas", () => {
@@ -139,33 +137,4 @@ describe("lib/schemas", () => {
     });
   });
 
-  describe("twin* schemas", () => {
-    it("twinUpdateInstructions requires non-empty content", () => {
-      expect(
-        twinUpdateInstructionsRequestSchema.safeParse({ content: "" }).success,
-      ).toBe(false);
-      expect(
-        twinUpdateInstructionsRequestSchema.safeParse({ content: "do the thing" }).success,
-      ).toBe(true);
-    });
-
-    it("twinUpdateInstructions enforces max length", () => {
-      const tooLong = "x".repeat(100_001);
-      expect(
-        twinUpdateInstructionsRequestSchema.safeParse({ content: tooLong }).success,
-      ).toBe(false);
-    });
-
-    it("twinListRunsQuery validates page/page_size positive ints", () => {
-      expect(
-        twinListRunsQuerySchema.safeParse({ page: 0 }).success,
-      ).toBe(false);
-      expect(
-        twinListRunsQuerySchema.safeParse({ page: 1, page_size: 50 }).success,
-      ).toBe(true);
-      expect(
-        twinListRunsQuerySchema.safeParse({ page_size: 9999 }).success,
-      ).toBe(false);
-    });
-  });
 });
