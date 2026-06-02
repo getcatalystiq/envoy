@@ -9,7 +9,7 @@ vi.mock("@/lib/db", () => {
   return { sql: Object.assign(sql, { query: vi.fn() }) };
 });
 
-vi.mock("@/lib/twin", () => ({
+vi.mock("@/lib/agent-session", () => ({
   generateContent: vi.fn(),
 }));
 
@@ -19,7 +19,7 @@ vi.mock("@/lib/queries/system", () => ({
 
 import { verifyCronSecret } from "@/lib/cron-utils";
 import { sql } from "@/lib/db";
-import { generateContent } from "@/lib/twin";
+import { generateContent } from "@/lib/agent-session";
 import { claimScheduledCampaigns } from "@/lib/queries/system";
 import { GET } from "@/app/api/cron/campaign-executor/route";
 
@@ -53,7 +53,7 @@ describe("/api/cron/campaign-executor", () => {
       {
         id: "campaign-1",
         organization_id: "org-1",
-        twin_agent_id: "agent-1",
+        agent_id: "agent-1",
       },
     ]);
     // Targets fetch
@@ -77,7 +77,7 @@ describe("/api/cron/campaign-executor", () => {
       {
         id: "campaign-1",
         organization_id: "org-1",
-        twin_agent_id: "agent-1",
+        agent_id: "agent-1",
       },
     ]);
     sqlMock.mockResolvedValueOnce([
@@ -96,7 +96,7 @@ describe("/api/cron/campaign-executor", () => {
 
   it("counts Twin generateContent rejection as failure (no INSERT)", async () => {
     claimMock.mockResolvedValueOnce([
-      { id: "c1", organization_id: "org-1", twin_agent_id: "agent-1" },
+      { id: "c1", organization_id: "org-1", agent_id: "agent-1" },
     ]);
     sqlMock.mockResolvedValueOnce([{ id: "t1", email: "a@b.com" }]);
     generateContentMock.mockRejectedValueOnce(new Error("Twin down"));
@@ -111,7 +111,7 @@ describe("/api/cron/campaign-executor", () => {
 
   it("keyset-paginates: a full page (50) triggers a second fetch and per-page flush", async () => {
     claimMock.mockResolvedValueOnce([
-      { id: "c1", organization_id: "org-1", twin_agent_id: "agent-1" },
+      { id: "c1", organization_id: "org-1", agent_id: "agent-1" },
     ]);
     // BATCH_SIZE = 50. A full first page must trigger a second SELECT.
     const fullPage = Array.from({ length: 50 }, (_, i) => ({
@@ -135,7 +135,7 @@ describe("/api/cron/campaign-executor", () => {
 
   it("stops processing further campaigns is bounded; single small campaign completes without timeout flag", async () => {
     claimMock.mockResolvedValueOnce([
-      { id: "c1", organization_id: "org-1", twin_agent_id: "agent-1" },
+      { id: "c1", organization_id: "org-1", agent_id: "agent-1" },
     ]);
     sqlMock.mockResolvedValueOnce([{ id: "t1", email: "a@b.com" }]);
     generateContentMock.mockResolvedValue({ subject: "S", body: "B" });
