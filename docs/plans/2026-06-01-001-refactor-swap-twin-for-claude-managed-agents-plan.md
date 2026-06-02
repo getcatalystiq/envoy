@@ -1,6 +1,6 @@
 ---
 title: "refactor: Swap Twin (build.twin.so) for Claude Managed Agents"
-status: active
+status: completed
 type: refactor
 date: 2026-06-01
 origin: none (solo plan)
