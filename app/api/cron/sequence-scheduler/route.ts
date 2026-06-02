@@ -1,8 +1,8 @@
 import { verifyCronSecret } from "@/lib/cron-utils";
 import { sql } from "@/lib/db";
-import * as twin from "@/lib/twin";
-import { runAgentJson, startRun } from "@/lib/twin";
-import { formatTargetForPrompt } from "@/lib/twin-sanitize";
+import { getEnv } from "@/lib/env";
+import { runAgentJson, harvestAgentSession } from "@/lib/agent-session";
+import { formatTargetForPrompt } from "@/lib/agent-sanitize";
 import { compileBuilderContent } from "@/lib/block-compiler";
 import { wrapEmailBody } from "@/lib/email";
 import {
@@ -18,11 +18,11 @@ import { jsonResponse } from "@/lib/utils";
 export const maxDuration = 800;
 
 const BATCH_SIZE = 100;
-// Lower fan-out to reduce concurrent polling pressure on Twin.
+// Lower fan-out to bound concurrent Managed Agents sessions (each spins an
+// isolated sandbox). See the plan's scale risk (R-G) before raising this.
 const MAX_CONCURRENT_PROCESSING = 5;
-// Give polling realistic budget headroom; per-block AI calls poll Twin.
-// 10 minutes — Twin personalization runs that do company/LinkedIn enrichment can
-// run for several minutes; the cron has maxDuration 800s of headroom.
+// 10 minutes — personalization sessions that do enrichment can run for several
+// minutes; the cron has maxDuration 800s of headroom.
 const AI_TIMEOUT_MS = 600_000;
 const GUARD_TIMEOUT_MS = 780_000; // 780s hard stop
 
@@ -45,7 +45,7 @@ function checkExitConditions(
 async function processEnrollment(
   enrollment: Row,
   agentId: string | null,
-  apiKey: string | undefined,
+  environmentId: string | null,
 ): Promise<Row> {
   const orgId = String(enrollment.organization_id);
   const enrollmentId = String(enrollment.id);
@@ -158,7 +158,7 @@ async function processEnrollment(
 
     // Process block-level AI personalization if configured
     const hasPersonalized = hasPersonalizedBlocks(builderContent);
-    if (hasPersonalized && agentId) {
+    if (hasPersonalized && agentId && environmentId) {
       console.log(
         `Starting AI personalization for enrollment ${enrollmentId} (${targetEmail})`
       );
@@ -174,7 +174,7 @@ async function processEnrollment(
         builderContent,
         targetData,
         agentId,
-        apiKey,
+        environmentId,
         { maxConcurrent: 5, timeoutMs: AI_TIMEOUT_MS }
       );
       builderContent = personalizationResult.content;
@@ -187,9 +187,9 @@ async function processEnrollment(
           `Personalization succeeded for enrollment ${enrollmentId}`
         );
       }
-    } else if (hasPersonalized && !agentId) {
+    } else if (hasPersonalized && !(agentId && environmentId)) {
       console.warn(
-        `Enrollment ${enrollmentId} has personalized blocks but Twin agent not configured for org ${orgId}`
+        `Enrollment ${enrollmentId} has personalized blocks but AI agent not configured for org ${orgId}`
       );
     }
 
@@ -208,11 +208,11 @@ async function processEnrollment(
   // The output is unreviewed raw AI text, so we HTML-escape it and wrap it
   // through the same email body pipeline used for builder_content.
   //
-  // Idempotency: if a prior cron tick already kicked off a Twin run for this
-  // (enrollment, step), resume polling that run instead of starting a new one.
-  // Otherwise startRun ourselves and persist the run_id BEFORE the long poll
-  // so a crash mid-poll doesn't double-bill on the next tick.
-  if (agentId && !body) {
+  // Idempotency: if a prior cron tick already created a session for this
+  // (enrollment, step), harvest that session's output instead of creating a
+  // new (billed) one. Otherwise create a fresh session, persisting its id BEFORE
+  // the billed turn (via onSessionCreated) so a crash leaves a resumable marker.
+  if (agentId && environmentId && !body) {
     try {
       const target = {
         email: enrollment.target_email,
@@ -226,45 +226,48 @@ async function processEnrollment(
         `Respond with JSON containing a "body" field with the email content.`;
 
       const stepPosition = enrollment.current_step_position;
-      let runId = await seqQueries.getInflightTwinRunId(
+      const inflightSessionId = await seqQueries.getInflightAgentSessionId(
         orgId,
         enrollmentId,
         stepPosition
       );
 
-      if (runId) {
-        console.log(
-          `Resuming inflight Twin run ${runId} for enrollment ${enrollmentId} step ${stepPosition}`
-        );
-      } else {
-        const startedRun = await startRun(agentId, {
-          runMode: "run",
-          userMessage: message,
-          apiKey,
-        });
-        runId = startedRun.run_id;
-        try {
-          await seqQueries.setStepExecutionTwinRunId(
-            orgId,
-            enrollmentId,
-            stepPosition,
-            runId
+      let aiResult: Record<string, unknown> | null = null;
+      if (inflightSessionId) {
+        const harvested = await harvestAgentSession(inflightSessionId);
+        if (harvested.state === "running") {
+          // The prior session is still in progress. Defer to the next tick with
+          // the marker intact — do NOT create a second (billed) session for the
+          // same (enrollment, step).
+          console.log(
+            `Inflight session ${inflightSessionId} still running for enrollment ${enrollmentId} step ${stepPosition}; deferring to next tick`
           );
-        } catch (persistErr) {
-          // DB couldn't track us — cancel the started run so it doesn't keep
-          // running on the Twin side. We re-throw so the outer catch logs.
-          await twin
-            .cancelRun(agentId, runId, "persist-failed", { apiKey })
-            .catch(() => {});
-          throw persistErr;
+          return {
+            enrollment_id: enrollmentId,
+            action: "deferred",
+            reason: "session_running",
+          };
         }
+        if (harvested.state === "completed") {
+          console.log(
+            `Harvested inflight session ${inflightSessionId} for enrollment ${enrollmentId} step ${stepPosition}`
+          );
+          aiResult = harvested.output;
+        }
+        // state === "unavailable" → fall through to a fresh run
       }
-
-      const aiResult = await runAgentJson(agentId, message, {
-        existingRunId: runId,
-        apiKey,
-        timeoutMs: AI_TIMEOUT_MS,
-      });
+      if (!aiResult) {
+        aiResult = await runAgentJson(agentId, environmentId, message, {
+          timeoutMs: AI_TIMEOUT_MS,
+          onSessionCreated: (sessionId) =>
+            seqQueries.setStepExecutionAgentSessionId(
+              orgId,
+              enrollmentId,
+              stepPosition,
+              sessionId
+            ),
+        });
+      }
       const rawBody =
         (aiResult.body as string) || (aiResult.content as string) || "";
       if (rawBody) {
@@ -276,22 +279,21 @@ async function processEnrollment(
         body = wrapEmailBody(escaped);
       }
       // Note: the inflight marker is cleared at the end of processEnrollment
-      // (after outbox.create + recordExecution succeed). This way a crash
-      // between AI generation and outbox persistence leaves the marker in
-      // place so the next tick resumes the same Twin run instead of
-      // double-billing.
+      // (after outbox.create + recordExecution succeed). A crash between AI
+      // generation and outbox persistence leaves the marker so the next tick
+      // harvests the same session instead of creating a new (billed) one.
     } catch (err) {
       console.error(
         `AI content generation failed for enrollment ${enrollmentId}:`,
         err
       );
-      // Leave the twin_run_id in place so the next tick can resume it.
+      // Leave the agent_session_id in place so the next tick can harvest it.
     }
   }
 
   // If we used the AI path but it produced no body, skip the send and
   // advance the enrollment rather than queuing an empty email.
-  if (agentId && !body) {
+  if (agentId && environmentId && !body) {
     console.warn(
       `Enrollment ${enrollmentId} has empty body after AI generation — skipping send and advancing step`
     );
@@ -302,7 +304,7 @@ async function processEnrollment(
       { status: "skipped" }
     );
     // Clear the inflight marker; the AI run produced no usable output.
-    await seqQueries.clearStepExecutionTwinRunId(
+    await seqQueries.clearStepExecutionAgentSessionId(
       orgId,
       enrollmentId,
       enrollment.current_step_position
@@ -374,7 +376,7 @@ async function processEnrollment(
   // Outbox + execution successfully persisted: now safe to clear any
   // inflight Twin run marker. The clear is a no-op when no tracking row
   // exists (DELETE WHERE matches zero rows).
-  await seqQueries.clearStepExecutionTwinRunId(
+  await seqQueries.clearStepExecutionAgentSessionId(
     orgId,
     enrollmentId,
     enrollment.current_step_position
@@ -444,21 +446,20 @@ export async function GET(request: Request) {
     }
 
     const first = orgEnrollmentList[0];
-    const agentId = first.twin_agent_id || null;
-    // Per-org Twin API key overrides the env-var fallback. Pass undefined and
-    // let lib/twin's twinFetch read env.TWIN_API_KEY when this is null/empty.
-    const apiKey =
-      (typeof first.twin_api_key === "string" && first.twin_api_key.length > 0)
-        ? (first.twin_api_key as string)
-        : undefined;
+    const agentId = first.agent_id || null;
+    // environment_id falls back to the deployment default (required outside dev).
+    const environmentId =
+      (typeof first.environment_id === "string" && first.environment_id.length > 0)
+        ? (first.environment_id as string)
+        : getEnv().ANTHROPIC_DEFAULT_ENVIRONMENT_ID ?? null;
 
-    if (agentId) {
+    if (agentId && environmentId) {
       console.log(
-        `Twin agent configured for org ${orgId} (agent=${agentId})`
+        `AI agent configured for org ${orgId} (agent=${agentId})`
       );
     } else {
       console.warn(
-        `Twin agent NOT configured for org ${orgId} - AI personalization disabled`
+        `AI agent NOT configured for org ${orgId} - AI personalization disabled`
       );
     }
 
@@ -480,7 +481,7 @@ export async function GET(request: Request) {
       active++;
 
       try {
-        return await processEnrollment(enrollment, agentId, apiKey);
+        return await processEnrollment(enrollment, agentId, environmentId);
       } catch (err) {
         console.error(
           `Error processing enrollment ${enrollment.id}:`,

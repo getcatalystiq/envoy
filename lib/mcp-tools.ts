@@ -2,10 +2,10 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import { sql, withTransaction } from "@/lib/db";
-import * as twin from "@/lib/twin";
-import { TwinError } from "@/lib/twin";
-import { formatTargetForPrompt } from "@/lib/twin-sanitize";
-import { getTwinAgentId, resolveTwinApiKey } from "@/lib/queries/organization";
+import * as agent from "@/lib/agent-session";
+import { AgentError } from "@/lib/agent-session";
+import { formatTargetForPrompt } from "@/lib/agent-sanitize";
+import { getAgentConfig } from "@/lib/queries/organization";
 
  
 type Extra = RequestHandlerExtra<any, any>;
@@ -67,8 +67,6 @@ function errorResult(message: string) {
     isError: true,
   };
 }
-
-const getAgentId = getTwinAgentId;
 
 export function registerTools(server: McpServer) {
   // --- search_targets ---
@@ -265,22 +263,19 @@ export function registerTools(server: McpServer) {
       if (targets.length === 0) return errorResult("Target not found.");
 
       const target = targets[0];
-      const [agentId, apiKey] = await Promise.all([
-        getAgentId(tenantId),
-        resolveTwinApiKey(tenantId),
-      ]);
-      if (!agentId) return errorResult("Twin agent not configured.");
+      const config = await getAgentConfig(tenantId);
+      if (!config) return errorResult("AI agent not configured.");
 
       let result: Record<string, unknown>;
       try {
-        result = await twin.generateContent(
-          agentId,
+        result = await agent.generateContent(
+          config.agentId,
+          config.environmentId,
           target as Record<string, unknown>,
           args.content_type,
-          { apiKey },
         );
       } catch (err) {
-        if (err instanceof TwinError) {
+        if (err instanceof AgentError) {
           return errorResult(`AI generation failed: ${err.message}`);
         }
         throw err;
@@ -1015,11 +1010,8 @@ export function registerTools(server: McpServer) {
         return errorResult("Personalization is not enabled for this block.");
       }
 
-      const [agentId, apiKey] = await Promise.all([
-        getAgentId(tenantId),
-        resolveTwinApiKey(tenantId),
-      ]);
-      if (!agentId) return errorResult("Twin agent not configured.");
+      const config = await getAgentConfig(tenantId);
+      if (!config) return errorResult("AI agent not configured.");
 
       const message =
         `Preview personalization for this email block.\n\n` +
@@ -1029,9 +1021,9 @@ export function registerTools(server: McpServer) {
         `Respond with JSON containing a "body" field with the personalized preview.`;
       let result: Record<string, unknown>;
       try {
-        result = await twin.runAgentJson(agentId, message, { apiKey });
+        result = await agent.runAgentJson(config.agentId, config.environmentId, message);
       } catch (err) {
-        if (err instanceof TwinError) {
+        if (err instanceof AgentError) {
           return errorResult(`AI generation failed: ${err.message}`);
         }
         throw err;

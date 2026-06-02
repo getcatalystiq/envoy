@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeTargetForTwin } from "@/lib/twin-sanitize";
+import { sanitizeTargetForAgent } from "@/lib/agent-sanitize";
 
-describe("sanitizeTargetForTwin", () => {
+describe("sanitizeTargetForAgent", () => {
   it("keeps only allowlisted PII fields, dropping internal columns", () => {
     const row = {
       id: "uuid-123",
@@ -19,7 +19,7 @@ describe("sanitizeTargetForTwin", () => {
       role: "Engineer",
       phone: "555-0000",
     };
-    const out = sanitizeTargetForTwin(row);
+    const out = sanitizeTargetForAgent(row);
     expect(out).toEqual({
       email: "a@b.com",
       first_name: "Ada",
@@ -44,7 +44,7 @@ describe("sanitizeTargetForTwin", () => {
   });
 
   it("drops arbitrary custom_fields entirely", () => {
-    const out = sanitizeTargetForTwin({
+    const out = sanitizeTargetForAgent({
       email: "a@b.com",
       custom_fields: { ssn: "123-45-6789", api_token: "secret" },
     });
@@ -54,18 +54,18 @@ describe("sanitizeTargetForTwin", () => {
   });
 
   it("clamps allowlisted strings to 100 chars", () => {
-    const out = sanitizeTargetForTwin({ company: "x".repeat(500) });
+    const out = sanitizeTargetForAgent({ company: "x".repeat(500) });
     expect((out.company as string).length).toBe(100);
   });
 
   it("keeps lifecycle_stage including the falsy 0 stage", () => {
-    expect(sanitizeTargetForTwin({ lifecycle_stage: 0 }).lifecycle_stage).toBe(0);
-    expect(sanitizeTargetForTwin({ lifecycle_stage: 3 }).lifecycle_stage).toBe(3);
-    expect(sanitizeTargetForTwin({}).lifecycle_stage).toBeUndefined();
+    expect(sanitizeTargetForAgent({ lifecycle_stage: 0 }).lifecycle_stage).toBe(0);
+    expect(sanitizeTargetForAgent({ lifecycle_stage: 3 }).lifecycle_stage).toBe(3);
+    expect(sanitizeTargetForAgent({}).lifecycle_stage).toBeUndefined();
   });
 
   it("clamps metadata strings to 500, arrays to 20, and drops nested objects", () => {
-    const out = sanitizeTargetForTwin({
+    const out = sanitizeTargetForAgent({
       metadata: {
         notes: "y".repeat(900),
         score: 42,
@@ -85,12 +85,12 @@ describe("sanitizeTargetForTwin", () => {
   });
 
   it("parses metadata supplied as a JSON string", () => {
-    const out = sanitizeTargetForTwin({ metadata: JSON.stringify({ industry: "fintech" }) });
+    const out = sanitizeTargetForAgent({ metadata: JSON.stringify({ industry: "fintech" }) });
     expect((out.metadata as Record<string, unknown>).industry).toBe("fintech");
   });
 
   it("omits metadata when it has no usable scalar values", () => {
-    const out = sanitizeTargetForTwin({ email: "a@b.com", metadata: { only: { nested: true } } });
+    const out = sanitizeTargetForAgent({ email: "a@b.com", metadata: { only: { nested: true } } });
     expect(out).not.toHaveProperty("metadata");
   });
 });

@@ -8,46 +8,48 @@ type Row = Record<string, any>;
 const ALLOWED_UPDATE_COLUMNS = new Set([
   "name", "email_domain", "email_domain_verified", "email_domain_dkim_tokens",
   "email_from_name", "ses_tenant_name", "ses_configuration_set",
-  "twin_agent_id", "twin_api_key",
+  "agent_id", "environment_id",
 ]);
 
-/**
- * Resolve the Twin agent ID for an organization. Returns null when the
- * organization is missing or has no agent configured.
- */
-export async function getTwinAgentId(orgId: string): Promise<string | null> {
-  const rows = await sql`
-    SELECT twin_agent_id FROM organizations WHERE id = ${orgId}
-  `;
-  if (rows.length === 0 || !rows[0].twin_agent_id) return null;
-  return String(rows[0].twin_agent_id);
+/** Resolved per-org Claude Managed Agents config. */
+export interface AgentConfig {
+  agentId: string;
+  environmentId: string;
 }
 
 /**
- * Resolve the Twin API key for an organization. Per-org `twin_api_key` wins
- * when set; otherwise falls back to the deployment-wide `TWIN_API_KEY` env var.
- * Always returns a non-empty string (env var is required), so callers can use
- * it directly without null handling.
+ * Resolve an organization's Managed Agents config. `environment_id` falls back
+ * to the deployment-wide `ANTHROPIC_DEFAULT_ENVIRONMENT_ID` when the org leaves
+ * it blank. Returns null (→ treat as unconfigured, 503) when EITHER `agent_id`
+ * OR the resolved `environment_id` is missing — `environment_id` is required by
+ * `sessions.create`, so a configured-agent/no-env org must surface as
+ * "not configured", never as a 502 on every call. Auth is the deployment-wide
+ * `ANTHROPIC_API_KEY` (read by the SDK from env); there is no per-org key.
  */
-export async function resolveTwinApiKey(orgId: string): Promise<string> {
+export async function getAgentConfig(orgId: string): Promise<AgentConfig | null> {
   const rows = await sql`
-    SELECT twin_api_key FROM organizations WHERE id = ${orgId}
+    SELECT agent_id, environment_id FROM organizations WHERE id = ${orgId}
   `;
-  const orgKey = rows[0]?.twin_api_key;
-  if (typeof orgKey === "string" && orgKey.length > 0) return orgKey;
-  return getEnv().TWIN_API_KEY;
+  const row = rows[0];
+  if (!row || !row.agent_id) return null;
+  const orgEnv = row.environment_id;
+  const environmentId =
+    typeof orgEnv === "string" && orgEnv.length > 0
+      ? orgEnv
+      : getEnv().ANTHROPIC_DEFAULT_ENVIRONMENT_ID;
+  if (!environmentId) return null;
+  return { agentId: String(row.agent_id), environmentId: String(environmentId) };
 }
 
 export async function getOrganization(orgId: string): Promise<Row | null> {
-  // Never SELECT twin_api_key itself — the route surfaces a boolean only so the
-  // secret never leaves the server. resolveTwinApiKey() is the only way to read
-  // the value, and it's only callable from server code (lib/twin callers).
+  // agent_id / environment_id are not secret (they only resolve to anything
+  // with a valid ANTHROPIC_API_KEY), so unlike the old twin_api_key they are
+  // selected and returned plainly.
   const rows = await sql`
     SELECT id, name, email_domain, email_domain_verified,
            email_domain_dkim_tokens, email_from_name,
            ses_tenant_name, ses_configuration_set,
-           twin_agent_id,
-           (twin_api_key IS NOT NULL AND length(twin_api_key) > 0) AS twin_api_key_configured
+           agent_id, environment_id
     FROM organizations
     WHERE id = ${orgId}
   `;
@@ -83,8 +85,7 @@ export async function updateOrganization(
     RETURNING id, name, email_domain, email_domain_verified,
               email_domain_dkim_tokens, email_from_name,
               ses_tenant_name, ses_configuration_set,
-              twin_agent_id,
-              (twin_api_key IS NOT NULL AND length(twin_api_key) > 0) AS twin_api_key_configured
+              agent_id, environment_id
   `;
   const rows = await sql.query(query, [orgId, ...values]);
   return rows[0] ?? null;

@@ -2,8 +2,8 @@
  * Parallel personalization processing for sequence blocks.
  */
 
-import { runAgentJson } from "@/lib/twin";
-import { sanitizeTargetForTwin } from "@/lib/twin-sanitize";
+import { runAgentJson } from "@/lib/agent-session";
+import { sanitizeTargetForAgent } from "@/lib/agent-sanitize";
 
 
 type AnyData = Record<string, any>;
@@ -45,7 +45,7 @@ async function personalizeBlock(
   block: AnyData,
   targetData: AnyData,
   agentId: string,
-  apiKey: string | undefined,
+  environmentId: string,
   timeoutMs: number
 ): Promise<{
   blockId: string;
@@ -66,7 +66,7 @@ async function personalizeBlock(
   }
 
   try {
-    // The Twin personalization agent reads the run's user_message as a STRUCTURED
+    // The personalization agent reads the session's user.message as a STRUCTURED
     // JSON "goal override" (mode, original_content, prompt, target, block_type)
     // and returns { "body": "..." }. It does NOT accept free-text prose — sending
     // prose makes its goal-parse fail and the run returns no usable content.
@@ -74,12 +74,11 @@ async function personalizeBlock(
       mode: "personalize",
       original_content: originalContent,
       prompt,
-      target: sanitizeTargetForTwin(targetData),
+      target: sanitizeTargetForAgent(targetData),
       block_type: blockType,
     };
-    const aiResult = await runAgentJson(agentId, JSON.stringify(goal), {
+    const aiResult = await runAgentJson(agentId, environmentId, JSON.stringify(goal), {
       timeoutMs,
-      apiKey,
     });
 
     const personalized =
@@ -123,7 +122,7 @@ export async function processPersonalization(
   builderContent: BlockMap,
   targetData: AnyData,
   agentId: string,
-  apiKey: string | undefined,
+  environmentId: string,
   opts: { maxConcurrent?: number; timeoutMs?: number } = {}
 ): Promise<{ content: BlockMap; errors: PersonalizationError[] }> {
   if (!builderContent) {
@@ -163,7 +162,7 @@ export async function processPersonalization(
   const promises = blockEntries.map(async ([blockId, block]) => {
     await semaphore.acquire();
     try {
-      return await personalizeBlock(blockId, block, targetData, agentId, apiKey, timeoutMs);
+      return await personalizeBlock(blockId, block, targetData, agentId, environmentId, timeoutMs);
     } finally {
       semaphore.release();
     }

@@ -8,9 +8,9 @@ import { TargetTypesList } from '@/components/settings/TargetTypesList';
 import { SegmentsList } from '@/components/settings/SegmentsList';
 import { EmailSettings } from '@/components/settings/EmailSettings';
 import { GraduationRulesTab } from '@/components/settings/GraduationRulesTab';
-import { TwinRunsList } from '@/components/settings/TwinRunsList';
-import { TwinInstructions } from '@/components/settings/TwinInstructions';
-import { TwinAgentConfig } from '@/components/settings/TwinAgentConfig';
+import { AgentActivityList } from '@/components/settings/AgentActivityList';
+import { AgentInstructions } from '@/components/settings/AgentInstructions';
+import { AgentConfig } from '@/components/settings/AgentConfig';
 
 export default function SettingsPage() {
   const searchParams = useSearchParams();
@@ -52,7 +52,7 @@ export default function SettingsPage() {
           </TabsTrigger>
           <TabsTrigger value="instructions" className="flex items-center gap-2">
             <Sparkles className="w-4 h-4" />
-            Twin agent
+            Agent
           </TabsTrigger>
           <TabsTrigger value="ai-activity" className="flex items-center gap-2">
             <Activity className="w-4 h-4" />
@@ -77,15 +77,15 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="instructions" className="mt-6 space-y-8">
-          <TwinAgentConfig />
+          <AgentConfig />
           <div className="border-t pt-6">
             <h2 className="text-lg font-medium mb-1">Instructions</h2>
-            <TwinInstructions />
+            <AgentInstructions />
           </div>
         </TabsContent>
 
         <TabsContent value="ai-activity" className="mt-6">
-          <TwinRunsList />
+          <AgentActivityList />
         </TabsContent>
       </Tabs>
     </div>

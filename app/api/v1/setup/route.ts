@@ -6,26 +6,26 @@ export async function GET(request: Request) {
   if (isErrorResponse(auth)) return auth;
 
   const rows = await sql`
-    SELECT twin_agent_id
+    SELECT agent_id
     FROM organizations
     WHERE id = ${auth.tenantId}::uuid
   `;
 
   const org = rows[0];
-  const configured = Boolean(org && org.twin_agent_id);
+  const configured = Boolean(org && org.agent_id);
 
   return new Response(
     JSON.stringify({
+      agent_configured: configured,
+      // Deprecated alias — kept for one release for clients still on the
+      // pre-rename surface. Will be removed next release.
       twin_configured: configured,
-      // Deprecated alias — kept for one release for OAuth clients still on the
-      // pre-rename surface. Will be removed in v2.
-      agentplane_configured: configured,
     }),
     {
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "X-Deprecation": "agentplane_configured will be removed in v2",
+        "X-Deprecation": "twin_configured will be removed next release",
       },
     }
   );

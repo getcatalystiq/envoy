@@ -23,8 +23,6 @@ const requireAdminMock = requireAdmin as unknown as ReturnType<typeof vi.fn>;
 const getOrgMock = org.getOrganization as unknown as ReturnType<typeof vi.fn>;
 const updateOrgMock = org.updateOrganization as unknown as ReturnType<typeof vi.fn>;
 
-// getOrganization is mocked to return a row that already includes the derived
-// boolean and never the raw key (matching the real query).
 const ORG_ROW = {
   id: "org-1",
   name: "Acme",
@@ -32,8 +30,8 @@ const ORG_ROW = {
   email_domain_verified: false,
   email_domain_dkim_tokens: null,
   email_from_name: "noreply",
-  twin_agent_id: "agent-1",
-  twin_api_key_configured: true,
+  agent_id: "agent-1",
+  environment_id: "env-1",
 };
 
 function patchReq(body: unknown) {
@@ -45,11 +43,7 @@ function patchReq(body: unknown) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  requireAdminMock.mockResolvedValue({
-    userId: "u",
-    tenantId: "org-1",
-    scope: "admin",
-  });
+  requireAdminMock.mockResolvedValue({ userId: "u", tenantId: "org-1", scope: "admin" });
   getOrgMock.mockResolvedValue(ORG_ROW);
   updateOrgMock.mockResolvedValue(ORG_ROW);
 });
@@ -61,13 +55,14 @@ describe("GET /api/v1/organization", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns the org with twin_api_key_configured and never the raw key", async () => {
+  it("returns agent_id + environment_id plainly and no twin_api_key", async () => {
     const res = await GET(new Request("http://x/api/v1/organization"));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.twin_agent_id).toBe("agent-1");
-    expect(body.twin_api_key_configured).toBe(true);
-    expect(body.twin_api_key).toBeUndefined(); // raw secret never serialized
+    expect(body.agent_id).toBe("agent-1");
+    expect(body.environment_id).toBe("env-1");
+    expect(body.twin_api_key).toBeUndefined();
+    expect(body.twin_api_key_configured).toBeUndefined();
   });
 
   it("404s when the org is missing", async () => {
@@ -77,67 +72,57 @@ describe("GET /api/v1/organization", () => {
   });
 });
 
-describe("PATCH /api/v1/organization — twin_agent_id", () => {
-  it("sets a trimmed twin_agent_id", async () => {
-    const res = await PATCH(patchReq({ twin_agent_id: "  agent-42  " }));
+describe("PATCH /api/v1/organization — agent_id", () => {
+  it("sets a trimmed agent_id", async () => {
+    const res = await PATCH(patchReq({ agent_id: "  agent-42  " }));
     expect(res.status).toBe(200);
-    expect(updateOrgMock).toHaveBeenCalledWith("org-1", { twin_agent_id: "agent-42" });
+    expect(updateOrgMock).toHaveBeenCalledWith("org-1", { agent_id: "agent-42" });
   });
 
-  it("treats null as unconfigure", async () => {
-    await PATCH(patchReq({ twin_agent_id: null }));
-    expect(updateOrgMock).toHaveBeenCalledWith("org-1", { twin_agent_id: null });
+  it("treats null/empty as unconfigure", async () => {
+    await PATCH(patchReq({ agent_id: null }));
+    expect(updateOrgMock).toHaveBeenCalledWith("org-1", { agent_id: null });
+    await PATCH(patchReq({ agent_id: "" }));
+    expect(updateOrgMock).toHaveBeenLastCalledWith("org-1", { agent_id: null });
   });
 
-  it("treats empty string as unconfigure", async () => {
-    await PATCH(patchReq({ twin_agent_id: "" }));
-    expect(updateOrgMock).toHaveBeenCalledWith("org-1", { twin_agent_id: null });
-  });
-
-  it("rejects a non-string twin_agent_id with 400", async () => {
-    const res = await PATCH(patchReq({ twin_agent_id: 12345 }));
+  it("rejects a non-string agent_id with 400", async () => {
+    const res = await PATCH(patchReq({ agent_id: 12345 }));
     expect(res.status).toBe(400);
     expect(updateOrgMock).not.toHaveBeenCalled();
+  });
+
+  it("maps a UNIQUE(agent_id) violation to 409", async () => {
+    updateOrgMock.mockRejectedValueOnce(Object.assign(new Error("dup"), { code: "23505" }));
+    const res = await PATCH(patchReq({ agent_id: "agent-taken" }));
+    expect(res.status).toBe(409);
   });
 });
 
-describe("PATCH /api/v1/organization — twin_api_key", () => {
-  it("sets a trimmed twin_api_key", async () => {
-    const res = await PATCH(patchReq({ twin_api_key: "  tw_live_abc  " }));
-    expect(res.status).toBe(200);
-    expect(updateOrgMock).toHaveBeenCalledWith("org-1", { twin_api_key: "tw_live_abc" });
+describe("PATCH /api/v1/organization — environment_id", () => {
+  it("sets a trimmed environment_id", async () => {
+    await PATCH(patchReq({ environment_id: "  env-7  " }));
+    expect(updateOrgMock).toHaveBeenCalledWith("org-1", { environment_id: "env-7" });
   });
 
-  it("treats null as unconfigure (fall back to env)", async () => {
-    await PATCH(patchReq({ twin_api_key: null }));
-    expect(updateOrgMock).toHaveBeenCalledWith("org-1", { twin_api_key: null });
+  it("treats null/empty as clearing the override", async () => {
+    await PATCH(patchReq({ environment_id: "" }));
+    expect(updateOrgMock).toHaveBeenCalledWith("org-1", { environment_id: null });
   });
 
-  it("treats empty string as unconfigure", async () => {
-    await PATCH(patchReq({ twin_api_key: "" }));
-    expect(updateOrgMock).toHaveBeenCalledWith("org-1", { twin_api_key: null });
-  });
-
-  it("rejects a non-string twin_api_key with 400", async () => {
-    const res = await PATCH(patchReq({ twin_api_key: { evil: true } }));
+  it("rejects a non-string environment_id with 400", async () => {
+    const res = await PATCH(patchReq({ environment_id: { evil: true } }));
     expect(res.status).toBe(400);
     expect(updateOrgMock).not.toHaveBeenCalled();
-  });
-
-  it("never echoes the raw key back in the response", async () => {
-    const res = await PATCH(patchReq({ twin_api_key: "tw_live_secret" }));
-    const body = await res.json();
-    expect(body.twin_api_key).toBeUndefined();
-    expect(body.twin_api_key_configured).toBe(true);
   });
 });
 
 describe("PATCH /api/v1/organization — combined + no-op", () => {
-  it("sets agent id and api key together in one update", async () => {
-    await PATCH(patchReq({ twin_agent_id: "agent-9", twin_api_key: "k" }));
+  it("sets agent id and environment together in one update", async () => {
+    await PATCH(patchReq({ agent_id: "agent-9", environment_id: "env-9" }));
     expect(updateOrgMock).toHaveBeenCalledWith("org-1", {
-      twin_agent_id: "agent-9",
-      twin_api_key: "k",
+      agent_id: "agent-9",
+      environment_id: "env-9",
     });
   });
 
@@ -149,7 +134,7 @@ describe("PATCH /api/v1/organization — combined + no-op", () => {
 
   it("maps an Unknown-field throw from the query layer to 400", async () => {
     updateOrgMock.mockRejectedValueOnce(new Error("Unknown field: bogus"));
-    const res = await PATCH(patchReq({ twin_agent_id: "agent-1" }));
+    const res = await PATCH(patchReq({ agent_id: "agent-1" }));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toContain("Unknown field");

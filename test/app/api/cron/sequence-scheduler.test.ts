@@ -10,8 +10,9 @@ vi.mock("@/lib/db", () => {
   return { sql: Object.assign(sql, { query: vi.fn() }) };
 });
 
-vi.mock("@/lib/twin", () => ({
+vi.mock("@/lib/agent-session", () => ({
   runAgentJson: vi.fn(),
+  harvestAgentSession: vi.fn(() => ({ state: "unavailable" })),
 }));
 
 vi.mock("@/lib/block-compiler", () => ({
@@ -38,9 +39,9 @@ vi.mock("@/lib/queries/sequences", () => ({
   getStepContent: vi.fn(),
   recordExecution: vi.fn(),
   advanceEnrollment: vi.fn(),
-  setStepExecutionTwinRunId: vi.fn(),
-  getInflightTwinRunId: vi.fn(() => null),
-  clearStepExecutionTwinRunId: vi.fn(),
+  setStepExecutionAgentSessionId: vi.fn(),
+  getInflightAgentSessionId: vi.fn(() => null),
+  clearStepExecutionAgentSessionId: vi.fn(),
 }));
 
 vi.mock("@/lib/queries/outbox", () => ({

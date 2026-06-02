@@ -23,31 +23,27 @@ vi.mock("@/lib/queries/outbox", () => ({
 }));
 
 vi.mock("@/lib/queries/organization", () => ({
-  getTwinAgentId: vi.fn(),
-  resolveTwinApiKey: vi.fn(),
+  getAgentConfig: vi.fn(),
 }));
 
-vi.mock("@/lib/twin", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/twin")>("@/lib/twin");
-  return {
-    ...actual,
-    generateContent: vi.fn(),
-  };
+vi.mock("@/lib/agent-session", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/lib/agent-session")>("@/lib/agent-session");
+  return { ...actual, generateContent: vi.fn() };
 });
 
 import { requireAdmin } from "@/lib/admin-auth";
-import { getTwinAgentId, resolveTwinApiKey } from "@/lib/queries/organization";
+import { getAgentConfig } from "@/lib/queries/organization";
 import * as targets from "@/lib/queries/targets";
 import * as contentQueries from "@/lib/queries/content";
 import * as outboxQueries from "@/lib/queries/outbox";
-import { generateContent, TwinError } from "@/lib/twin";
+import { generateContent, AgentError } from "@/lib/agent-session";
 
 import { POST as generatePOST } from "@/app/api/v1/content/generate/route";
 import { POST as generateToOutboxPOST } from "@/app/api/v1/content/generate-to-outbox/route";
 
 const requireAdminMock = requireAdmin as unknown as ReturnType<typeof vi.fn>;
-const getAgentIdMock = getTwinAgentId as unknown as ReturnType<typeof vi.fn>;
-const resolveApiKeyMock = resolveTwinApiKey as unknown as ReturnType<typeof vi.fn>;
+const getAgentConfigMock = getAgentConfig as unknown as ReturnType<typeof vi.fn>;
 const getByIdMock = targets.getById as unknown as ReturnType<typeof vi.fn>;
 const contentCreateMock = contentQueries.create as unknown as ReturnType<typeof vi.fn>;
 const outboxCreateMock = outboxQueries.create as unknown as ReturnType<typeof vi.fn>;
@@ -60,8 +56,7 @@ beforeEach(() => {
     tenantId: "org-1",
     scope: "admin",
   });
-  getAgentIdMock.mockResolvedValue("agent-1");
-  resolveApiKeyMock.mockResolvedValue("test-twin-key");
+  getAgentConfigMock.mockResolvedValue({ agentId: "agent-1", environmentId: "env-1" });
 });
 
 describe("/api/v1/content/generate POST", () => {
@@ -86,8 +81,8 @@ describe("/api/v1/content/generate POST", () => {
     expect(res.status).toBe(404);
   });
 
-  it("returns 503 when twin_agent_id not set on org", async () => {
-    getAgentIdMock.mockResolvedValueOnce(null);
+  it("returns 503 when the org has no agent configured", async () => {
+    getAgentConfigMock.mockResolvedValueOnce(null);
     const res = await generatePOST(
       new Request("http://x/api/v1/content/generate", {
         method: "POST",
@@ -105,10 +100,7 @@ describe("/api/v1/content/generate POST", () => {
       segment_id: null,
       lifecycle_stage: 0,
     });
-    generateContentMock.mockResolvedValueOnce({
-      subject: "S",
-      body: "B",
-    });
+    generateContentMock.mockResolvedValueOnce({ subject: "S", body: "B" });
     contentCreateMock.mockResolvedValueOnce({ id: "c1", subject: "S" });
     const res = await generatePOST(
       new Request("http://x/api/v1/content/generate", {
@@ -119,16 +111,16 @@ describe("/api/v1/content/generate POST", () => {
     expect(res.status).toBe(200);
     expect(generateContent).toHaveBeenCalledWith(
       "agent-1",
+      "env-1",
       expect.objectContaining({ email: "a@b.com" }),
       "educational",
-      { apiKey: "test-twin-key" },
     );
     expect(contentCreateMock).toHaveBeenCalled();
   });
 
-  it("surfaces TwinError as 4xx response (not blanket 500)", async () => {
+  it("surfaces AgentError as a 4xx response (not blanket 500)", async () => {
     getByIdMock.mockResolvedValueOnce({ id: "t1", email: "a@b.com" });
-    generateContentMock.mockRejectedValueOnce(new TwinError("Bad", 422, "missing field"));
+    generateContentMock.mockRejectedValueOnce(new AgentError("Bad", 422, "missing field"));
     const res = await generatePOST(
       new Request("http://x/api/v1/content/generate", {
         method: "POST",

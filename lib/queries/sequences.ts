@@ -567,25 +567,25 @@ export async function recordExecution(
 }
 
 /**
- * Persist a Twin run_id against an (enrollment, step) so the cron can resume
+ * Persist a agent session_id against an (enrollment, step) so the cron can resume
  * polling on the next tick if it crashes mid-run. Creates a tracking row when
  * none exists for this step yet — the row is later finalized by `recordExecution`
- * (which clears `twin_run_id` and stamps `outbox_id`).
+ * (which clears `agent_session_id` and stamps `outbox_id`).
  *
  * The tracking row uses status='executed' as a placeholder (the status check
- * only allows 'executed' | 'skipped'); the meaningful signal is twin_run_id
+ * only allows 'executed' | 'skipped'); the meaningful signal is agent_session_id
  * being non-NULL.
  */
-export async function setStepExecutionTwinRunId(
+export async function setStepExecutionAgentSessionId(
   orgId: string,
   enrollmentId: string,
   stepPosition: number,
-  twinRunId: string
+  sessionId: string
 ): Promise<void> {
   // A tracking row is identified by outbox_id IS NULL (a finalized row from
   // recordExecution always sets outbox_id). Look for an existing tracking
-  // row regardless of whether its twin_run_id is currently NULL or set —
-  // this avoids creating duplicate rows when clearStepExecutionTwinRunId
+  // row regardless of whether its agent_session_id is currently NULL or set —
+  // this avoids creating duplicate rows when clearStepExecutionAgentSessionId
   // already nulled the marker but the final recordExecution hasn't landed.
   const existing = await sql`
     SELECT id FROM sequence_step_executions
@@ -598,7 +598,7 @@ export async function setStepExecutionTwinRunId(
   if (existing.length > 0) {
     await sql`
       UPDATE sequence_step_executions
-      SET twin_run_id = ${twinRunId}
+      SET agent_session_id = ${sessionId}
       WHERE id = ${existing[0].id}
     `;
     return;
@@ -608,47 +608,47 @@ export async function setStepExecutionTwinRunId(
   // final recordExecution row to avoid changing the status CHECK constraint.
   await sql`
     INSERT INTO sequence_step_executions (
-      organization_id, enrollment_id, step_position, status, twin_run_id
+      organization_id, enrollment_id, step_position, status, agent_session_id
     )
     VALUES (
-      ${orgId}, ${enrollmentId}::uuid, ${stepPosition}, 'executed', ${twinRunId}
+      ${orgId}, ${enrollmentId}::uuid, ${stepPosition}, 'executed', ${sessionId}
     )
   `;
 }
 
 /**
- * Look up an in-flight Twin run for a step. Returns the run_id if a prior
- * cron tick started a Twin run for this (enrollment, step) and did not finish.
+ * Look up an in-flight agent session for a step. Returns the run_id if a prior
+ * cron tick started a agent session for this (enrollment, step) and did not finish.
  */
-export async function getInflightTwinRunId(
+export async function getInflightAgentSessionId(
   orgId: string,
   enrollmentId: string,
   stepPosition: number
 ): Promise<string | null> {
   const rows = await sql`
-    SELECT twin_run_id
+    SELECT agent_session_id
     FROM sequence_step_executions
     WHERE organization_id = ${orgId}
       AND enrollment_id = ${enrollmentId}::uuid
       AND step_position = ${stepPosition}
-      AND twin_run_id IS NOT NULL
+      AND agent_session_id IS NOT NULL
     ORDER BY executed_at DESC
     LIMIT 1
   `;
-  const runId = rows[0]?.twin_run_id;
+  const runId = rows[0]?.agent_session_id;
   return typeof runId === "string" && runId.length > 0 ? runId : null;
 }
 
 /**
  * Drop any inflight tracking rows (the rows created solely to hold a
- * twin_run_id) for a step. Called after the Twin run completes — the final
+ * agent_session_id) for a step. Called after the agent session completes — the final
  * sequence_step_executions row is then written by `recordExecution`.
  *
- * Tracking rows are identified by twin_run_id IS NOT NULL AND outbox_id IS NULL;
- * we delete rather than null-out twin_run_id so we don't leave orphan
+ * Tracking rows are identified by agent_session_id IS NOT NULL AND outbox_id IS NULL;
+ * we delete rather than null-out agent_session_id so we don't leave orphan
  * "executed-with-no-outbox" rows alongside the real recordExecution row.
  */
-export async function clearStepExecutionTwinRunId(
+export async function clearStepExecutionAgentSessionId(
   orgId: string,
   enrollmentId: string,
   stepPosition: number
@@ -658,7 +658,7 @@ export async function clearStepExecutionTwinRunId(
     WHERE organization_id = ${orgId}
       AND enrollment_id = ${enrollmentId}::uuid
       AND step_position = ${stepPosition}
-      AND twin_run_id IS NOT NULL
+      AND agent_session_id IS NOT NULL
       AND outbox_id IS NULL
       AND email_send_id IS NULL
   `;

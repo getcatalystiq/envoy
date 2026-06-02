@@ -53,7 +53,7 @@ Deployed via Vercel. Push to main triggers automatic deployment.
 - **Frontend**: React 19, Tailwind 4, shadcn/ui, Tiptap (rich text), Recharts, dnd-kit
 - **Database**: PostgreSQL (Neon) via `@neondatabase/serverless`
 - **Email**: AWS SES v2
-- **AI**: Twin (build.twin.so) agent service
+- **AI**: Claude Managed Agents (`@anthropic-ai/sdk`, `client.beta.sessions`)
 - **Auth**: OAuth 2.1 with PKCE, JWT via jose
 - **MCP**: `mcp-handler` for AI agent integration
 
@@ -84,32 +84,34 @@ Deployed via Vercel. Push to main triggers automatic deployment.
   - `targets` - Single target ingestion
   - `targets/bulk` - Bulk target ingestion
 - **v1/** - REST API resources:
-  - `twin` - Twin AI agent integration (agent, runs, events, instructions). Routes use the `withTwinAgent` wrapper which resolves the per-org agent + API key and maps `TwinError` to HTTP responses.
+  - `agent` - Claude Managed Agents integration (sessions list, session events, instructions). Routes use the `withAgent` wrapper which resolves the per-org `agent_id` + `environment_id` and maps `AgentError` to HTTP responses.
   - `analytics` - Usage analytics
   - `campaigns` - Campaign management
-  - `content` - Email content/templates (`generate`, `generate-to-outbox` also use `withTwinAgent`)
+  - `content` - Email content/templates (`generate`, `generate-to-outbox` also use `withAgent`)
   - `design-templates` - Email design templates
   - `graduation-rules` - Target graduation rules
-  - `organization` - Organization settings (GET / PATCH, including `twin_agent_id` and `twin_api_key`)
+  - `organization` - Organization settings (GET / PATCH, including `agent_id` and `environment_id`; 409 on duplicate `agent_id`)
   - `outbox` - Email outbox
   - `segments` - Audience segments
   - `send` - Email sending
   - `sequences` - Multi-step sequences
-  - `setup` - Organization setup (returns `twin_configured`; legacy `agentplane_configured` alias kept for one release)
+  - `setup` - Organization setup (returns `agent_configured`; legacy `twin_configured` alias kept for one release)
   - `target-types` - Target type definitions
   - `targets` - Target management
-- **agentplane/[...path]** - 410 Gone catch-all. Returns RFC 9457 Problem Detail pointing OAuth clients at `/api/v1/twin/*`. Kept for one release as a migration aid.
+- **twin/[...path]** - 410 Gone catch-all. Returns RFC 9457 Problem Detail pointing clients at `/api/v1/agent/*`. Kept for one release as a migration aid.
 
 ### Other Routes
 - **/.well-known/** - OAuth authorization server and protected resource metadata
 - **/mcp** - MCP endpoint (15 tools for AI agents)
 
 ### Database
-PostgreSQL (Neon) with `@neondatabase/serverless`. Query modules in `lib/queries/` handle database operations. Migrations are SQL files in `migrations/` numbered `000_` through `042_` (43 files).
+PostgreSQL (Neon) with `@neondatabase/serverless`. Query modules in `lib/queries/` handle database operations. Migrations are SQL files in `migrations/` numbered sequentially from `000_`.
 
-Twin integration columns on `organizations`:
-- `twin_agent_id` (text, nullable) — the deployed Twin agent that handles content generation for this org. Resolved via `getTwinAgentId(orgId)`.
-- `twin_api_key` (text, nullable) — per-org Twin API key override. Resolved via `resolveTwinApiKey(orgId)`, which falls back to the `TWIN_API_KEY` env var when null. **Never** SELECTed in `getOrganization`; the route surfaces a `twin_api_key_configured` boolean instead so the value never leaves the server.
+Claude Managed Agents columns on `organizations`:
+- `agent_id` (text, nullable, `UNIQUE`) — the Managed Agent that handles content generation for this org.
+- `environment_id` (text, nullable) — the Managed Agents environment; falls back to `ANTHROPIC_DEFAULT_ENVIRONMENT_ID` when null.
+
+Both are resolved together via `getAgentConfig(orgId)`, which returns `null` (treat as unconfigured → 503) when `agent_id` OR the resolved `environment_id` is missing. Auth is the deployment-wide `ANTHROPIC_API_KEY` (read by the SDK) — there is no per-org key.
 
 ### Lib Modules
 
@@ -131,8 +133,8 @@ Twin integration columns on `organizations`:
 **Integrations:**
 - **lib/ses.ts** - AWS SES v2 email delivery
 - **lib/sns-verify.ts** - SNS signature verification for webhook events
-- **lib/twin.ts** - Twin REST API client. Every public function accepts `TwinCallOpts { apiKey?: string }`; when unset, `twinFetch` falls back to `env.TWIN_API_KEY`. `runAgent` supports `existingRunId` for idempotent crash-resume. Retries on 5xx are gated to safe methods (GET/HEAD/OPTIONS); 429 always retries.
-- **lib/mcp-tools.ts** - MCP tool definitions (15 tools). MCP tools resolve both `agentId` and `apiKey` via `lib/queries/organization` and pass `apiKey` to Twin calls.
+- **lib/agent-session.ts** - Claude Managed Agents client (`@anthropic-ai/sdk`, `client.beta.sessions`). `runAgentSession`/`runAgentJson` create a session, open the SSE stream **before** sending the structured-goal `user.message`, accumulate `agent.message` text, and stop on `session.status_idle`. Output is content-seek extracted (newest message parsing to `{body}`/`{subject,body}`). `harvestAgentSession` resumes an inflight session (crash-resume); `onSessionCreated` persists the session id before the billed turn. Also `listAgentSessions` / `getAgentSessionEvents` (fail-closed IDOR via `session.agent.id`) / `getAgentInstructions` / `updateAgentInstructions` for the settings routes. `AgentError` carries `{ status, detail }`; upstream 401/403 → 502. The SDK's `maxRetries` covers 429/5xx.
+- **lib/mcp-tools.ts** - MCP tool definitions (15 tools). MCP tools resolve `getAgentConfig(orgId)` and pass `agentId` + `environmentId` to the agent client.
 - **lib/api.ts** - Client-side API client. `request()` reads `error.error → error.detail → error.message` in order. `formatApiError(err)` is the canonical client-side error formatter.
 
 **Email & Content:**
@@ -158,7 +160,7 @@ One module per resource: analytics, campaigns, content, design-templates, gradua
 - Custom `sequence-builder` component for drag-and-drop sequence editing
 
 ### External Integrations
-- **Twin** (`lib/twin.ts`) - AI agent service for content personalization. Each org configures a `twin_agent_id` (required for AI features) and optionally a `twin_api_key` override; absent that, the deployment-wide `TWIN_API_KEY` env var is used. Settings UI: `/settings?tab=instructions` ("Twin agent" tab).
+- **Claude Managed Agents** (`lib/agent-session.ts`) - AI agent service for content personalization. Each org configures an `agent_id` (required) + `environment_id` (falls back to `ANTHROPIC_DEFAULT_ENVIRONMENT_ID`); auth is the deployment-wide `ANTHROPIC_API_KEY`. Settings UI: `/settings?tab=instructions` ("Agent" tab).
 - **AWS SES** - Email delivery with SNS event webhooks (`lib/ses.ts`, `lib/sns-verify.ts`)
 - **Neon** - Serverless PostgreSQL database (`lib/db.ts`)
 
@@ -171,16 +173,16 @@ if (isErrorResponse(auth)) return auth;
 // auth.tenantId is available
 ```
 
-### Twin Route Wrapper
-Any route that talks to Twin should use `withTwinAgent` — it handles auth, resolves the org's `twin_agent_id` + `twin_api_key`, returns 503 when the org isn't configured, and maps `TwinError` to the correct HTTP status:
+### Agent Route Wrapper
+Any route that talks to the AI agent should use `withAgent` — it handles auth, resolves the org's `agent_id` + `environment_id` via `getAgentConfig`, returns 503 when the org isn't configured, keeps `auth` in the context (the instructions PUT needs it for the audit row), and maps `AgentError` to the correct HTTP status (401/403 → 502):
 ```typescript
-import { withTwinAgent } from "@/app/api/v1/twin/_helpers";
-import * as twin from "@/lib/twin";
+import { withAgent } from "@/app/api/v1/agent/_helpers";
+import { listAgentSessions } from "@/lib/agent-session";
 
 export async function GET(request: Request) {
-  return withTwinAgent(request, async ({ agentId, apiKey, tenantId }) => {
-    const agent = await twin.getAgent(agentId, { apiKey });
-    return jsonResponse({ agent });
+  return withAgent(request, async ({ agentId, environmentId, tenantId }) => {
+    const sessions = await listAgentSessions(agentId, { limit: 50 });
+    return jsonResponse({ sessions });
   });
 }
 ```
@@ -193,7 +195,7 @@ Uses `getEnv()` with Zod validation. All vars defined in `lib/env.ts`.
 - `JWT_SECRET` - JWT signing key (min 32 chars)
 - `NEXT_PUBLIC_URL` - App URL
 - `SES_ACCESS_KEY_ID` / `SES_SECRET_ACCESS_KEY` - SES credentials (avoids Vercel reserved var conflict)
-- `TWIN_API_KEY` - Deployment-wide Twin API key fallback. Each organization may override it per-row via `organizations.twin_api_key` (Settings → Twin agent → Twin API key). `TWIN_API_URL` defaults to `https://build.twin.so` and is optional. Must be `https://` outside `ENVIRONMENT=dev`.
+- `ANTHROPIC_API_KEY` - Deployment-wide key for the Anthropic account that owns the Managed Agents. Per-org `agent_id` + `environment_id` live on `organizations` (Settings → Agent). `ANTHROPIC_DEFAULT_ENVIRONMENT_ID` is the fallback environment, **required outside `ENVIRONMENT=dev`**.
 
 **Required in production/staging:**
 - `CRON_SECRET` - Vercel cron auth (unauthenticated cron only allowed in dev)
@@ -230,19 +232,18 @@ Every query must include explicit `WHERE organization_id = ${orgId}`. No RLS.
 
 ### Testing
 - Test runner: Vitest 4 (`npm test`). Default env is `node`; component tests use `// @vitest-environment jsdom` per file.
-- Mocks: `vi.mock("@/lib/db", () => ({ sql: Object.assign(vi.fn(), { query: vi.fn() }) }))` is the standard pattern for query tests. Routes that go through `withTwinAgent` also need `vi.mock("@/lib/queries/organization", () => ({ getTwinAgentId: vi.fn(), resolveTwinApiKey: vi.fn() }))`.
+- Mocks: `vi.mock("@/lib/db", () => ({ sql: Object.assign(vi.fn(), { query: vi.fn() }) }))` is the standard pattern for query tests. Routes that go through `withAgent` also need `vi.mock("@/lib/queries/organization", () => ({ getAgentConfig: vi.fn() }))`.
 - External HTTP: `test/helpers/fetch.ts:mockFetchQueue([...])` stubs `globalThis.fetch` with a queue of canned responses and records each call for assertions.
-- Env: `test/setup.ts` provides sane defaults (`TWIN_API_KEY`, `DATABASE_URL`, etc.) so tests run without a real `.env.local`.
-- When changing a signature, search `test/**` for callers — assertions using `toHaveBeenCalledWith` are positional and will fail on added options like `apiKey`.
+- Env: `test/setup.ts` provides sane defaults (`ANTHROPIC_API_KEY`, `ANTHROPIC_DEFAULT_ENVIRONMENT_ID`, `DATABASE_URL`, etc.) so tests run without a real `.env.local`. Mock the SDK with `vi.mock("@anthropic-ai/sdk")` for client/route tests.
+- When changing a signature, search `test/**` for callers — assertions using `toHaveBeenCalledWith` are positional and will fail on added args like `environmentId`.
 
-### Per-Org Twin API Key
-When writing new code that calls Twin, accept and forward `apiKey` through `TwinCallOpts` so per-org overrides keep working:
+### Per-Org Agent Config
+When writing new code that calls the agent, resolve `getAgentConfig(orgId)` and pass `agentId` + `environmentId`:
 ```typescript
 async function doThing(orgId: string) {
-  const apiKey = await resolveTwinApiKey(orgId); // env-var fallback inside
-  const agentId = await getTwinAgentId(orgId);
-  if (!agentId) return; // not configured
-  await twin.startRun(agentId, { userMessage: "...", apiKey });
+  const config = await getAgentConfig(orgId); // { agentId, environmentId } | null
+  if (!config) return; // not configured (agent_id or environment_id missing)
+  await runAgentJson(config.agentId, config.environmentId, JSON.stringify(goal));
 }
 ```
-Inside a route handler, prefer `withTwinAgent` (it resolves both for you and surfaces `{ agentId, apiKey, tenantId }`). Inside a cron job, read `twin_agent_id` and `twin_api_key` directly off the joined row from `getDueEnrollments` / `claimScheduledCampaigns`.
+Inside a route handler, prefer `withAgent` (it resolves both and surfaces `{ agentId, environmentId, tenantId, auth }`). Inside a cron job, read `agent_id` and `environment_id` directly off the joined row from `getDueEnrollments` / `claimScheduledCampaigns` (env-default fallback for `environment_id`).

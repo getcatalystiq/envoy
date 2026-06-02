@@ -10,8 +10,8 @@ describe("lib/env", () => {
     const env = getEnv();
     expect(env.DATABASE_URL).toContain("postgresql://");
     expect(env.JWT_SECRET.length).toBeGreaterThanOrEqual(32);
-    expect(env.TWIN_API_URL).toBe("https://build.twin.so");
-    expect(env.TWIN_API_KEY).toBe("test-twin-key");
+    expect(env.ANTHROPIC_API_KEY).toBe("test-anthropic-key");
+    expect(env.ANTHROPIC_DEFAULT_ENVIRONMENT_ID).toBe("env_test");
   });
 
   it("parses ALLOWED_DCR_DOMAINS as a comma-separated list", async () => {
@@ -44,32 +44,32 @@ describe("lib/env", () => {
     process.env.JWT_SECRET = orig;
   });
 
-  it("rejects missing TWIN_API_KEY", async () => {
-    const orig = process.env.TWIN_API_KEY;
-    delete process.env.TWIN_API_KEY;
+  it("rejects missing ANTHROPIC_API_KEY", async () => {
+    const orig = process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
     const { getEnv } = await import("@/lib/env");
-    expect(() => getEnv()).toThrow(/TWIN_API_KEY/);
-    process.env.TWIN_API_KEY = orig;
+    expect(() => getEnv()).toThrow(/ANTHROPIC_API_KEY/);
+    process.env.ANTHROPIC_API_KEY = orig;
   });
 
-  it("rejects non-https TWIN_API_URL outside dev (superRefine)", async () => {
-    const origUrl = process.env.TWIN_API_URL;
+  it("requires ANTHROPIC_DEFAULT_ENVIRONMENT_ID outside dev (superRefine)", async () => {
+    const origDefault = process.env.ANTHROPIC_DEFAULT_ENVIRONMENT_ID;
     const origEnv = process.env.ENVIRONMENT;
-    process.env.TWIN_API_URL = "http://insecure.example.com";
+    delete process.env.ANTHROPIC_DEFAULT_ENVIRONMENT_ID;
     process.env.ENVIRONMENT = "prod";
     const { getEnv } = await import("@/lib/env");
-    expect(() => getEnv()).toThrow(/TWIN_API_URL must use https/);
-    process.env.TWIN_API_URL = origUrl;
+    expect(() => getEnv()).toThrow(/ANTHROPIC_DEFAULT_ENVIRONMENT_ID/);
+    if (origDefault !== undefined) process.env.ANTHROPIC_DEFAULT_ENVIRONMENT_ID = origDefault;
     process.env.ENVIRONMENT = origEnv;
   });
 
-  it("allows non-https TWIN_API_URL in dev mode", async () => {
-    const origUrl = process.env.TWIN_API_URL;
-    process.env.TWIN_API_URL = "http://dev-local.example.com";
+  it("allows a missing ANTHROPIC_DEFAULT_ENVIRONMENT_ID in dev mode", async () => {
+    const origDefault = process.env.ANTHROPIC_DEFAULT_ENVIRONMENT_ID;
+    delete process.env.ANTHROPIC_DEFAULT_ENVIRONMENT_ID;
     process.env.ENVIRONMENT = "dev";
     const { getEnv } = await import("@/lib/env");
     expect(() => getEnv()).not.toThrow();
-    process.env.TWIN_API_URL = origUrl;
+    if (origDefault !== undefined) process.env.ANTHROPIC_DEFAULT_ENVIRONMENT_ID = origDefault;
   });
 
   it("caches parsed env across calls (lazy singleton)", async () => {

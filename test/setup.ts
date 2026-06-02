@@ -7,8 +7,8 @@ process.env.JWT_SECRET = "test-jwt-secret-at-least-32-characters-long";
 process.env.NEXT_PUBLIC_URL = "http://localhost:3000";
 process.env.SES_ACCESS_KEY_ID = "test-key";
 process.env.SES_SECRET_ACCESS_KEY = "test-secret";
-process.env.TWIN_API_KEY = "test-twin-key";
-process.env.TWIN_API_URL = "https://build.twin.so";
+process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+process.env.ANTHROPIC_DEFAULT_ENVIRONMENT_ID = "env_test";
 process.env.ENVIRONMENT = "dev";
 process.env.CRON_SECRET = "test-cron-secret";
 
