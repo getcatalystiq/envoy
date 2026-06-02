@@ -60,7 +60,7 @@ export async function getDueEnrollments(
               t.company as target_company, t.custom_fields as target_custom_fields,
               t.phone_normalized as target_phone, t.metadata as target_metadata,
               t.status as target_status,
-              o.agent_id, o.environment_id
+              o.agent_id, o.environment_id, o.vault_id
        FROM sequence_enrollments e
        JOIN sequences s ON s.id = e.sequence_id
        JOIN targets t ON t.id = e.target_id
@@ -171,7 +171,7 @@ export async function claimScheduledCampaigns(
       WHERE id IN (SELECT id FROM claimable)
       RETURNING *
     )
-    SELECT cl.*, o.agent_id, o.environment_id
+    SELECT cl.*, o.agent_id, o.environment_id, o.vault_id
     FROM claimed cl
     JOIN organizations o ON o.id = cl.organization_id
   `;

@@ -29,7 +29,7 @@ export async function PATCH(request: Request) {
   if (isErrorResponse(auth)) return auth;
 
   const body = await request.json();
-  const { email_from_name, email_domain, agent_id, environment_id } = body;
+  const { email_from_name, email_domain, agent_id, environment_id, vault_id } = body;
 
   const updates: Record<string, unknown> = {};
 
@@ -64,6 +64,20 @@ export async function PATCH(request: Request) {
     } else {
       return jsonResponse(
         { error: "environment_id must be a non-empty string or null" },
+        400,
+      );
+    }
+  }
+
+  if (vault_id !== undefined) {
+    // null / empty clears the per-org vault (no vault attached to sessions).
+    if (vault_id === null || vault_id === "") {
+      updates.vault_id = null;
+    } else if (typeof vault_id === "string" && vault_id.trim().length > 0) {
+      updates.vault_id = vault_id.trim();
+    } else {
+      return jsonResponse(
+        { error: "vault_id must be a non-empty string or null" },
         400,
       );
     }

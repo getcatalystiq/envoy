@@ -60,6 +60,7 @@ async function executeCampaign(
   orgId: string,
   agentId: string,
   environmentId: string,
+  vaultIds: string[],
   startTime: number,
 ): Promise<{ queued: number; failed: number; timed_out: boolean }> {
   let queued = 0;
@@ -111,6 +112,7 @@ async function executeCampaign(
             lifecycle_stage: target.lifecycle_stage ?? 0,
           },
           "educational",
+          { vaultIds },
         );
         return {
           target_id: String(target.id),
@@ -218,11 +220,16 @@ export async function GET(request: Request) {
       `;
       continue;
     }
+    const vaultIds =
+      typeof campaign.vault_id === "string" && campaign.vault_id.length > 0
+        ? [campaign.vault_id as string]
+        : [];
     const result = await executeCampaign(
       String(campaign.id),
       String(campaign.organization_id),
       campaign.agent_id,
       environmentId,
+      vaultIds,
       startTime,
     );
 

@@ -8,13 +8,16 @@ type Row = Record<string, any>;
 const ALLOWED_UPDATE_COLUMNS = new Set([
   "name", "email_domain", "email_domain_verified", "email_domain_dkim_tokens",
   "email_from_name", "ses_tenant_name", "ses_configuration_set",
-  "agent_id", "environment_id",
+  "agent_id", "environment_id", "vault_id",
 ]);
 
 /** Resolved per-org Claude Managed Agents config. */
 export interface AgentConfig {
   agentId: string;
   environmentId: string;
+  /** Vault ids passed as session `vault_ids` so MCP servers can authenticate.
+   * Empty when the org has no vault configured. */
+  vaultIds: string[];
 }
 
 /**
@@ -28,7 +31,7 @@ export interface AgentConfig {
  */
 export async function getAgentConfig(orgId: string): Promise<AgentConfig | null> {
   const rows = await sql`
-    SELECT agent_id, environment_id FROM organizations WHERE id = ${orgId}
+    SELECT agent_id, environment_id, vault_id FROM organizations WHERE id = ${orgId}
   `;
   const row = rows[0];
   if (!row || !row.agent_id) return null;
@@ -38,7 +41,14 @@ export async function getAgentConfig(orgId: string): Promise<AgentConfig | null>
       ? orgEnv
       : getEnv().ANTHROPIC_DEFAULT_ENVIRONMENT_ID;
   if (!environmentId) return null;
-  return { agentId: String(row.agent_id), environmentId: String(environmentId) };
+  const orgVault = row.vault_id;
+  const vaultIds =
+    typeof orgVault === "string" && orgVault.length > 0 ? [orgVault] : [];
+  return {
+    agentId: String(row.agent_id),
+    environmentId: String(environmentId),
+    vaultIds,
+  };
 }
 
 export async function getOrganization(orgId: string): Promise<Row | null> {
@@ -49,7 +59,7 @@ export async function getOrganization(orgId: string): Promise<Row | null> {
     SELECT id, name, email_domain, email_domain_verified,
            email_domain_dkim_tokens, email_from_name,
            ses_tenant_name, ses_configuration_set,
-           agent_id, environment_id
+           agent_id, environment_id, vault_id
     FROM organizations
     WHERE id = ${orgId}
   `;
@@ -85,7 +95,7 @@ export async function updateOrganization(
     RETURNING id, name, email_domain, email_domain_verified,
               email_domain_dkim_tokens, email_from_name,
               ses_tenant_name, ses_configuration_set,
-              agent_id, environment_id
+              agent_id, environment_id, vault_id
   `;
   const rows = await sql.query(query, [orgId, ...values]);
   return rows[0] ?? null;

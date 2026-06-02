@@ -46,6 +46,7 @@ async function personalizeBlock(
   targetData: AnyData,
   agentId: string,
   environmentId: string,
+  vaultIds: string[],
   timeoutMs: number
 ): Promise<{
   blockId: string;
@@ -79,6 +80,7 @@ async function personalizeBlock(
     };
     const aiResult = await runAgentJson(agentId, environmentId, JSON.stringify(goal), {
       timeoutMs,
+      vaultIds,
     });
 
     const personalized =
@@ -123,6 +125,7 @@ export async function processPersonalization(
   targetData: AnyData,
   agentId: string,
   environmentId: string,
+  vaultIds: string[],
   opts: { maxConcurrent?: number; timeoutMs?: number } = {}
 ): Promise<{ content: BlockMap; errors: PersonalizationError[] }> {
   if (!builderContent) {
@@ -162,7 +165,7 @@ export async function processPersonalization(
   const promises = blockEntries.map(async ([blockId, block]) => {
     await semaphore.acquire();
     try {
-      return await personalizeBlock(blockId, block, targetData, agentId, environmentId, timeoutMs);
+      return await personalizeBlock(blockId, block, targetData, agentId, environmentId, vaultIds, timeoutMs);
     } finally {
       semaphore.release();
     }

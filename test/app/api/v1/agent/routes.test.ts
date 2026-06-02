@@ -58,7 +58,11 @@ const req = (url: string, init?: RequestInit) => new Request(url, init);
 beforeEach(() => {
   vi.clearAllMocks();
   requireAdminMock.mockResolvedValue({ userId: "u1", tenantId: "org-1", scope: "admin" });
-  getAgentConfigMock.mockResolvedValue({ agentId: "agent-1", environmentId: "env-1" });
+  getAgentConfigMock.mockResolvedValue({
+    agentId: "agent-1",
+    environmentId: "env-1",
+    vaultIds: [],
+  });
 });
 
 describe("withAgent (via /agent/sessions)", () => {

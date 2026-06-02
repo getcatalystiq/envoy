@@ -7,6 +7,7 @@ import { Loader2, Save } from 'lucide-react';
 interface OrganizationResponse {
   agent_id?: string | null;
   environment_id?: string | null;
+  vault_id?: string | null;
 }
 
 export function AgentConfig() {
@@ -14,6 +15,8 @@ export function AgentConfig() {
   const [originalAgentId, setOriginalAgentId] = useState('');
   const [environmentId, setEnvironmentId] = useState('');
   const [originalEnvironmentId, setOriginalEnvironmentId] = useState('');
+  const [vaultId, setVaultId] = useState('');
+  const [originalVaultId, setOriginalVaultId] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -29,10 +32,13 @@ export function AgentConfig() {
       .then((data) => {
         const a = data.agent_id ?? '';
         const e = data.environment_id ?? '';
+        const v = data.vault_id ?? '';
         setAgentId(a);
         setOriginalAgentId(a);
         setEnvironmentId(e);
         setOriginalEnvironmentId(e);
+        setVaultId(v);
+        setOriginalVaultId(v);
       })
       .catch((err) => setLoadError(formatApiError(err)))
       .finally(() => setLoading(false));
@@ -56,13 +62,21 @@ export function AgentConfig() {
         // Empty clears the override → the deployment default env is used.
         payload.environment_id = nextEnv.length > 0 ? nextEnv : null;
       }
+      const nextVault = vaultId.trim();
+      if (nextVault !== originalVaultId) {
+        // Empty clears the vault → no vault attached to sessions.
+        payload.vault_id = nextVault.length > 0 ? nextVault : null;
+      }
       const data = await api.patch<OrganizationResponse>('/organization', payload);
       const a = data.agent_id ?? '';
       const e = data.environment_id ?? '';
+      const v = data.vault_id ?? '';
       setAgentId(a);
       setOriginalAgentId(a);
       setEnvironmentId(e);
       setOriginalEnvironmentId(e);
+      setVaultId(v);
+      setOriginalVaultId(v);
       setSaved(true);
     } catch (err) {
       if ((err as { status?: number }).status === 409) {
@@ -97,7 +111,9 @@ export function AgentConfig() {
   }
 
   const hasChanges =
-    agentId.trim() !== originalAgentId || environmentId.trim() !== originalEnvironmentId;
+    agentId.trim() !== originalAgentId ||
+    environmentId.trim() !== originalEnvironmentId ||
+    vaultId.trim() !== originalVaultId;
 
   return (
     <div className="space-y-6">
@@ -150,6 +166,29 @@ export function AgentConfig() {
             setSaved(false);
           }}
           placeholder="env_xxxxxxxxxxxx"
+          className="w-full font-mono text-sm border rounded-md px-3 py-2 bg-background"
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-lg font-medium">Vault ID</h2>
+          <p className="text-sm text-muted-foreground">
+            The Managed Agents vault holding credentials your agent&apos;s MCP
+            servers (e.g. firecrawl) need. Leave empty if the agent uses no
+            credentialed tools.
+          </p>
+        </div>
+        <input
+          type="text"
+          value={vaultId}
+          onChange={(e) => {
+            setVaultId(e.target.value);
+            setSaved(false);
+          }}
+          placeholder="vault_xxxxxxxxxxxx"
           className="w-full font-mono text-sm border rounded-md px-3 py-2 bg-background"
           autoComplete="off"
           spellCheck={false}

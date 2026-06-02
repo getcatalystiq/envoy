@@ -144,6 +144,24 @@ describe("runAgentSession / runAgentJson", () => {
     });
   });
 
+  it("passes vault_ids to sessions.create when provided, omits them when empty", async () => {
+    mocks.stream.mockResolvedValue(scriptedStream([agentMessage('{"body":"X"}'), IDLE]));
+    await runAgentJson(AGENT, ENV, GOAL, { vaultIds: ["vault_1"] });
+    expect(mocks.create).toHaveBeenCalledWith({
+      agent: { type: "agent", id: AGENT },
+      environment_id: ENV,
+      vault_ids: ["vault_1"],
+    });
+
+    mocks.create.mockClear();
+    mocks.stream.mockResolvedValue(scriptedStream([agentMessage('{"body":"X"}'), IDLE]));
+    await runAgentJson(AGENT, ENV, GOAL, { vaultIds: [] });
+    expect(mocks.create).toHaveBeenCalledWith({
+      agent: { type: "agent", id: AGENT },
+      environment_id: ENV,
+    });
+  });
+
   it("parses {subject, body} object output", async () => {
     mocks.stream.mockResolvedValue(
       scriptedStream([agentMessage('{"subject":"Hi","body":"Y"}'), IDLE]),

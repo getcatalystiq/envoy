@@ -32,6 +32,9 @@ export interface AgentSessionResult {
 export interface AgentCallOpts {
   /** Per-call invocation timeout. Defaults to 10 minutes. */
   timeoutMs?: number;
+  /** Vault ids the session may use for stored credentials (so the agent's MCP
+   * servers can authenticate). Passed as `vault_ids` to `sessions.create`. */
+  vaultIds?: string[];
   /**
    * Invoked with the new session id immediately after `sessions.create` and
    * BEFORE the billed `events.send` turn — so a caller can persist the id as an
@@ -115,6 +118,9 @@ export async function runAgentSession(
     const session = await client.beta.sessions.create({
       agent: { type: "agent", id: agentId },
       environment_id: environmentId,
+      ...(opts.vaultIds && opts.vaultIds.length > 0
+        ? { vault_ids: opts.vaultIds }
+        : {}),
     });
     sessionId = session.id;
   } catch (err) {

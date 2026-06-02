@@ -273,6 +273,7 @@ export function registerTools(server: McpServer) {
           config.environmentId,
           target as Record<string, unknown>,
           args.content_type,
+          { vaultIds: config.vaultIds },
         );
       } catch (err) {
         if (err instanceof AgentError) {
@@ -1021,7 +1022,9 @@ export function registerTools(server: McpServer) {
         `Respond with JSON containing a "body" field with the personalized preview.`;
       let result: Record<string, unknown>;
       try {
-        result = await agent.runAgentJson(config.agentId, config.environmentId, message);
+        result = await agent.runAgentJson(config.agentId, config.environmentId, message, {
+          vaultIds: config.vaultIds,
+        });
       } catch (err) {
         if (err instanceof AgentError) {
           return errorResult(`AI generation failed: ${err.message}`);

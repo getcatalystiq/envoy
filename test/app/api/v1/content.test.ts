@@ -56,7 +56,11 @@ beforeEach(() => {
     tenantId: "org-1",
     scope: "admin",
   });
-  getAgentConfigMock.mockResolvedValue({ agentId: "agent-1", environmentId: "env-1" });
+  getAgentConfigMock.mockResolvedValue({
+    agentId: "agent-1",
+    environmentId: "env-1",
+    vaultIds: ["vault-1"],
+  });
 });
 
 describe("/api/v1/content/generate POST", () => {
@@ -114,6 +118,7 @@ describe("/api/v1/content/generate POST", () => {
       "env-1",
       expect.objectContaining({ email: "a@b.com" }),
       "educational",
+      { vaultIds: ["vault-1"] },
     );
     expect(contentCreateMock).toHaveBeenCalled();
   });
