@@ -6,18 +6,25 @@
 
 SET LOCAL lock_timeout = '5s';
 
--- Idempotent rename: only if the source column exists and the destination does
--- not yet exist.
+-- Inflight markers hold *Twin* run ids, which are not valid Managed Agents
+-- session ids. Carrying them into agent_session_id would make the next tick try
+-- to harvest a nonexistent session (retrieve fails -> null -> a fresh, billed
+-- session is created for every inflight row). NULL them first so those steps
+-- start clean on the new stack — then rename. Both guarded on twin_run_id
+-- still existing, so the migration stays replay-safe.
 DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 'sequence_step_executions' AND column_name = 'twin_run_id'
-  ) AND NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'sequence_step_executions' AND column_name = 'agent_session_id'
   ) THEN
-    ALTER TABLE sequence_step_executions RENAME COLUMN twin_run_id TO agent_session_id;
+    UPDATE sequence_step_executions SET twin_run_id = NULL WHERE twin_run_id IS NOT NULL;
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'sequence_step_executions' AND column_name = 'agent_session_id'
+    ) THEN
+      ALTER TABLE sequence_step_executions RENAME COLUMN twin_run_id TO agent_session_id;
+    END IF;
   END IF;
 END $$;
 

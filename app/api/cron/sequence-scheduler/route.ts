@@ -1,5 +1,6 @@
 import { verifyCronSecret } from "@/lib/cron-utils";
 import { sql } from "@/lib/db";
+import { getEnv } from "@/lib/env";
 import { runAgentJson, harvestAgentSession } from "@/lib/agent-session";
 import { formatTargetForPrompt } from "@/lib/agent-sanitize";
 import { compileBuilderContent } from "@/lib/block-compiler";
@@ -433,7 +434,7 @@ export async function GET(request: Request) {
     const environmentId =
       (typeof first.environment_id === "string" && first.environment_id.length > 0)
         ? (first.environment_id as string)
-        : process.env.ANTHROPIC_DEFAULT_ENVIRONMENT_ID ?? null;
+        : getEnv().ANTHROPIC_DEFAULT_ENVIRONMENT_ID ?? null;
 
     if (agentId && environmentId) {
       console.log(

@@ -1,5 +1,6 @@
 import { verifyCronSecret } from "@/lib/cron-utils";
 import { sql } from "@/lib/db";
+import { getEnv } from "@/lib/env";
 import { generateContent } from "@/lib/agent-session";
 import { sanitizeEmailHtml } from "@/lib/html-sanitize";
 import { claimScheduledCampaigns } from "@/lib/queries/system";
@@ -202,7 +203,7 @@ export async function GET(request: Request) {
       typeof campaign.environment_id === "string" &&
       campaign.environment_id.length > 0
         ? (campaign.environment_id as string)
-        : process.env.ANTHROPIC_DEFAULT_ENVIRONMENT_ID;
+        : getEnv().ANTHROPIC_DEFAULT_ENVIRONMENT_ID;
     if (!environmentId) {
       console.error(
         `Campaign ${campaign.id}: no environment_id and no ANTHROPIC_DEFAULT_ENVIRONMENT_ID — skipping`,
