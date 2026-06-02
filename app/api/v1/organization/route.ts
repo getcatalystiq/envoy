@@ -29,7 +29,7 @@ export async function PATCH(request: Request) {
   if (isErrorResponse(auth)) return auth;
 
   const body = await request.json();
-  const { email_from_name, email_domain, twin_agent_id, twin_api_key } = body;
+  const { email_from_name, email_domain, agent_id, environment_id } = body;
 
   const updates: Record<string, unknown> = {};
 
@@ -37,33 +37,33 @@ export async function PATCH(request: Request) {
     updates.email_from_name = email_from_name;
   }
 
-  if (twin_api_key !== undefined) {
-    // null or empty string unconfigures (falls back to env var).
-    if (twin_api_key === null || twin_api_key === "") {
-      updates.twin_api_key = null;
-    } else if (
-      typeof twin_api_key === "string" &&
-      twin_api_key.trim().length > 0
-    ) {
-      updates.twin_api_key = twin_api_key.trim();
+  if (agent_id !== undefined) {
+    // Accept null / empty string to unconfigure; otherwise require a non-empty
+    // trimmed string.
+    if (agent_id === null || agent_id === "") {
+      updates.agent_id = null;
+    } else if (typeof agent_id === "string" && agent_id.trim().length > 0) {
+      updates.agent_id = agent_id.trim();
     } else {
       return jsonResponse(
-        { error: "twin_api_key must be a non-empty string or null" },
+        { error: "agent_id must be a non-empty string or null" },
         400,
       );
     }
   }
 
-  if (twin_agent_id !== undefined) {
-    // Accept null / empty string to unconfigure; otherwise require a non-empty
-    // trimmed string.
-    if (twin_agent_id === null || twin_agent_id === "") {
-      updates.twin_agent_id = null;
-    } else if (typeof twin_agent_id === "string" && twin_agent_id.trim().length > 0) {
-      updates.twin_agent_id = twin_agent_id.trim();
+  if (environment_id !== undefined) {
+    // null / empty clears the per-org override (deployment default is used).
+    if (environment_id === null || environment_id === "") {
+      updates.environment_id = null;
+    } else if (
+      typeof environment_id === "string" &&
+      environment_id.trim().length > 0
+    ) {
+      updates.environment_id = environment_id.trim();
     } else {
       return jsonResponse(
-        { error: "twin_agent_id must be a non-empty string or null" },
+        { error: "environment_id must be a non-empty string or null" },
         400,
       );
     }
@@ -88,6 +88,18 @@ export async function PATCH(request: Request) {
     } catch (err) {
       if (err instanceof Error && err.message.startsWith("Unknown field:")) {
         return jsonResponse({ error: err.message }, 400);
+      }
+      // UNIQUE(agent_id) violation — another org already uses this agent.
+      const code = (err as { code?: string }).code;
+      if (
+        code === "23505" ||
+        (err instanceof Error &&
+          /uq_organizations_agent_id|duplicate key/i.test(err.message))
+      ) {
+        return jsonResponse(
+          { error: "agent_id is already in use by another organization" },
+          409,
+        );
       }
       throw err;
     }

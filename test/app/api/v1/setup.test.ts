@@ -33,33 +33,33 @@ describe("/api/v1/setup GET", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns twin_configured=true when twin_agent_id is set", async () => {
-    sqlMock.mockResolvedValueOnce([{ twin_agent_id: "agent-1" }]);
+  it("returns agent_configured=true when agent_id is set", async () => {
+    sqlMock.mockResolvedValueOnce([{ agent_id: "agent-1" }]);
     const res = await GET(new Request("http://x/api/v1/setup"));
     const body = await res.json();
-    expect(body.twin_configured).toBe(true);
+    expect(body.agent_configured).toBe(true);
     // Also includes deprecated alias
-    expect(body.agentplane_configured).toBe(true);
+    expect(body.twin_configured).toBe(true);
   });
 
-  it("returns twin_configured=false when no agent configured", async () => {
-    sqlMock.mockResolvedValueOnce([{ twin_agent_id: null }]);
+  it("returns agent_configured=false when no agent configured", async () => {
+    sqlMock.mockResolvedValueOnce([{ agent_id: null }]);
     const res = await GET(new Request("http://x/api/v1/setup"));
     const body = await res.json();
+    expect(body.agent_configured).toBe(false);
     expect(body.twin_configured).toBe(false);
-    expect(body.agentplane_configured).toBe(false);
   });
 
-  it("returns twin_configured=false when org row missing", async () => {
+  it("returns agent_configured=false when org row missing", async () => {
     sqlMock.mockResolvedValueOnce([]);
     const res = await GET(new Request("http://x/api/v1/setup"));
     const body = await res.json();
-    expect(body.twin_configured).toBe(false);
+    expect(body.agent_configured).toBe(false);
   });
 
   it("includes X-Deprecation header for the alias", async () => {
-    sqlMock.mockResolvedValueOnce([{ twin_agent_id: "x" }]);
+    sqlMock.mockResolvedValueOnce([{ agent_id: "x" }]);
     const res = await GET(new Request("http://x/api/v1/setup"));
-    expect(res.headers.get("X-Deprecation")).toContain("agentplane_configured");
+    expect(res.headers.get("X-Deprecation")).toContain("twin_configured");
   });
 });
