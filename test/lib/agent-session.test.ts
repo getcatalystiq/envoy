@@ -19,6 +19,9 @@ const mocks = vi.hoisted(() => {
     send: vi.fn(),
     retrieve: vi.fn(),
     eventsList: vi.fn(),
+    sessionsList: vi.fn(),
+    agentsRetrieve: vi.fn(),
+    agentsUpdate: vi.fn(),
     FakeAPIError,
   };
 });
@@ -30,8 +33,10 @@ vi.mock("@anthropic-ai/sdk", () => {
         create: mocks.create,
         archive: mocks.archive,
         retrieve: mocks.retrieve,
+        list: mocks.sessionsList,
         events: { stream: mocks.stream, send: mocks.send, list: mocks.eventsList },
       },
+      agents: { retrieve: mocks.agentsRetrieve, update: mocks.agentsUpdate },
     };
     static APIError = mocks.FakeAPIError;
     constructor(_opts?: unknown) {}
@@ -43,6 +48,10 @@ import {
   runAgentJson,
   runAgentSession,
   harvestAgentSession,
+  listAgentSessions,
+  getAgentSessionEvents,
+  getAgentInstructions,
+  updateAgentInstructions,
   AgentError,
 } from "@/lib/agent-session";
 
@@ -97,8 +106,19 @@ beforeEach(() => {
   mocks.send.mockReset().mockResolvedValue(undefined);
   mocks.retrieve.mockReset();
   mocks.eventsList.mockReset();
+  mocks.sessionsList.mockReset();
+  mocks.agentsRetrieve.mockReset();
+  mocks.agentsUpdate.mockReset().mockResolvedValue(undefined);
   mocks.create.mockResolvedValue({ id: "sess_1" });
 });
+
+function asyncList(items: unknown[]) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const i of items) yield i;
+    },
+  };
+}
 
 describe("runAgentSession / runAgentJson", () => {
   it("happy path: returns {body}; opens stream before send; sends exact goal text", async () => {
@@ -277,6 +297,61 @@ describe("harvestAgentSession", () => {
   it("returns null when retrieve throws", async () => {
     mocks.retrieve.mockRejectedValue(new Error("gone"));
     expect(await harvestAgentSession("sess_9")).toBeNull();
+  });
+});
+
+describe("listAgentSessions", () => {
+  it("maps sessions to summaries scoped by agent_id (newest-first from the API)", async () => {
+    mocks.sessionsList.mockReturnValue(
+      asyncList([
+        { id: "s2", status: "idle", created_at: "2026-06-01T02:00:00Z", usage: { x: 1 } },
+        { id: "s1", status: "terminated", created_at: "2026-06-01T01:00:00Z" },
+      ]),
+    );
+    const out = await listAgentSessions(AGENT, { limit: 10 });
+    expect(mocks.sessionsList).toHaveBeenCalledWith({ agent_id: AGENT });
+    expect(out).toEqual([
+      { id: "s2", status: "idle", created_at: "2026-06-01T02:00:00Z", usage: { x: 1 } },
+      { id: "s1", status: "terminated", created_at: "2026-06-01T01:00:00Z", usage: undefined },
+    ]);
+  });
+});
+
+describe("getAgentSessionEvents — IDOR guard", () => {
+  it("returns events when the session belongs to the org's agent", async () => {
+    mocks.retrieve.mockResolvedValue({ id: "s1", agent: { id: AGENT } });
+    mocks.eventsList.mockReturnValue(asyncList([{ type: "agent.message" }]));
+    const events = await getAgentSessionEvents(AGENT, "s1");
+    expect(events).toHaveLength(1);
+  });
+
+  it("throws 404 (fail closed) when the session belongs to a DIFFERENT agent", async () => {
+    mocks.retrieve.mockResolvedValue({ id: "s1", agent: { id: "other_agent" } });
+    await expect(getAgentSessionEvents(AGENT, "s1")).rejects.toMatchObject({ status: 404 });
+    expect(mocks.eventsList).not.toHaveBeenCalled();
+  });
+
+  it("throws 404 (fail closed) when the owning-agent field is missing", async () => {
+    mocks.retrieve.mockResolvedValue({ id: "s1" });
+    await expect(getAgentSessionEvents(AGENT, "s1")).rejects.toMatchObject({ status: 404 });
+    expect(mocks.eventsList).not.toHaveBeenCalled();
+  });
+
+  it("throws 404 when retrieve itself fails", async () => {
+    mocks.retrieve.mockRejectedValue(new Error("nope"));
+    await expect(getAgentSessionEvents(AGENT, "s1")).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("agent instructions", () => {
+  it("reads the agent system prompt", async () => {
+    mocks.agentsRetrieve.mockResolvedValue({ id: AGENT, system: "Be helpful." });
+    expect(await getAgentInstructions(AGENT)).toBe("Be helpful.");
+  });
+
+  it("writes the agent system prompt via agents.update({ system })", async () => {
+    await updateAgentInstructions(AGENT, "New prompt");
+    expect(mocks.agentsUpdate).toHaveBeenCalledWith(AGENT, { system: "New prompt" });
   });
 });
 

@@ -246,6 +246,101 @@ export async function generateContent(
   return runAgentJson(agentId, environmentId, message, opts);
 }
 
+// ---------------------------------------------------------------------------
+// Observability / config surface used by the settings routes (app/api/v1/agent/*).
+// Kept here so all SDK contact stays in one module (Risk R-D).
+// ---------------------------------------------------------------------------
+
+export interface AgentSessionSummary {
+  id: string;
+  status: string;
+  created_at: string;
+  usage?: unknown;
+}
+
+/** List the agent's recent sessions (newest first — `sessions.list` defaults to
+ * `desc`). Scoped to the org's `agentId`. */
+export async function listAgentSessions(
+  agentId: string,
+  opts: { limit?: number } = {},
+): Promise<AgentSessionSummary[]> {
+  const client = getClient();
+  const limit = opts.limit ?? 50;
+  const out: AgentSessionSummary[] = [];
+  try {
+    for await (const s of client.beta.sessions.list({ agent_id: agentId })) {
+      const session = s as { id: string; status: string; created_at: string; usage?: unknown };
+      out.push({
+        id: session.id,
+        status: session.status,
+        created_at: session.created_at,
+        usage: session.usage,
+      });
+      if (out.length >= limit) break;
+    }
+  } catch (err) {
+    throw toAgentError(err, "Failed to list agent sessions");
+  }
+  return out;
+}
+
+/**
+ * Return a session's event timeline — but ONLY if the session belongs to this
+ * org's agent. Because all orgs share one ANTHROPIC_API_KEY, the API would
+ * return any session on the account; we verify ownership Envoy-side via
+ * `sessions.retrieve().agent.id` and **fail closed** (404) on any mismatch or
+ * missing field. `events.list` defaults to chronological (`asc`).
+ */
+export async function getAgentSessionEvents(
+  agentId: string,
+  sessionId: string,
+): Promise<unknown[]> {
+  const client = getClient();
+  let owner: string | undefined;
+  try {
+    const session = await client.beta.sessions.retrieve(sessionId);
+    owner = (session as { agent?: { id?: string } }).agent?.id;
+  } catch {
+    throw new AgentError("Session not found", 404);
+  }
+  if (!owner || owner !== agentId) {
+    throw new AgentError("Session not found", 404);
+  }
+  const events: unknown[] = [];
+  try {
+    for await (const event of client.beta.sessions.events.list(sessionId)) {
+      events.push(event);
+    }
+  } catch (err) {
+    throw toAgentError(err, "Failed to list session events");
+  }
+  return events;
+}
+
+/** Read the agent's system prompt (the "instructions"). */
+export async function getAgentInstructions(agentId: string): Promise<string | null> {
+  const client = getClient();
+  try {
+    const agentDef = await client.beta.agents.retrieve(agentId);
+    return (agentDef as { system?: string | null }).system ?? null;
+  } catch (err) {
+    throw toAgentError(err, "Failed to read agent instructions");
+  }
+}
+
+/** Set the agent's system prompt. */
+export async function updateAgentInstructions(
+  agentId: string,
+  system: string,
+): Promise<void> {
+  const client = getClient();
+  try {
+    await client.beta.agents.update(agentId, { system });
+  } catch (err) {
+    throw toAgentError(err, "Failed to update agent instructions");
+  }
+}
+
 /**
  * Content-seek extraction: scan the accumulated agent messages newest -> oldest
  * and return the first whose text parses to an object carrying `body` (or
