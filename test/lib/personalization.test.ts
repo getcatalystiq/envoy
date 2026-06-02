@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock the twin module so tests don't hit real fetch.
 const runAgentJsonMock = vi.fn();
-vi.mock("@/lib/twin", () => ({
+vi.mock("@/lib/agent-session", () => ({
   runAgentJson: (...args: unknown[]) => runAgentJsonMock(...args),
 }));
 
@@ -52,7 +52,7 @@ describe("lib/personalization", () => {
       const content = {
         b1: textBlock("hello"),
       };
-      const result = await processPersonalization(content, {}, "agent-1", undefined);
+      const result = await processPersonalization(content, {}, "agent-1", "env-1");
       expect(result.content.b1.data.props.text).toBe("hello");
       expect(result.errors).toEqual([]);
       expect(runAgentJsonMock).not.toHaveBeenCalled();
@@ -67,7 +67,7 @@ describe("lib/personalization", () => {
         content,
         { first_name: "Alice", email: "a@b.com" },
         "agent-1",
-        undefined,
+        "env-1",
       );
       expect(result.content.b1.data.props.text).toBe("Hi Alice!");
       expect(result.errors).toEqual([]);
@@ -77,14 +77,14 @@ describe("lib/personalization", () => {
     it("falls back to content field when body absent", async () => {
       runAgentJsonMock.mockResolvedValueOnce({ content: "fallback text" });
       const content = { b1: textBlock("original", { enabled: true }) };
-      const result = await processPersonalization(content, {}, "a1", undefined);
+      const result = await processPersonalization(content, {}, "a1", "env-1");
       expect(result.content.b1.data.props.text).toBe("fallback text");
     });
 
     it("keeps original content when result has neither body nor content", async () => {
       runAgentJsonMock.mockResolvedValueOnce({ irrelevant: "nope" });
       const content = { b1: textBlock("kept", { enabled: true }) };
-      const result = await processPersonalization(content, {}, "a1", undefined);
+      const result = await processPersonalization(content, {}, "a1", "env-1");
       // Falls through to originalContent
       expect(result.content.b1.data.props.text).toBe("kept");
     });
@@ -92,7 +92,7 @@ describe("lib/personalization", () => {
     it("records an error when runAgentJson throws", async () => {
       runAgentJsonMock.mockRejectedValueOnce(new Error("Twin down"));
       const content = { b1: textBlock("kept", { enabled: true }) };
-      const result = await processPersonalization(content, {}, "a1", undefined);
+      const result = await processPersonalization(content, {}, "a1", "env-1");
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0].blockId).toBe("b1");
       expect(result.errors[0].error).toContain("Twin down");
@@ -115,7 +115,7 @@ describe("lib/personalization", () => {
         content[`b${i}`] = textBlock(`orig ${i}`, { enabled: true });
       }
 
-      await processPersonalization(content, {}, "a1", undefined, { maxConcurrent });
+      await processPersonalization(content, {}, "a1", "env-1", { maxConcurrent });
       expect(observedMax).toBeLessThanOrEqual(maxConcurrent);
       expect(observedMax).toBeGreaterThan(0);
     });
@@ -129,10 +129,10 @@ describe("lib/personalization", () => {
         content,
         { first_name: "X", last_name: "Y", company: "Acme", email: "x@y.com" },
         "agent-1",
-        undefined,
+        "env-1",
       );
       const callArgs = runAgentJsonMock.mock.calls[0];
-      const message = callArgs[1] as string;
+      const message = callArgs[2] as string;
       expect(message).toContain("Text");
       expect(message).toContain("Original Body");
       expect(message).toContain("Be witty");
@@ -160,8 +160,8 @@ describe("lib/personalization", () => {
         },
       };
       const content = { b1: textBlock("o", { enabled: true }) };
-      await processPersonalization(content, target, "agent-1", undefined);
-      const sentMessage = runAgentJsonMock.mock.calls[0][1] as string;
+      await processPersonalization(content, target, "agent-1", "env-1");
+      const sentMessage = runAgentJsonMock.mock.calls[0][2] as string;
       expect(sentMessage).not.toContain("internal_secret");
       expect(sentMessage).not.toContain("should-not-ship");
       // Long company string truncated to 100 chars
@@ -186,8 +186,8 @@ describe("lib/personalization", () => {
         metadata: JSON.stringify({ industry: "fintech" }),
       };
       const content = { b1: textBlock("o", { enabled: true }) };
-      await processPersonalization(content, target, "agent-1", undefined);
-      const message = runAgentJsonMock.mock.calls[0][1] as string;
+      await processPersonalization(content, target, "agent-1", "env-1");
+      const message = runAgentJsonMock.mock.calls[0][2] as string;
       expect(message).toContain("fintech");
     });
 
@@ -198,7 +198,7 @@ describe("lib/personalization", () => {
           data: { props: {}, personalization: { enabled: true } },
         },
       };
-      const result = await processPersonalization(content, {}, "a1", undefined);
+      const result = await processPersonalization(content, {}, "a1", "env-1");
       expect(runAgentJsonMock).not.toHaveBeenCalled();
       expect(result.content.b1).toEqual(content.b1);
     });
@@ -209,7 +209,7 @@ describe("lib/personalization", () => {
         h1: { type: "Heading", data: { props: { text: "Hi" }, personalization: { enabled: true } } },
         b1: { type: "Button", data: { props: { text: "Click" }, personalization: { enabled: true } } },
       };
-      const result = await processPersonalization(content, {}, "a1", undefined);
+      const result = await processPersonalization(content, {}, "a1", "env-1");
       expect(result.content.h1.data.props.text).toBe("personalized");
       expect(result.content.b1.data.props.text).toBe("personalized");
     });
@@ -219,7 +219,7 @@ describe("lib/personalization", () => {
       const content = {
         h: { type: "Html", data: { props: { contents: "<p>old</p>" }, personalization: { enabled: true } } },
       };
-      const result = await processPersonalization(content, {}, "a1", undefined);
+      const result = await processPersonalization(content, {}, "a1", "env-1");
       expect(result.content.h.data.props.contents).toBe("<p>new</p>");
     });
   });

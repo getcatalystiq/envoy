@@ -51,24 +51,24 @@ describe("lib/queries/system", () => {
   });
 
   describe("claimScheduledCampaigns", () => {
-    it("filters by status='scheduled' + twin_agent_id NOT NULL + reclaim lock", async () => {
+    it("filters by status='scheduled' + agent_id NOT NULL + reclaim lock", async () => {
       sqlMock.mockResolvedValueOnce([]);
       await claimScheduledCampaigns(5);
       const [strings] = sqlMock.mock.calls[0];
       const text = (strings as TemplateStringsArray).join("");
       expect(text).toContain("'scheduled'");
-      expect(text).toContain("twin_agent_id IS NOT NULL");
+      expect(text).toContain("agent_id IS NOT NULL");
       expect(text).toContain("FOR UPDATE OF c SKIP LOCKED");
       expect(text).toContain("'active'"); // claim transitions to active
       expect(text).toContain("INTERVAL '15 minutes'");
     });
 
-    it("returns twin_agent_id with claimed campaign", async () => {
+    it("returns agent_id with claimed campaign", async () => {
       sqlMock.mockResolvedValueOnce([
-        { id: "c1", organization_id: "org-1", twin_agent_id: "agent-7" },
+        { id: "c1", organization_id: "org-1", agent_id: "agent-7" },
       ]);
       const rows = await claimScheduledCampaigns(10);
-      expect(rows[0].twin_agent_id).toBe("agent-7");
+      expect(rows[0].agent_id).toBe("agent-7");
     });
   });
 

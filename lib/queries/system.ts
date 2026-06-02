@@ -60,7 +60,7 @@ export async function getDueEnrollments(
               t.company as target_company, t.custom_fields as target_custom_fields,
               t.phone_normalized as target_phone, t.metadata as target_metadata,
               t.status as target_status,
-              o.twin_agent_id, o.twin_api_key
+              o.agent_id, o.environment_id
        FROM sequence_enrollments e
        JOIN sequences s ON s.id = e.sequence_id
        JOIN targets t ON t.id = e.target_id
@@ -157,7 +157,7 @@ export async function claimScheduledCampaigns(
       JOIN organizations o ON o.id = c.organization_id
       WHERE c.status = 'scheduled'
         AND c.scheduled_at <= NOW()
-        AND o.twin_agent_id IS NOT NULL
+        AND o.agent_id IS NOT NULL
         AND (c.processing_started_at IS NULL
              OR c.processing_started_at < NOW() - INTERVAL '15 minutes')
       ORDER BY c.scheduled_at ASC
@@ -171,7 +171,7 @@ export async function claimScheduledCampaigns(
       WHERE id IN (SELECT id FROM claimable)
       RETURNING *
     )
-    SELECT cl.*, o.twin_agent_id, o.twin_api_key
+    SELECT cl.*, o.agent_id, o.environment_id
     FROM claimed cl
     JOIN organizations o ON o.id = cl.organization_id
   `;

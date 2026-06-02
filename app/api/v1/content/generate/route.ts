@@ -1,11 +1,11 @@
 import { jsonResponse } from "@/lib/utils";
 import * as targets from "@/lib/queries/targets";
 import * as content from "@/lib/queries/content";
-import { generateContent } from "@/lib/twin";
-import { withTwinAgent } from "../../twin/_helpers";
+import { generateContent } from "@/lib/agent-session";
+import { withAgent } from "../../agent/_helpers";
 
 export async function POST(request: Request) {
-  return withTwinAgent(request, async ({ agentId, apiKey, tenantId }) => {
+  return withAgent(request, async ({ agentId, environmentId, tenantId }) => {
     const body = await request.json();
     const { target_id, content_type, channel } = body;
 
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
       return jsonResponse({ error: "Target not found" }, 404);
     }
 
-    const result = await generateContent(agentId, target, content_type, { apiKey });
+    const result = await generateContent(agentId, environmentId, target, content_type);
 
     const row = await content.create(tenantId, {
       name: `AI Generated - ${target.email} - ${content_type}`,

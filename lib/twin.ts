@@ -1,5 +1,5 @@
 import { getEnv } from "@/lib/env";
-import { formatTargetForPrompt } from "@/lib/twin-sanitize";
+import { formatTargetForPrompt } from "@/lib/agent-sanitize";
 
 export class TwinError extends Error {
   readonly status: number;
