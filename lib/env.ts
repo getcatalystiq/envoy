@@ -14,11 +14,13 @@ const envSchema = z
       .string()
       .min(1, "SES_SECRET_ACCESS_KEY is required"),
     AWS_SES_REGION: z.string().default("us-east-1"),
-    TWIN_API_URL: z
-      .string()
-      .url("TWIN_API_URL must be a valid URL")
-      .default("https://build.twin.so"),
-    TWIN_API_KEY: z.string().min(1, "TWIN_API_KEY is required"),
+    // Claude Managed Agents. The SDK reads ANTHROPIC_API_KEY from env itself;
+    // validating here keeps the fail-fast behavior the old TWIN_API_KEY had.
+    ANTHROPIC_API_KEY: z.string().min(1, "ANTHROPIC_API_KEY is required"),
+    // Default Managed Agents environment used when an org leaves environment_id
+    // blank. Required outside dev (see superRefine) — environment_id is a
+    // required input to sessions.create, so a null fallback would 503 every org.
+    ANTHROPIC_DEFAULT_ENVIRONMENT_ID: z.string().optional(),
     SES_NOTIFICATION_TOPIC_ARN: z.string().optional(),
     ALLOWED_DCR_DOMAINS: z
       .string()
@@ -26,14 +28,12 @@ const envSchema = z
       .transform((s) => s.split(",").map((d) => d.trim())),
   })
   .superRefine((data, ctx) => {
-    if (
-      data.ENVIRONMENT !== "dev" &&
-      !data.TWIN_API_URL.startsWith("https://")
-    ) {
+    if (data.ENVIRONMENT !== "dev" && !data.ANTHROPIC_DEFAULT_ENVIRONMENT_ID) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["TWIN_API_URL"],
-        message: "TWIN_API_URL must use https outside dev",
+        path: ["ANTHROPIC_DEFAULT_ENVIRONMENT_ID"],
+        message:
+          "ANTHROPIC_DEFAULT_ENVIRONMENT_ID is required outside dev (environment_id is required by sessions.create)",
       });
     }
   });
