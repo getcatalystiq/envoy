@@ -6,15 +6,16 @@
  * …) that originate from webhook ingestion. Rendering any of that into email
  * HTML without sanitization is a stored-XSS / phishing vector.
  *
- * We use `insane`, an allowlist parser-based sanitizer: any tag not in
- * `allowedTags` is dropped along with its contents, any attribute not in the
- * per-tag allowlist is dropped, and URL-bearing attributes (href/src/…) are
- * scheme-checked against `allowedSchemes`. This is fundamentally safer than a
- * regex denylist, which is trivially bypassed (`<iframe src=javascript:…>`,
- * `<base>`, `<meta http-equiv=refresh>`, tab/control-char obfuscation, etc.).
+ * We use `sanitize-html`, an allowlist parser-based sanitizer: any tag not in
+ * `allowedTags` is dropped, any attribute not in the per-tag allowlist is
+ * dropped, and URL-bearing attributes (href/src/…) are scheme-checked against
+ * `allowedSchemes`. Executable/structural tags (script, style, iframe, …) are
+ * dropped along with their contents. This is fundamentally safer than a regex
+ * denylist, which is trivially bypassed (`<iframe src=javascript:…>`, `<base>`,
+ * `<meta http-equiv=refresh>`, tab/control-char obfuscation, etc.).
  */
 
-import insane from "insane";
+import sanitizeHtml from "sanitize-html";
 
 // Formatting + layout tags that are safe in an email body. Deliberately EXCLUDES
 // script, style, iframe, form, base, meta, object, embed, link, input — i.e.
@@ -28,38 +29,35 @@ const ALLOWED_TAGS = [
 ];
 
 // Presentational attributes safe on any allowed tag. `style` is permitted (email
-// relies on inline styles); insane HTML-encodes attribute values, and CSS cannot
-// execute script in modern mail clients. `on*` handlers are NOT listed, so they
-// are stripped.
+// relies on inline styles); sanitize-html HTML-encodes attribute values, and CSS
+// cannot execute script in modern mail clients. `on*` handlers are NOT listed, so
+// they are stripped.
 const BASE_ATTRS = [
   "style", "class", "align", "dir", "title", "width", "height", "valign",
   "bgcolor", "colspan", "rowspan",
 ];
 
-function buildAllowedAttributes(): Record<string, string[]> {
-  const map: Record<string, string[]> = {};
-  for (const tag of ALLOWED_TAGS) {
-    map[tag] = [...BASE_ATTRS];
-  }
-  // URL-bearing attributes — insane scheme-checks these against allowedSchemes.
-  map.a = [...BASE_ATTRS, "href", "target", "rel"];
-  map.img = [...BASE_ATTRS, "src", "alt"];
-  map.table = [...BASE_ATTRS, "border", "cellpadding", "cellspacing", "role"];
-  map.col = [...BASE_ATTRS, "span"];
-  map.colgroup = [...BASE_ATTRS, "span"];
-  return map;
-}
-
-const EMAIL_SANITIZE_OPTIONS = {
+// sanitize-html unions the `*` (all-tags) allowlist with each tag-specific list,
+// so `a`/`img`/… get BASE_ATTRS PLUS their URL/structural attributes. URL-bearing
+// attributes (href/src) are scheme-checked against allowedSchemes below.
+const EMAIL_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: ALLOWED_TAGS,
-  allowedAttributes: buildAllowedAttributes(),
+  allowedAttributes: {
+    "*": BASE_ATTRS,
+    a: ["href", "target", "rel"],
+    img: ["src", "alt"],
+    table: ["border", "cellpadding", "cellspacing", "role"],
+    col: ["span"],
+    colgroup: ["span"],
+  },
   // Only web + mail schemes. Everything else (javascript:, data:, vbscript:,
   // file:, and any obfuscated variant) fails the check and the attribute is
-  // dropped.
+  // dropped. Applies to href, src, and every other URL-bearing attribute.
   allowedSchemes: ["http", "https", "mailto"],
-  allowedClasses: {},
-  filter: null,
-  transformText: null,
+  allowedSchemesAppliedToAttributes: ["href", "src"],
+  // Drop disallowed tags entirely (not just unwrap); script/style/etc. take
+  // their text content with them via the default nonTextTags handling.
+  disallowedTagsMode: "discard",
 };
 
 /**
@@ -68,12 +66,12 @@ const EMAIL_SANITIZE_OPTIONS = {
  */
 export function sanitizeEmailHtml(html: string | null | undefined): string {
   if (!html) return "";
-  return insane(html, EMAIL_SANITIZE_OPTIONS);
+  return sanitizeHtml(html, EMAIL_SANITIZE_OPTIONS);
 }
 
 /**
- * Sanitize a body that is already a full `<!doctype>` HTML document. insane is a
- * fragment sanitizer and mangles document structure, so we extract the <body>
+ * Sanitize a body that is already a full `<!doctype>` HTML document. This is a
+ * fragment sanitizer and drops document structure, so we extract the <body>
  * inner HTML (falling back to stripping the doc skeleton) and run THAT through
  * the fragment sanitizer. Safety rests on sanitizeEmailHtml — the extraction
  * only chooses what to sanitize, and any imperfection still fails safe because

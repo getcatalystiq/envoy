@@ -1,5 +1,5 @@
 'use client';
-import insane from 'insane';
+import sanitizeHtml from 'sanitize-html';
 import { marked, Renderer, type Tokens } from 'marked';
 import { useMemo, CSSProperties } from 'react';
 
@@ -13,30 +13,22 @@ const ALLOWED_TAGS = [
 const GENERIC_ALLOWED_ATTRIBUTES = ['style', 'title'];
 
 function sanitizer(html: string): string {
-  return insane(html, {
+  // sanitize-html unions the `*` (all-tags) allowlist with each tag-specific
+  // list, so img/table/a/… get GENERIC_ALLOWED_ATTRIBUTES plus their extras.
+  return sanitizeHtml(html, {
     allowedTags: ALLOWED_TAGS,
     allowedSchemes: ['http', 'https', 'mailto'],
+    allowedSchemesAppliedToAttributes: ['href', 'src'],
+    disallowedTagsMode: 'discard',
     allowedAttributes: {
-      ...ALLOWED_TAGS.reduce((res, tag) => {
-        res[tag] = [...GENERIC_ALLOWED_ATTRIBUTES];
-        return res;
-      }, {} as Record<string, string[]>),
-      img: ['src', 'alt', 'width', 'height', ...GENERIC_ALLOWED_ATTRIBUTES],
-      table: ['width', ...GENERIC_ALLOWED_ATTRIBUTES],
-      td: ['align', 'width', ...GENERIC_ALLOWED_ATTRIBUTES],
-      th: ['align', 'width', ...GENERIC_ALLOWED_ATTRIBUTES],
-      a: ['href', 'target', ...GENERIC_ALLOWED_ATTRIBUTES],
-      ol: ['start', ...GENERIC_ALLOWED_ATTRIBUTES],
-      ul: ['start', ...GENERIC_ALLOWED_ATTRIBUTES],
-    },
-    filter: (token: { tag: string; attrs: Record<string, string | undefined> }) => {
-      if (token.tag === 'a' && 'href' in token.attrs && token.attrs.href === undefined) {
-        token.attrs.href = '';
-      }
-      if (token.tag === 'img' && 'src' in token.attrs && token.attrs.src === undefined) {
-        token.attrs.src = '';
-      }
-      return true;
+      '*': GENERIC_ALLOWED_ATTRIBUTES,
+      img: ['src', 'alt', 'width', 'height'],
+      table: ['width'],
+      td: ['align', 'width'],
+      th: ['align', 'width'],
+      a: ['href', 'target'],
+      ol: ['start'],
+      ul: ['start'],
     },
   });
 }
