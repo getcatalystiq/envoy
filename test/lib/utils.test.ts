@@ -12,7 +12,8 @@ describe("lib/utils", () => {
     });
 
     it("handles conditional classes", () => {
-      expect(cn("a", false && "b", "c")).toBe("a c");
+      const show: boolean = false;
+      expect(cn("a", show && "b", "c")).toBe("a c");
       expect(cn({ a: true, b: false }, "c")).toBe("a c");
     });
 

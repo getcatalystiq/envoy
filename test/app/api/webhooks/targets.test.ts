@@ -13,11 +13,9 @@ vi.mock("@/lib/queries/sequences", () => ({
   autoEnrollInDefaultSequences: vi.fn(),
 }));
 
-import { sql } from "@/lib/db";
 import { verifyWebhookSecret } from "@/lib/webhook-auth";
 import { POST } from "@/app/api/webhooks/targets/route";
 
-const sqlMock = sql as unknown as ReturnType<typeof vi.fn>;
 const verifyMock = verifyWebhookSecret as unknown as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
