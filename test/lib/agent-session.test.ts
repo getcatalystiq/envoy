@@ -181,6 +181,41 @@ describe("runAgentSession / runAgentJson", () => {
     expect(await runAgentJson(AGENT, ENV, GOAL)).toEqual({ raw: '"just a string"' });
   });
 
+  it("parses a plain ``` fence with no json tag", async () => {
+    mocks.stream.mockResolvedValue(
+      scriptedStream([agentMessage('```\n{"body":"plain"}\n```'), IDLE]),
+    );
+    expect(await runAgentJson(AGENT, ENV, GOAL)).toEqual({ body: "plain" });
+  });
+
+  it("salvages a JSON object embedded in surrounding prose", async () => {
+    mocks.stream.mockResolvedValue(
+      scriptedStream([
+        agentMessage('Here is the personalized copy:\n{"body":"hi {name}"}\nLet me know!'),
+        IDLE,
+      ]),
+    );
+    expect(await runAgentJson(AGENT, ENV, GOAL)).toEqual({ body: "hi {name}" });
+  });
+
+  it("does not unbalance on braces inside string values", async () => {
+    mocks.stream.mockResolvedValue(
+      scriptedStream([agentMessage('prefix {"body":"a } b { c"} suffix'), IDLE]),
+    );
+    expect(await runAgentJson(AGENT, ENV, GOAL)).toEqual({ body: "a } b { c" });
+  });
+
+  it("throws AgentError 502 with the bad output as detail on true parse failure", async () => {
+    mocks.stream.mockResolvedValue(
+      scriptedStream([agentMessage("Sorry, I could not complete that."), IDLE]),
+    );
+    await expect(runAgentJson(AGENT, ENV, GOAL)).rejects.toMatchObject({
+      name: "AgentError",
+      status: 502,
+      detail: "Sorry, I could not complete that.",
+    });
+  });
+
   it("throws AgentError 502 on empty output (idle, no agent.message)", async () => {
     mocks.stream.mockResolvedValue(scriptedStream([IDLE]));
     await expect(runAgentJson(AGENT, ENV, GOAL)).rejects.toMatchObject({

@@ -414,29 +414,72 @@ function pickOutput(messages: string[]): string {
   return messages.join("");
 }
 
-/** Non-throwing object parse used by content-seek (mirrors parseJsonResponse's
- * fence handling). Returns null for empty / non-object / unparseable text. */
-function tryParseObject(text: string): Record<string, unknown> | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  let parsed: unknown;
-  try {
-    if (trimmed.includes("```json")) {
-      const start = trimmed.indexOf("```json") + 7;
-      const end = trimmed.indexOf("```", start);
-      if (end > start) {
-        parsed = JSON.parse(trimmed.substring(start, end).trim());
-      } else {
-        parsed = JSON.parse(trimmed);
-      }
-    } else {
-      parsed = JSON.parse(trimmed);
+/** Strip one leading + trailing markdown code fence. Handles both a tagged
+ * fence (```json … ```) and a plain fence (``` … ```); language tag ignored. */
+function stripCodeFence(text: string): string {
+  const t = text.trim();
+  if (!t.startsWith("```")) return t;
+  const firstNl = t.indexOf("\n");
+  if (firstNl === -1) return t; // single-line fence — let brace-scan salvage it
+  const body = t.slice(firstNl + 1);
+  const close = body.lastIndexOf("```");
+  return (close === -1 ? body : body.slice(0, close)).trim();
+}
+
+/** Return the first balanced top-level {…} object substring, respecting string
+ * literals/escapes so braces inside strings don't unbalance the scan. Salvages
+ * a JSON object embedded in surrounding prose. Null when none is found. */
+function firstJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
     }
-  } catch {
-    return null;
+    if (ch === '"') inStr = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}" && --depth === 0) return text.slice(start, i + 1);
   }
-  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-    return parsed as Record<string, unknown>;
+  return null;
+}
+
+/** Parse text as JSON, tolerating a code fence and/or surrounding prose.
+ * Returns a `{ value }` box on success (value may be any JSON type) or null
+ * when nothing parseable is present. Shared by content-seek and the strict
+ * `parseJsonResponse` so both salvage the same shapes. */
+function parseJsonLoose(text: string): { value: unknown } | null {
+  const trimmed = stripCodeFence(text);
+  if (!trimmed) return null;
+  try {
+    return { value: JSON.parse(trimmed) };
+  } catch {
+    // fall through to embedded-object salvage
+  }
+  const embedded = firstJsonObject(trimmed);
+  if (embedded) {
+    try {
+      return { value: JSON.parse(embedded) };
+    } catch {
+      // not parseable even as an embedded object
+    }
+  }
+  return null;
+}
+
+/** Non-throwing object parse used by content-seek. Returns null for empty /
+ * non-object / unparseable text. */
+function tryParseObject(text: string): Record<string, unknown> | null {
+  if (!text.trim()) return null;
+  const parsed = parseJsonLoose(text);
+  if (parsed && parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)) {
+    return parsed.value as Record<string, unknown>;
   }
   return null;
 }
@@ -453,22 +496,8 @@ export function parseJsonResponse(response: string): Record<string, unknown> {
     throw new AgentError("Agent returned empty output", 502);
   }
 
-  let parsedJson: unknown;
-  let parsedSuccessfully = false;
-  try {
-    if (trimmed.includes("```json")) {
-      const start = trimmed.indexOf("```json") + 7;
-      const end = trimmed.indexOf("```", start);
-      if (end > start) {
-        parsedJson = JSON.parse(trimmed.substring(start, end).trim());
-        parsedSuccessfully = true;
-      }
-    }
-    if (!parsedSuccessfully) {
-      parsedJson = JSON.parse(trimmed);
-      parsedSuccessfully = true;
-    }
-  } catch {
+  const parsed = parseJsonLoose(trimmed);
+  if (!parsed) {
     throw new AgentError(
       "Agent response was not valid JSON",
       502,
@@ -476,12 +505,9 @@ export function parseJsonResponse(response: string): Record<string, unknown> {
     );
   }
 
-  if (
-    parsedJson &&
-    typeof parsedJson === "object" &&
-    !Array.isArray(parsedJson)
-  ) {
-    return parsedJson as Record<string, unknown>;
+  const value = parsed.value;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
   }
   return { raw: response };
 }

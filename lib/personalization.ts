@@ -102,7 +102,12 @@ async function personalizeBlock(
     return { blockId, result: updatedBlock, error: null };
   } catch (err) {
     const message = String(err);
-    console.warn(`Personalization failed for block ${blockId}: ${message}`);
+    // AgentError carries the offending agent output (truncated to 500 chars) in
+    // `detail`; surface it so JSON-parse failures are diagnosable from the log.
+    // Duck-typed rather than `instanceof` so a mocked agent module can't break the catch.
+    const rawDetail = (err as { detail?: unknown })?.detail;
+    const detail = typeof rawDetail === "string" && rawDetail ? ` | agent output: ${rawDetail}` : "";
+    console.warn(`Personalization failed for block ${blockId}: ${message}${detail}`);
     return {
       blockId,
       result: null,
