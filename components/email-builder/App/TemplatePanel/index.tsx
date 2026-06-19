@@ -1,8 +1,9 @@
 'use client';
+import { useMemo } from 'react';
 import { Monitor, Smartphone } from 'lucide-react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Reader } from '../../Reader';
+import { renderToStaticMarkup } from '../../renderers';
 
 import EditorBlock from '../../documents/editor/EditorBlock';
 import {
@@ -25,6 +26,18 @@ export default function TemplatePanel() {
   const selectedMainTab = useSelectedMainTab();
   const selectedScreenSize = useSelectedScreenSize();
 
+  // Render the preview as a static HTML document and show it inside a sandboxed
+  // iframe. Email content holds unrendered template tokens (e.g.
+  // `{{unsubscribe_link}}`) emitted as relative <a href> values; rendered into
+  // the admin DOM they resolve against the current route and navigate the app
+  // (and previously 500'd the design-template route). The sandbox (no
+  // allow-scripts / allow-top-navigation / allow-forms) keeps any click or form
+  // contained to the frame and strips script execution from preview content.
+  const previewHtml = useMemo(
+    () => renderToStaticMarkup(document, { rootBlockId: 'root' }),
+    [document]
+  );
+
   const mobileStyles = selectedScreenSize === 'mobile'
     ? 'mx-auto my-8 w-[370px] h-[800px] shadow-[rgba(33,36,67,0.04)_0px_10px_20px,rgba(33,36,67,0.04)_0px_2px_6px,rgba(33,36,67,0.04)_0px_0px_1px]'
     : 'h-full';
@@ -40,7 +53,12 @@ export default function TemplatePanel() {
       case 'preview':
         return (
           <div className={mobileStyles}>
-            <Reader document={document} rootBlockId="root" />
+            <iframe
+              srcDoc={previewHtml}
+              sandbox="allow-same-origin"
+              className="w-full h-full min-h-[600px] border-0 bg-white"
+              title="Email preview"
+            />
           </div>
         );
       case 'html':
