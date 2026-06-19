@@ -5,6 +5,19 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// RFC-4122 layout, case-insensitive. Matches what Postgres' `uuid` type accepts
+// (PG is lenient on the version/variant nibbles), so guarding with this prevents
+// the `22P02 invalid input syntax for type uuid` 500 a malformed path param
+// would otherwise throw deep in a query.
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True when `value` is a syntactically valid UUID. Use to reject malformed id
+ * path params before they reach a `::uuid` query (else Postgres 500s). */
+export function isUuid(value: unknown): value is string {
+  return typeof value === "string" && UUID_RE.test(value);
+}
+
 /**
  * Safe JSON response helper — avoids Turbopack production build issues
  * with Response.json() and NextResponse.json().

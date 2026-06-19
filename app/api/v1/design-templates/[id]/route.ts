@@ -1,5 +1,5 @@
 import { requireAdmin, isErrorResponse } from "@/lib/admin-auth";
-import { jsonResponse } from "@/lib/utils";
+import { jsonResponse, isUuid } from "@/lib/utils";
 import * as designTemplates from "@/lib/queries/design-templates";
 
 export async function GET(
@@ -10,6 +10,10 @@ export async function GET(
   if (isErrorResponse(auth)) return auth;
 
   const { id } = await params;
+  // Reject a malformed id before it hits the ::uuid cast (else Postgres 22P02 -> 500).
+  if (!isUuid(id)) {
+    return jsonResponse({ error: "Template not found" }, 404);
+  }
   const template = await designTemplates.getById(auth.tenantId, id);
   if (!template) {
     return jsonResponse({ error: "Template not found" }, 404);
@@ -26,6 +30,9 @@ export async function PATCH(
   if (isErrorResponse(auth)) return auth;
 
   const { id } = await params;
+  if (!isUuid(id)) {
+    return jsonResponse({ error: "Template not found" }, 404);
+  }
   const body = await request.json();
   const { name, description, builder_content, html_compiled, archived } = body;
 
@@ -52,6 +59,9 @@ export async function DELETE(
   if (isErrorResponse(auth)) return auth;
 
   const { id } = await params;
+  if (!isUuid(id)) {
+    return jsonResponse({ error: "Template not found" }, 404);
+  }
   const deleted = await designTemplates.deleteTemplate(auth.tenantId, id);
   if (!deleted) {
     return jsonResponse({ error: "Template not found" }, 404);
