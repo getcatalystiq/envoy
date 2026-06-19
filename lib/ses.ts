@@ -87,6 +87,40 @@ export async function sendEmail(opts: {
       message?: string;
       Code?: string;
     };
+
+    // A missing/deleted configuration set must never block delivery — the email
+    // itself is fine, only event tracking is unavailable. Retry once without the
+    // ConfigurationSetName so the message still goes out, and flag the gap so it
+    // can be repaired out of band.
+    if (
+      (error.name === "NotFoundException" || error.Code === "NotFoundException") &&
+      input.ConfigurationSetName
+    ) {
+      console.error(
+        `SES configuration set "${input.ConfigurationSetName}" not found; ` +
+          `retrying send to ${opts.toEmail} without tracking`,
+      );
+      const { ConfigurationSetName: _missing, ...inputNoConfigSet } = input;
+      try {
+        const response = await ses.send(
+          new SendEmailCommand(inputNoConfigSet),
+        );
+        return {
+          success: true,
+          messageId: response.MessageId,
+          trackingDisabled: true,
+          missingConfigurationSet: _missing,
+        };
+      } catch (retryErr: unknown) {
+        const re = retryErr as { name?: string; message?: string };
+        return {
+          success: false,
+          errorCode: re.name ?? "Unknown",
+          errorMessage: re.message ?? String(retryErr),
+        };
+      }
+    }
+
     return {
       success: false,
       errorCode: error.name ?? "Unknown",

@@ -48,6 +48,15 @@ async function sendOneEmail(
     const messageId = result.messageId as string;
     await markEmailSent(sendId, messageId);
 
+    if (result.trackingDisabled) {
+      // Delivered, but the org's SES configuration set was missing so this
+      // message has no open/click/bounce tracking. Surface for repair.
+      console.warn(
+        `Email ${sendId} (org ${send.organization_id}) sent WITHOUT tracking — ` +
+          `configuration set "${result.missingConfigurationSet}" not found in SES`
+      );
+    }
+
     if (send.outbox_id) {
       await outboxQueries.markSent(
         String(send.organization_id),
