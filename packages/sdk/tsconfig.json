@@ -13,6 +13,11 @@
     "verbatimModuleSyntax": true,
     "jsx": "react-jsx",
     "declaration": true,
+    // TS 6.0 deprecates baseUrl (hard-removed in 7.0). The SDK tsconfig sets no baseUrl,
+    // but tsup's declaration build (rollup-plugin-dts) injects one while resolving `paths`,
+    // which trips TS5101. Acknowledge the 6.0 deprecation so the dts build succeeds; revisit
+    // before TS 7.0.
+    "ignoreDeprecations": "6.0",
     "paths": {
       "@sdk/*": ["./src/*"]
     }
