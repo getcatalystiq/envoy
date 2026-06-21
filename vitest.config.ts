@@ -14,7 +14,7 @@ export default defineConfig({
     // Per-file environments are set via `// @vitest-environment jsdom`
     // directives at the top of component test files (test/components/**).
     include: ["test/**/*.test.ts", "test/**/*.test.tsx"],
-    exclude: ["node_modules", ".next", "dist"],
+    exclude: ["node_modules", ".next", "dist", "packages"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "lcov"],
