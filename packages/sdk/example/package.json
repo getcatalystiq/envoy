@@ -1,0 +1,27 @@
+{
+  "name": "@envoy/sdk-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Internal dogfood app for @envoy/sdk — NOT published. Run against a real Resend test account.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "migrate": "tsx scripts/migrate.ts"
+  },
+  "dependencies": {
+    "@envoy/sdk": "file:..",
+    "next": "^16.2.9",
+    "pg": "^8.13.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^19.2.17",
+    "tsx": "^4.19.2",
+    "typescript": "6.0.3"
+  }
+}

@@ -1,0 +1,119 @@
+import "server-only";
+
+// Drip sequence definition (U8 / origin R12, R13, R15).
+//
+// A sequence is an ORDERED set of steps. Each step references a saved Resend Template by id, carries
+// a per-step personalization brief, declares which Template variables the AI fills (`aiSlots`), and
+// a time-based wait before it becomes eligible (R12/R15). Each step sends an individual
+// transactional `emails.send` (NOT a Broadcast — R13); the engine (engine.ts) drives that.
+//
+// `defineSequence` is pure data + validation. It validates loud at definition time (R45-adjacent):
+// a duplicate key, an empty step list, a missing templateId, or a negative wait is a definition
+// error, not a runtime surprise. Config-time AI-slots ⇄ Template-variables validation (the real
+// network check) lands in U18 via `envoy.validate()`; here we only validate the shape.
+
+/** One step of a drip sequence. */
+export interface SequenceStep {
+  /** Saved Resend Template id this step sends (`emails.send({ template: { id } })`, R12). */
+  templateId: string;
+  /**
+   * Time-based wait before this step is eligible, in days, resolved against the cron clock (R15).
+   * `0` ⇒ eligible immediately on reaching the step. Fractional values are allowed (e.g. `0.5` =
+   * 12h). Must be ≥ 0.
+   */
+  waitDays: number;
+  /**
+   * The Template variable names the AI fills at send time (R12/R14). Each must exist as a variable
+   * on the referenced Template — verified by `envoy.validate()` (U18), not here. May be empty for a
+   * non-AI step (a fully static Template).
+   */
+  aiSlots: readonly string[];
+  /** The per-step personalization brief the agent is given (R12). May be empty when `aiSlots` is. */
+  brief: string;
+}
+
+/** A defined, validated drip sequence. Immutable. */
+export interface Sequence {
+  /** Stable sequence key (the `sequence_key` an enrollment is scoped to). */
+  readonly key: string;
+  /** The ordered steps. Index is the step's position (`sdk_steps.step_index`). */
+  readonly steps: readonly Readonly<SequenceStep>[];
+}
+
+/** Inputs to {@link defineSequence}. */
+export interface DefineSequenceInput {
+  key: string;
+  steps: SequenceStep[];
+}
+
+/** Raised when a sequence definition is malformed (fail loud at definition time). */
+export class SequenceDefinitionError extends Error {
+  constructor(message: string) {
+    super(`[@envoy/sdk] ${message}`);
+    this.name = "SequenceDefinitionError";
+  }
+}
+
+function validateStep(step: SequenceStep, index: number): Readonly<SequenceStep> {
+  if (step === null || typeof step !== "object") {
+    throw new SequenceDefinitionError(`step ${index} must be an object.`);
+  }
+  if (typeof step.templateId !== "string" || step.templateId.trim().length === 0) {
+    throw new SequenceDefinitionError(`step ${index} requires a non-empty templateId.`);
+  }
+  if (typeof step.waitDays !== "number" || !Number.isFinite(step.waitDays) || step.waitDays < 0) {
+    throw new SequenceDefinitionError(
+      `step ${index} requires a finite, non-negative waitDays (got ${String(step.waitDays)}).`,
+    );
+  }
+  const aiSlots = step.aiSlots ?? [];
+  if (!Array.isArray(aiSlots)) {
+    throw new SequenceDefinitionError(`step ${index} aiSlots must be an array of variable names.`);
+  }
+  for (const slot of aiSlots) {
+    if (typeof slot !== "string" || slot.trim().length === 0) {
+      throw new SequenceDefinitionError(
+        `step ${index} aiSlots must contain only non-empty variable names.`,
+      );
+    }
+  }
+  if (new Set(aiSlots).size !== aiSlots.length) {
+    throw new SequenceDefinitionError(`step ${index} aiSlots contains duplicate names.`);
+  }
+  const brief = step.brief ?? "";
+  if (typeof brief !== "string") {
+    throw new SequenceDefinitionError(`step ${index} brief must be a string.`);
+  }
+  if (aiSlots.length > 0 && brief.trim().length === 0) {
+    throw new SequenceDefinitionError(
+      `step ${index} declares aiSlots but has an empty brief — the agent has nothing to act on.`,
+    );
+  }
+  return Object.freeze({
+    templateId: step.templateId,
+    waitDays: step.waitDays,
+    aiSlots: Object.freeze([...aiSlots]),
+    brief,
+  });
+}
+
+/**
+ * Define a drip sequence (R12/R13/R15). Validates loud: a missing key, an empty step list, a bad
+ * templateId, a negative wait, or a malformed slot declaration throws `SequenceDefinitionError`.
+ * Returns a frozen `Sequence` whose steps are positionally indexed (`step_index`).
+ */
+export function defineSequence(input: DefineSequenceInput): Sequence {
+  if (input === null || typeof input !== "object") {
+    throw new SequenceDefinitionError("defineSequence requires an input object.");
+  }
+  if (typeof input.key !== "string" || input.key.trim().length === 0) {
+    throw new SequenceDefinitionError("defineSequence requires a non-empty key.");
+  }
+  if (!Array.isArray(input.steps) || input.steps.length === 0) {
+    throw new SequenceDefinitionError(
+      `sequence "${input.key}" requires at least one step.`,
+    );
+  }
+  const steps = input.steps.map((step, i) => validateStep(step, i));
+  return Object.freeze({ key: input.key, steps: Object.freeze(steps) });
+}
