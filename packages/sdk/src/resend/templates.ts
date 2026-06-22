@@ -68,8 +68,19 @@ interface TemplatesGetClient {
 
 // Per-id Template cache. Keyed by the raw Resend Template id (Templates are a Resend-global
 // resource, not namespaced by install), so two installs sharing a Postgres still share the same
-// upstream Template by id — there is nothing install-specific to fingerprint here.
+// upstream Template by id — there is nothing install-specific to fingerprint here. Bounded with
+// FIFO eviction so a long-lived (non-serverless) host referencing many templates over its lifetime
+// cannot grow it without limit; eviction only forces a re-fetch (correctness-neutral).
+const TEMPLATE_CACHE_MAX = 256;
 const templateCache = new Map<string, FetchedTemplate>();
+
+function cacheTemplate(id: string, value: FetchedTemplate): void {
+  if (templateCache.size >= TEMPLATE_CACHE_MAX && !templateCache.has(id)) {
+    const oldest = templateCache.keys().next().value;
+    if (oldest !== undefined) templateCache.delete(oldest);
+  }
+  templateCache.set(id, value);
+}
 
 /** Drop the cache (tests; or a host that knows a Template was edited upstream mid-process). */
 export function clearTemplateCache(): void {
@@ -144,6 +155,6 @@ export async function getTemplate(
     variables: normalizeVariables(data.variables),
   });
 
-  templateCache.set(id, fetched);
+  cacheTemplate(id, fetched);
   return fetched;
 }
