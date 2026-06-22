@@ -24,6 +24,25 @@ Open source. Self-host or deploy to Vercel in minutes.
 3. **AI Writes Each Email** - For every target at every step, AI generates a unique email personalized to their role, company, and context.
 4. **Drip on Autopilot** - Envoy sends emails on schedule, tracks engagement, and graduates targets through lifecycle stages automatically.
 
+## SDK: `@catalystiq/envoy-sdk`
+
+The repo now ships a standalone, npm-published email SDK alongside the app:
+
+```bash
+npm i @catalystiq/envoy-sdk resend
+```
+
+`@catalystiq/envoy-sdk` (v0.1.0) is a headless, bring-your-own-Postgres, host-owns-auth, single-tenant email SDK for Next.js (App Router), built on [Resend](https://resend.com) (`resend@^6.14.0`). It runs in two lanes:
+
+- **Drip** — AI-personalized multi-step sequences (`defineSequence` + `enroll()`), where just-in-time Claude Managed Agents fill Resend Template slots and send via `emails.send`.
+- **Broadcast** — Resend Topics/Segments with a send-once external claim guard, per-topic consent reconciliation, and merge-vars only (no AI).
+
+It also includes a mountable route handler (per-sub-path auth: host authorize callback, `CRON_SECRET`, Svix webhook, signed unsubscribe, MCP credential), a dual-stream consent mirror that gates every send, RFC 8058 one-click unsubscribe, GDPR contact deletion, read-only React hooks, and an MCP server. It ships its own SQL migrations under `packages/sdk/migrations/` for the host to apply.
+
+The SDK lives at [`packages/sdk/`](packages/sdk/) as a detached in-repo package with its own `package.json`, lockfile, tsconfig, tsup build, and Vitest suite. It is fully isolated from the app build: the app stays on AWS SES, OAuth, and its visual builder, and `packages/` is excluded from the app's `tsconfig.json`, `eslint.config.mjs`, and `vitest.config.ts`. The SDK imports no app code.
+
+See the [host integration guide](docs/sdk-agent-integration-guide.md) and the [package README](packages/sdk/README.md) to get started.
+
 ## Tech Stack
 
 - **Next.js 16** (App Router, Turbopack) on **Vercel**

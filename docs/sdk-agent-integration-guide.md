@@ -1,6 +1,6 @@
 # Envoy SDK — Agent Integration Guide
 
-> **Audience: an AI coding agent integrating `@envoy/sdk` into a host Next.js (App Router) app.**
+> **Audience: an AI coding agent integrating `@catalystiq/envoy-sdk` into a host Next.js (App Router) app.**
 > Copy the relevant parts into the host repo's `AGENTS.md`/`CLAUDE.md`, or follow this top-to-bottom. Every step below maps to a requirement (`Rnn`) in `docs/brainstorms/2026-06-21-envoy-resend-sdk-rearchitecture-requirements.md` — read that doc for the *why*; this guide is the *how*.
 >
 > Envoy is **headless, single-tenant, bring-your-own-Postgres**. It owns the dangerous email mechanics (claim/resume, consent reconcile, segment sync, render+dispatch); the **host owns auth, UI, the clock, the content query, and the eligibility predicate**. Do not re-implement what the SDK provides — wire to it.
@@ -27,9 +27,11 @@
 ## 1. Install + migrate
 
 ```bash
-npm i @envoy/sdk resend
+npm i @catalystiq/envoy-sdk resend
 npx envoy migrate            # applies Envoy's tables to your DATABASE_URL (R5)
 ```
+
+`@catalystiq/envoy-sdk` is **published on npm (v0.1.0)** — install it like any other dependency.
 
 Envoy owns a bounded set of tables (contact mirror, per-topic consent, cursor/watermark, broadcast claim rows). They are **namespace-scoped** (R38) — see §3.
 
@@ -57,7 +59,7 @@ Set these as environment secrets (never commit, never log):
 ```ts
 // lib/envoy.ts  — server-only
 import "server-only";
-import { createEnvoy } from "@envoy/sdk";
+import { createEnvoy } from "@catalystiq/envoy-sdk";
 import { pool } from "@/lib/db";
 
 export const envoy = createEnvoy({
