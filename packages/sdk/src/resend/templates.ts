@@ -125,7 +125,7 @@ export async function getTemplate(
   opts?: { refresh?: boolean }
 ): Promise<FetchedTemplate> {
   if (typeof id !== "string" || id.length === 0) {
-    throw new TemplateFetchError("[@envoy/sdk] template id must be a non-empty string.");
+    throw new TemplateFetchError("[@catalystiq/envoy-sdk] template id must be a non-empty string.");
   }
 
   if (!opts?.refresh) {
@@ -136,7 +136,7 @@ export async function getTemplate(
   const client = resend.client() as unknown as TemplatesGetClient | null;
   if (!resend.enabled || client === null) {
     throw new TemplateFetchError(
-      `[@envoy/sdk] cannot fetch template "${id}": Resend is not configured (set RESEND_API_KEY). ` +
+      `[@catalystiq/envoy-sdk] cannot fetch template "${id}": Resend is not configured (set RESEND_API_KEY). ` +
         `Broadcast rendering needs the Template's html/text and cannot be a no-op.`
     );
   }
@@ -144,7 +144,7 @@ export async function getTemplate(
   const { data, error } = await client.templates.get(id);
   if (error || !data) {
     throw new TemplateFetchError(
-      `[@envoy/sdk] Resend templates.get failed for "${id}": ${error?.message ?? "template not found"}.`
+      `[@catalystiq/envoy-sdk] Resend templates.get failed for "${id}": ${error?.message ?? "template not found"}.`
     );
   }
 

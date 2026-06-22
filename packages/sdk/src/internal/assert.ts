@@ -18,7 +18,7 @@ import "server-only";
  * @param value the value to guard.
  * @param errorFactory optional factory producing the error to throw — lets each module preserve its
  *   own thrown error TYPE (e.g. `BroadcastProgramError`) instead of a generic `Error`. When omitted,
- *   a generic `Error` with the standard `[@envoy/sdk] <name> must be a non-empty string.` message is
+ *   a generic `Error` with the standard `[@catalystiq/envoy-sdk] <name> must be a non-empty string.` message is
  *   thrown.
  */
 export function assertNonEmpty(
@@ -27,7 +27,7 @@ export function assertNonEmpty(
   errorFactory?: (message: string) => Error
 ): asserts value is string {
   if (typeof value !== "string" || value.trim().length === 0) {
-    const message = `[@envoy/sdk] ${name} must be a non-empty string.`;
+    const message = `[@catalystiq/envoy-sdk] ${name} must be a non-empty string.`;
     throw errorFactory ? errorFactory(message) : new Error(message);
   }
 }

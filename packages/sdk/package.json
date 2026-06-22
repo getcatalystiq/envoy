@@ -1,10 +1,18 @@
 {
-  "name": "@envoy/sdk",
-  "version": "0.0.0",
+  "name": "@catalystiq/envoy-sdk",
+  "version": "0.1.0",
   "description": "Headless Resend drip + broadcast email SDK for Next.js — bring-your-own-Postgres, host-owns-auth.",
   "type": "module",
   "license": "MIT",
   "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getcatalystiq/envoy.git",
+    "directory": "packages/sdk"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -24,7 +32,8 @@
     "build": "rm -rf dist && tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm run build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",

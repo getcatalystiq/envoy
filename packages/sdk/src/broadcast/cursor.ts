@@ -159,7 +159,7 @@ export function due(state: CursorState, opts: DueOptions): boolean {
   const { cadenceDays } = opts;
   if (typeof cadenceDays !== "number" || !Number.isFinite(cadenceDays) || cadenceDays <= 0) {
     throw new Error(
-      `[@envoy/sdk] cadenceDays must be a finite positive number (got ${String(cadenceDays)}).`
+      `[@catalystiq/envoy-sdk] cadenceDays must be a finite positive number (got ${String(cadenceDays)}).`
     );
   }
   if (state.paused) return false;
@@ -265,7 +265,7 @@ export async function tryAdvance(
   // Always fail loud, in BOTH advance and tryAdvance.
   if (typeof opts.watermark !== "string" || opts.watermark.length === 0) {
     throw new Error(
-      `[@envoy/sdk] cursor.advance: watermark must be a non-null, non-empty string ` +
+      `[@catalystiq/envoy-sdk] cursor.advance: watermark must be a non-null, non-empty string ` +
         `(got ${opts.watermark === null ? "null" : `"${String(opts.watermark)}"`}). A nullable ` +
         `ordering column cannot back a monotonic cursor (R36/R45).`
     );
@@ -284,7 +284,7 @@ export async function tryAdvance(
       opts.issueSeq < 0
     ) {
       throw new Error(
-        `[@envoy/sdk] cursor.advance: issueSeq must be a non-negative finite number (got ${String(opts.issueSeq)}).`
+        `[@catalystiq/envoy-sdk] cursor.advance: issueSeq must be a non-negative finite number (got ${String(opts.issueSeq)}).`
       );
     }
   }
@@ -350,7 +350,7 @@ export async function tryAdvance(
   if (!isStrictlyGreater(opts.watermark, after.watermark)) {
     if (rejectNonMonotonic) {
       throw new Error(
-        `[@envoy/sdk] cursor.advance: watermark "${opts.watermark}" is not strictly greater than ` +
+        `[@catalystiq/envoy-sdk] cursor.advance: watermark "${opts.watermark}" is not strictly greater than ` +
           `the stored watermark "${String(after.watermark)}" — refusing to advance (a same-instant ` +
           `or older value would re-send already-sent content; R36 strictly-greater guard).`
       );

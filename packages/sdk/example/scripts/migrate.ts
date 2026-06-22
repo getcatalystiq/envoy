@@ -6,7 +6,7 @@
 
 import { Pool } from "pg";
 
-import { migrate } from "@envoy/sdk";
+import { migrate } from "@catalystiq/envoy-sdk";
 
 async function main() {
   const connectionString = process.env.DATABASE_URL;

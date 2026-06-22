@@ -68,12 +68,12 @@ export function normalizeEmail(email: string): string {
 function assertValidNamespace(namespace: string): void {
   if (typeof namespace !== "string" || namespace.length === 0) {
     throw new Error(
-      "[@envoy/sdk] installNamespace must be a non-empty string (single-tenant guardrail, R38)."
+      "[@catalystiq/envoy-sdk] installNamespace must be a non-empty string (single-tenant guardrail, R38)."
     );
   }
   if (namespace.includes(NS_SEP)) {
     throw new Error(
-      `[@envoy/sdk] installNamespace must not contain "${NS_SEP}" — it is the namespace key separator (R38).`
+      `[@catalystiq/envoy-sdk] installNamespace must not contain "${NS_SEP}" — it is the namespace key separator (R38).`
     );
   }
 }
@@ -99,7 +99,7 @@ export class NamespacedDb {
    */
   namespaceKey(key: string): string {
     if (typeof key !== "string" || key.length === 0) {
-      throw new Error("[@envoy/sdk] key must be a non-empty string.");
+      throw new Error("[@catalystiq/envoy-sdk] key must be a non-empty string.");
     }
     return `${this.namespace}${NS_SEP}${key}`;
   }
@@ -113,7 +113,7 @@ export class NamespacedDb {
     const prefix = `${this.namespace}${NS_SEP}`;
     if (!storedKey.startsWith(prefix)) {
       throw new Error(
-        `[@envoy/sdk] stored key does not belong to namespace "${this.namespace}" (R38 cross-namespace guard).`
+        `[@catalystiq/envoy-sdk] stored key does not belong to namespace "${this.namespace}" (R38 cross-namespace guard).`
       );
     }
     return storedKey.slice(prefix.length);

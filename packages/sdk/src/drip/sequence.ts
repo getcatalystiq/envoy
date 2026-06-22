@@ -49,7 +49,7 @@ export interface DefineSequenceInput {
 /** Raised when a sequence definition is malformed (fail loud at definition time). */
 export class SequenceDefinitionError extends Error {
   constructor(message: string) {
-    super(`[@envoy/sdk] ${message}`);
+    super(`[@catalystiq/envoy-sdk] ${message}`);
     this.name = "SequenceDefinitionError";
   }
 }

@@ -1,4 +1,4 @@
-// Example host wiring for @envoy/sdk (U19 — internal dogfood, NOT published).
+// Example host wiring for @catalystiq/envoy-sdk (U19 — internal dogfood, NOT published).
 //
 // This is the single place the example assembles the SDK: it builds the root
 // `Envoy` handle from env, defines ONE drip sequence and ONE broadcast program,
@@ -7,7 +7,7 @@
 // against a real Resend test account to exercise the compliance-critical
 // primitives end-to-end (consent mirror, send-once claim, unsubscribe).
 //
-// Everything imports from the package's public entry (`@envoy/sdk`) — exactly the
+// Everything imports from the package's public entry (`@catalystiq/envoy-sdk`) — exactly the
 // surface an external host gets. No `@sdk/*` internal alias, no app `@/` import.
 
 import { Pool } from "pg";
@@ -23,7 +23,7 @@ import {
   type ConsentMirror,
   type RenderContext,
   type RenderedIssue,
-} from "@envoy/sdk";
+} from "@catalystiq/envoy-sdk";
 
 // ---------------------------------------------------------------------------------------------
 // Env

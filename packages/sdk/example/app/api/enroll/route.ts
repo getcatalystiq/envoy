@@ -4,7 +4,7 @@
 // product event the host decides ("a user signed up"), so the host authenticates it however
 // it likes and calls `enroll(...)` directly. The example's "Enroll" button POSTs here.
 
-import { enroll } from "@envoy/sdk";
+import { enroll } from "@catalystiq/envoy-sdk";
 
 import { envoy, WELCOME_SEQUENCE_KEY } from "../../../envoy";
 

@@ -1,9 +1,9 @@
 {
-  "name": "@envoy/sdk-example",
+  "name": "@catalystiq/envoy-sdk-example",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Internal dogfood app for @envoy/sdk — NOT published. Run against a real Resend test account.",
+  "description": "Internal dogfood app for @catalystiq/envoy-sdk — NOT published. Run against a real Resend test account.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -11,7 +11,7 @@
     "migrate": "tsx scripts/migrate.ts"
   },
   "dependencies": {
-    "@envoy/sdk": "file:..",
+    "@catalystiq/envoy-sdk": "file:..",
     "next": "^16.2.9",
     "pg": "^8.13.1",
     "react": "^19.2.7",

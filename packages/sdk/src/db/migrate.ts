@@ -119,7 +119,7 @@ export async function migrate(
     if (applied.has(version)) continue;
 
     const sqlText = readFileSync(join(dir, file), "utf-8");
-    log(`[@envoy/sdk] applying migration ${file}`);
+    log(`[@catalystiq/envoy-sdk] applying migration ${file}`);
 
     await pool.query("BEGIN");
     try {
@@ -135,9 +135,9 @@ export async function migrate(
   }
 
   if (versions.length === 0) {
-    log("[@envoy/sdk] no pending migrations");
+    log("[@catalystiq/envoy-sdk] no pending migrations");
   } else {
-    log(`[@envoy/sdk] applied ${versions.length} migration(s)`);
+    log(`[@catalystiq/envoy-sdk] applied ${versions.length} migration(s)`);
   }
 
   return { applied: versions.length, versions };

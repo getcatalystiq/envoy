@@ -155,7 +155,7 @@ export async function claim(
   opts?: { itemIds?: ReadonlyArray<string> }
 ): Promise<ClaimResult> {
   if (typeof broadcastKey !== "string" || broadcastKey.length === 0) {
-    throw new Error("[@envoy/sdk] broadcastKey must be a non-empty string.");
+    throw new Error("[@catalystiq/envoy-sdk] broadcastKey must be a non-empty string.");
   }
   const storedKey = db.namespaceKey(broadcastKey);
   const itemIds = opts?.itemIds ? Array.from(opts.itemIds) : [];
@@ -197,7 +197,7 @@ export async function claim(
   const found = existing.rows[0];
   if (!found) {
     throw new Error(
-      `[@envoy/sdk] broadcast claim for "${broadcastKey}" conflicted on INSERT but could not be ` +
+      `[@catalystiq/envoy-sdk] broadcast claim for "${broadcastKey}" conflicted on INSERT but could not be ` +
         `read back — refusing to send (fail loud, R30/R38).`
     );
   }
@@ -220,7 +220,7 @@ export async function persistBroadcastId(
   resendBroadcastId: string
 ): Promise<BroadcastClaimRow> {
   if (typeof resendBroadcastId !== "string" || resendBroadcastId.length === 0) {
-    throw new Error("[@envoy/sdk] resendBroadcastId must be a non-empty string.");
+    throw new Error("[@catalystiq/envoy-sdk] resendBroadcastId must be a non-empty string.");
   }
   const storedKey = db.namespaceKey(broadcastKey);
   const res = await db.execWrite<{
@@ -238,7 +238,7 @@ export async function persistBroadcastId(
   );
   if (res.count === 0) {
     throw new Error(
-      `[@envoy/sdk] cannot persist broadcast id for "${broadcastKey}": no claim row (claim first).`
+      `[@catalystiq/envoy-sdk] cannot persist broadcast id for "${broadcastKey}": no claim row (claim first).`
     );
   }
   const row = rowFromDb(res.rows[0]!);
@@ -275,7 +275,7 @@ export async function markSent(
   );
   if (res.count === 0) {
     throw new Error(
-      `[@envoy/sdk] cannot mark broadcast "${broadcastKey}" sent: no claim row (claim first).`
+      `[@catalystiq/envoy-sdk] cannot mark broadcast "${broadcastKey}" sent: no claim row (claim first).`
     );
   }
   const row = rowFromDb(res.rows[0]!);
@@ -347,7 +347,7 @@ export async function resolveResumeBroadcastId(
   const client = resend.client() as unknown as BroadcastsListClient | null;
   if (!resend.enabled || client === null) {
     throw new Error(
-      `[@envoy/sdk] cannot resolve resume for broadcast "${claimRow.broadcastKey}": its Resend id is ` +
+      `[@catalystiq/envoy-sdk] cannot resolve resume for broadcast "${claimRow.broadcastKey}": its Resend id is ` +
         `absent (crash gap) and Resend is not configured to run the broadcasts.list precheck. ` +
         `Refusing to blind re-create (fail loud, R30).`
     );
@@ -402,7 +402,7 @@ async function precheckScan(
     });
     if (error || !data) {
       throw new Error(
-        `[@envoy/sdk] broadcasts.list precheck failed for "${broadcastKey}": ` +
+        `[@catalystiq/envoy-sdk] broadcasts.list precheck failed for "${broadcastKey}": ` +
           `${error?.message ?? "unknown error"} (fail loud, R30).`
       );
     }
@@ -443,7 +443,7 @@ async function precheckScan(
 
   // Budget exhausted while in-window pages may still remain. FAIL LOUD — do not blind re-create.
   throw new Error(
-    `[@envoy/sdk] broadcasts.list precheck for "${broadcastKey}" exhausted its ${cfg.maxPages}-page ` +
+    `[@catalystiq/envoy-sdk] broadcasts.list precheck for "${broadcastKey}" exhausted its ${cfg.maxPages}-page ` +
       `budget without resolving whether the broadcast exists. Refusing to re-create (a blind replay ` +
       `is a double-send). Operator confirmation required (fail loud, R30).`
   );

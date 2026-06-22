@@ -173,7 +173,7 @@ export function createUnsubscribeToken(
   const ttl = input.ttlSeconds ?? MIN_UNSUBSCRIBE_TTL_SECONDS;
   if (ttl < MIN_UNSUBSCRIBE_TTL_SECONDS) {
     throw new Error(
-      `[@envoy/sdk] unsubscribe token TTL must be >= ${MIN_UNSUBSCRIBE_TTL_SECONDS}s (60 days, RFC 8058 / CAN-SPAM); got ${ttl}.`
+      `[@catalystiq/envoy-sdk] unsubscribe token TTL must be >= ${MIN_UNSUBSCRIBE_TTL_SECONDS}s (60 days, RFC 8058 / CAN-SPAM); got ${ttl}.`
     );
   }
   return sign(
@@ -210,7 +210,7 @@ export function buildListUnsubscribeHeaders(
 ): ListUnsubscribeHeaders {
   if (!/^https:\/\//i.test(baseUrl)) {
     throw new Error(
-      "[@envoy/sdk] unsubscribe baseUrl must be an absolute https URL (RFC 8058 one-click)."
+      "[@catalystiq/envoy-sdk] unsubscribe baseUrl must be an absolute https URL (RFC 8058 one-click)."
     );
   }
   const token = createUnsubscribeToken(input, secret, nowSeconds);

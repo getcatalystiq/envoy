@@ -524,10 +524,10 @@ function canonicalizeMcpRequest(request: Request): Request {
  */
 export function createMcpRouteHandler(config: McpRouteConfig): SubHandler {
   if (config === null || typeof config !== "object") {
-    throw new TypeError("[@envoy/sdk] createMcpRouteHandler(config) requires a config object.");
+    throw new TypeError("[@catalystiq/envoy-sdk] createMcpRouteHandler(config) requires a config object.");
   }
   if (config.envoy === null || typeof config.envoy !== "object") {
-    throw new TypeError("[@envoy/sdk] createMcpRouteHandler requires an `envoy` handle.");
+    throw new TypeError("[@catalystiq/envoy-sdk] createMcpRouteHandler requires an `envoy` handle.");
   }
 
   const handler = createMcpHandler(

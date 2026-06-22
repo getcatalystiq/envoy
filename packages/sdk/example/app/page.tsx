@@ -7,7 +7,7 @@ import { EnrollButton } from "./enroll-button";
 export default function Home() {
   return (
     <main style={{ maxWidth: 480, margin: "4rem auto", fontFamily: "system-ui" }}>
-      <h1>@envoy/sdk example</h1>
+      <h1>@catalystiq/envoy-sdk example</h1>
       <p>
         Enroll a contact into the <code>welcome</code> drip sequence. Then run the drip cron
         (<code>GET /api/envoy/cron/drip</code>) and the broadcast cron

@@ -60,7 +60,7 @@ async function upsertMirrorContact(
   );
   const row = res.rows[0];
   if (!row) {
-    throw new Error("[@envoy/sdk] enroll failed to persist the mirror contact row.");
+    throw new Error("[@catalystiq/envoy-sdk] enroll failed to persist the mirror contact row.");
   }
   return { unsubscribed: row.unsubscribed === true };
 }
@@ -286,7 +286,7 @@ export async function enroll(
   options: EnrollOptions = {}
 ): Promise<EnrollResult> {
   if (typeof sequenceKey !== "string" || sequenceKey.length === 0) {
-    throw new Error("[@envoy/sdk] enroll requires a non-empty sequenceKey.");
+    throw new Error("[@catalystiq/envoy-sdk] enroll requires a non-empty sequenceKey.");
   }
 
   // Normalize the email at this entry boundary so the mirror contact, enrollment key, consent seed,
@@ -294,7 +294,7 @@ export async function enroll(
   // the mirror upsert stores the lowercased email too.
   const email = normalizeEmail(contact.email);
   if (email.length === 0) {
-    throw new Error("[@envoy/sdk] enroll requires a non-empty email.");
+    throw new Error("[@catalystiq/envoy-sdk] enroll requires a non-empty email.");
   }
   const normalizedContact: ContactInput = { email, data: contact.data };
   const stream: Stream = options.stream ?? "digest";
@@ -489,7 +489,7 @@ export async function deleteContact(
   options: { segmentIds?: string[]; topicIds?: string[] } = {}
 ): Promise<DeleteContactResult> {
   if (typeof rawEmail !== "string" || rawEmail.length === 0) {
-    throw new Error("[@envoy/sdk] contacts.delete requires a non-empty email.");
+    throw new Error("[@catalystiq/envoy-sdk] contacts.delete requires a non-empty email.");
   }
   // Normalize at the boundary so suppression + purge match the rows enroll/webhook wrote regardless
   // of the case the caller passed (residual casing fix).

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 export const metadata = {
-  title: "@envoy/sdk example",
+  title: "@catalystiq/envoy-sdk example",
   description: "Internal dogfood app for the Envoy Resend SDK",
 };
 

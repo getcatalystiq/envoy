@@ -362,14 +362,14 @@ async function dispatch(config: EnvoyHandlerConfig, request: Request): Promise<R
  */
 export function createEnvoyHandler(config: EnvoyHandlerConfig): EnvoyRouteHandlers {
   if (config === null || typeof config !== "object") {
-    throw new TypeError("[@envoy/sdk] createEnvoyHandler(config) requires a config object.");
+    throw new TypeError("[@catalystiq/envoy-sdk] createEnvoyHandler(config) requires a config object.");
   }
   if (config.envoy === null || typeof config.envoy !== "object") {
-    throw new TypeError("[@envoy/sdk] createEnvoyHandler requires an `envoy` handle.");
+    throw new TypeError("[@catalystiq/envoy-sdk] createEnvoyHandler requires an `envoy` handle.");
   }
   if (typeof config.authorize !== "function") {
     throw new TypeError(
-      "[@envoy/sdk] createEnvoyHandler requires an `authorize(req)` callback — the API surface must not be open (R6)."
+      "[@catalystiq/envoy-sdk] createEnvoyHandler requires an `authorize(req)` callback — the API surface must not be open (R6)."
     );
   }
 
@@ -451,7 +451,7 @@ export function createDripCronHandler(
       // cron platform retries. Redact before logging (R43): no recipient/secret leaks.
       // eslint-disable-next-line no-console
       console.error(
-        "[@envoy/sdk] drip cron tick failed:",
+        "[@catalystiq/envoy-sdk] drip cron tick failed:",
         envoy.redact(err instanceof Error ? err.message : String(err))
       );
       return jsonResponse(500, { ok: false, error: "tick_failed" });

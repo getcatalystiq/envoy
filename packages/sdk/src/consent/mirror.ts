@@ -261,7 +261,7 @@ export class ConsentMirror {
     const stored = res.rows[0];
     if (!stored) {
       // Defensive: RETURNING should always yield the row. Treat as a hard write failure.
-      throw new Error("[@envoy/sdk] consent.set failed to persist the mirror row.");
+      throw new Error("[@catalystiq/envoy-sdk] consent.set failed to persist the mirror row.");
     }
     const beforeRow = mapRow(stored);
 

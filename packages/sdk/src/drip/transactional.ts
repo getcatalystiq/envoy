@@ -121,7 +121,7 @@ export type TransactionalSendResult =
  */
 export class TransactionalSendError extends Error {
   constructor(message: string) {
-    super(`[@envoy/sdk] ${message}`);
+    super(`[@catalystiq/envoy-sdk] ${message}`);
     this.name = "TransactionalSendError";
   }
 }

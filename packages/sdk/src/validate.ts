@@ -46,7 +46,7 @@ import type { Sequence } from "./drip/sequence.js";
  */
 export class ValidationError extends Error {
   constructor(message: string) {
-    super(`[@envoy/sdk] ${message}`);
+    super(`[@catalystiq/envoy-sdk] ${message}`);
     this.name = "ValidationError";
   }
 }

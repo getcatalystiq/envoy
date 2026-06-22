@@ -12,7 +12,7 @@ import {
   createDripCronHandler,
   createWebhookReceiver,
   handleUnsubscribe,
-} from "@envoy/sdk";
+} from "@catalystiq/envoy-sdk";
 
 import {
   envoy,

@@ -137,7 +137,7 @@ export async function provisionTopic(
   const client = resend.client();
   if (!resend.enabled || client === null) {
     throw new Error(
-      `[@envoy/sdk] cannot provision topic "${topicKey}": Resend is not configured (set RESEND_API_KEY). ` +
+      `[@catalystiq/envoy-sdk] cannot provision topic "${topicKey}": Resend is not configured (set RESEND_API_KEY). ` +
         `Topic provisioning needs a Resend Topic id and cannot be a no-op.`
     );
   }
@@ -149,7 +149,7 @@ export async function provisionTopic(
   });
   if (error || !data) {
     throw new Error(
-      `[@envoy/sdk] Resend topics.create failed for "${topicKey}": ${error?.message ?? "unknown error"}.`
+      `[@catalystiq/envoy-sdk] Resend topics.create failed for "${topicKey}": ${error?.message ?? "unknown error"}.`
     );
   }
 

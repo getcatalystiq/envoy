@@ -275,7 +275,7 @@ describe("namespace fingerprint (R38)", () => {
     );
     await expect(
       createEnvoy(fullConfig(pool, { baseSegmentId: "seg_OTHER" })).assertNamespaceFingerprint()
-    ).rejects.toThrow(/different @envoy\/sdk install/);
+    ).rejects.toThrow(/different @catalystiq\/envoy-sdk install/);
   });
 
   it("two distinct namespaces on one DB coexist (staging/prod split is two installs)", async () => {

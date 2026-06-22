@@ -29,7 +29,7 @@ export class AgentError extends Error {
   readonly status: number;
   readonly detail?: string;
   constructor(message: string, status: number, detail?: string) {
-    super(`[@envoy/sdk] ${message}`);
+    super(`[@catalystiq/envoy-sdk] ${message}`);
     this.name = "AgentError";
     this.status = status;
     this.detail = detail;

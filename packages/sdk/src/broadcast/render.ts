@@ -112,10 +112,10 @@ export async function renderBroadcast(
   input: RenderBroadcastInput
 ): Promise<RenderedBroadcast> {
   if (input === null || typeof input !== "object") {
-    throw new BroadcastRenderError("[@envoy/sdk] renderBroadcast requires an input object.");
+    throw new BroadcastRenderError("[@catalystiq/envoy-sdk] renderBroadcast requires an input object.");
   }
   if (typeof input.templateId !== "string" || input.templateId.length === 0) {
-    throw new BroadcastRenderError("[@envoy/sdk] renderBroadcast requires a non-empty templateId.");
+    throw new BroadcastRenderError("[@catalystiq/envoy-sdk] renderBroadcast requires a non-empty templateId.");
   }
 
   const template = await getTemplate(resend, input.templateId);
@@ -192,21 +192,21 @@ export async function sendBroadcast(
   input: SendBroadcastInput
 ): Promise<SendBroadcastResult> {
   if (input === null || typeof input !== "object") {
-    throw new BroadcastRenderError("[@envoy/sdk] sendBroadcast requires an input object.");
+    throw new BroadcastRenderError("[@catalystiq/envoy-sdk] sendBroadcast requires an input object.");
   }
   if (typeof input.segmentId !== "string" || input.segmentId.length === 0) {
-    throw new BroadcastRenderError("[@envoy/sdk] sendBroadcast requires a non-empty segmentId.");
+    throw new BroadcastRenderError("[@catalystiq/envoy-sdk] sendBroadcast requires a non-empty segmentId.");
   }
   if (typeof input.topicId !== "string" || input.topicId.length === 0) {
     throw new BroadcastRenderError(
-      "[@envoy/sdk] sendBroadcast requires a non-empty topicId — the Topic is the unsubscribe gate (KTD9)."
+      "[@catalystiq/envoy-sdk] sendBroadcast requires a non-empty topicId — the Topic is the unsubscribe gate (KTD9)."
     );
   }
   if (typeof input.from !== "string" || input.from.trim().length === 0) {
-    throw new BroadcastRenderError("[@envoy/sdk] sendBroadcast requires a non-empty from address.");
+    throw new BroadcastRenderError("[@catalystiq/envoy-sdk] sendBroadcast requires a non-empty from address.");
   }
   if (typeof input.subject !== "string" || input.subject.length === 0) {
-    throw new BroadcastRenderError("[@envoy/sdk] sendBroadcast requires a non-empty subject.");
+    throw new BroadcastRenderError("[@catalystiq/envoy-sdk] sendBroadcast requires a non-empty subject.");
   }
 
   const rendered = await renderBroadcast(resend, {
@@ -219,7 +219,7 @@ export async function sendBroadcast(
     // Unreachable in practice — renderBroadcast already threw on an unset Resend — but keeps the
     // dispatch path honest if a caller ever passes a pre-rendered body in future.
     throw new BroadcastRenderError(
-      `[@envoy/sdk] cannot send broadcast "${input.name ?? input.templateId}": Resend is not configured.`
+      `[@catalystiq/envoy-sdk] cannot send broadcast "${input.name ?? input.templateId}": Resend is not configured.`
     );
   }
 
@@ -239,7 +239,7 @@ export async function sendBroadcast(
 
   if (error || !data) {
     throw new BroadcastRenderError(
-      `[@envoy/sdk] Resend broadcasts.create failed for "${input.name ?? input.templateId}": ` +
+      `[@catalystiq/envoy-sdk] Resend broadcasts.create failed for "${input.name ?? input.templateId}": ` +
         `${error?.message ?? "unknown error"} (fail loud, R31/R32).`
     );
   }

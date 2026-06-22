@@ -8,8 +8,8 @@ import { describe, expect, it } from "vitest";
 // example fails here instead of silently rotting under example/ (which the package tsconfig does
 // not typecheck and Vitest does not run).
 //
-// It imports from the package's public entry (@sdk/index.js → the built `@envoy/sdk` surface) —
-// not internal modules — mirroring what the example's `import { ... } from "@envoy/sdk"` resolves.
+// It imports from the package's public entry (@sdk/index.js → the built `@catalystiq/envoy-sdk` surface) —
+// not internal modules — mirroring what the example's `import { ... } from "@catalystiq/envoy-sdk"` resolves.
 
 import {
   createEnvoy,

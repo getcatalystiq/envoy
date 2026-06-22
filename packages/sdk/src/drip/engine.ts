@@ -83,7 +83,7 @@ function resolveFrom(envoy: Envoy, stream: Stream): string {
     return streamDefault;
   }
   throw new Error(
-    `[@envoy/sdk] drip step has no From address: configure streams.${stream}.from at createEnvoy time.`,
+    `[@catalystiq/envoy-sdk] drip step has no From address: configure streams.${stream}.from at createEnvoy time.`,
   );
 }
 
@@ -327,7 +327,7 @@ function requireAgent(envoy: Envoy): { agentId: string; environmentId: string } 
   const agent = envoy.config.agent;
   if (!agent) {
     throw new Error(
-      "[@envoy/sdk] a drip step declares aiSlots but no `agent` is configured at createEnvoy time (R45).",
+      "[@catalystiq/envoy-sdk] a drip step declares aiSlots but no `agent` is configured at createEnvoy time (R45).",
     );
   }
   return agent;
@@ -481,7 +481,7 @@ async function ensureStepRow(
   const row = rows[0];
   if (!row) {
     throw new Error(
-      `[@envoy/sdk] step row for enrollment ${String(enrollmentId)} step ${stepIndex} not found after upsert`,
+      `[@catalystiq/envoy-sdk] step row for enrollment ${String(enrollmentId)} step ${stepIndex} not found after upsert`,
     );
   }
   return row;

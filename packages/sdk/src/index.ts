@@ -1,4 +1,4 @@
-// @envoy/sdk — server entry.
+// @catalystiq/envoy-sdk — server entry.
 //
 // Headless Resend drip + broadcast email SDK for Next.js: bring-your-own-Postgres,
 // host-owns-auth, single-tenant. This package is self-contained and shares no runtime

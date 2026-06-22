@@ -359,7 +359,7 @@ async function writeOptOut(
     [envoy.db.namespace, contact, topic.topicKey, topic.topicId, wantDigest, wantAlert]
   );
   if (res.count === 0) {
-    throw new Error("[@envoy/sdk] reconcile failed to persist the opt_out mirror row.");
+    throw new Error("[@catalystiq/envoy-sdk] reconcile failed to persist the opt_out mirror row.");
   }
 }
 

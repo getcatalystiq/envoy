@@ -156,7 +156,7 @@ export interface Envoy {
 /** A configuration error thrown by `createEnvoy` at INIT time. Carries no secret values. */
 export class EnvoyConfigError extends Error {
   constructor(message: string) {
-    super(`[@envoy/sdk] ${message}`);
+    super(`[@catalystiq/envoy-sdk] ${message}`);
     this.name = "EnvoyConfigError";
   }
 }
@@ -165,7 +165,7 @@ export class EnvoyConfigError extends Error {
  * config identity differs from this one (R38 cross-install guard). */
 export class EnvoyNamespaceError extends Error {
   constructor(message: string) {
-    super(`[@envoy/sdk] ${message}`);
+    super(`[@catalystiq/envoy-sdk] ${message}`);
     this.name = "EnvoyNamespaceError";
   }
 }
@@ -382,7 +382,7 @@ async function assertNamespaceFingerprint(
   }
   if (stored !== fingerprint) {
     throw new EnvoyNamespaceError(
-      `namespace "${db.namespace}" is already owned by a different @envoy/sdk install ` +
+      `namespace "${db.namespace}" is already owned by a different @catalystiq/envoy-sdk install ` +
         `(stored fingerprint does not match this config). Two installs must not share a namespace — ` +
         `use a distinct installNamespace per logical install (R38).`
     );

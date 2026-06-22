@@ -1,6 +1,6 @@
 "use client";
 
-// @envoy/sdk/client — React hooks entry (read-only state for host-built admin screens).
+// @catalystiq/envoy-sdk/client — React hooks entry (read-only state for host-built admin screens).
 //
 // U17 / origin R4. These are the ONLY hooks the SDK ships. They are deliberately read-only:
 // every mutation (enroll, consent.set, broadcast trigger, …) goes through the typed SERVER

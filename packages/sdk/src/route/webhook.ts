@@ -319,7 +319,7 @@ export function createWebhookReceiver(
       // signature was valid; the failure is ours, not the sender's). Redact before logging.
       // eslint-disable-next-line no-console
       console.error(
-        "[@envoy/sdk] webhook ingest failed:",
+        "[@catalystiq/envoy-sdk] webhook ingest failed:",
         envoy.redact(err instanceof Error ? err.message : String(err))
       );
       return jsonResponse(500, { ok: false, error: "ingest_failed" });

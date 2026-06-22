@@ -64,7 +64,7 @@ import {
  *  missing segment is a config bug surfaced at `defineBroadcastProgram` time, not at first send. */
 export class BroadcastProgramError extends Error {
   constructor(message: string) {
-    super(`[@envoy/sdk] ${message}`);
+    super(`[@catalystiq/envoy-sdk] ${message}`);
     this.name = "BroadcastProgramError";
   }
 }

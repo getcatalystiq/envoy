@@ -1,12 +1,12 @@
-# @envoy/sdk — internal dogfood example
+# @catalystiq/envoy-sdk — internal dogfood example
 
-A thin Next.js (App Router) host that drops in `@envoy/sdk` exactly the way an external
+A thin Next.js (App Router) host that drops in `@catalystiq/envoy-sdk` exactly the way an external
 indie SaaS dev would. **Not published.** Its only job is to let the authors exercise the
 compliance-critical primitives — the **consent mirror** (the send gate), the **send-once
 broadcast claim**, and the **one-click unsubscribe** — end-to-end against a real Resend
 test account, instead of trusting unit tests alone.
 
-> This app imports only the package's public entry (`@envoy/sdk`). It shares no code with
+> This app imports only the package's public entry (`@catalystiq/envoy-sdk`). It shares no code with
 > the main Envoy app and never imports `@/...` or the SDK's internal `@sdk/*` alias.
 
 ## What it wires
@@ -75,11 +75,11 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ## Install & run
 
-This example is its own install (it depends on `@envoy/sdk` as a local `file:..`), so build the
+This example is its own install (it depends on `@catalystiq/envoy-sdk` as a local `file:..`), so build the
 SDK first, then install the example:
 
 ```bash
-# 1. Build the SDK so the example can resolve @envoy/sdk -> dist
+# 1. Build the SDK so the example can resolve @catalystiq/envoy-sdk -> dist
 cd packages/sdk && npm install && npm run build
 
 # 2. Install + migrate + run the example
