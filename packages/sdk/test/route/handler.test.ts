@@ -4,7 +4,6 @@ import { Webhook } from "svix";
 import {
   createEnvoyHandler,
   resolveSubpath,
-  type EnvoyHandlerConfig,
   type SubHandler,
 } from "@sdk/route/handler.js";
 import type { Envoy, ResolvedEnvoyConfig } from "@sdk/config.js";

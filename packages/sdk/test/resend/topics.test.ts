@@ -132,7 +132,7 @@ describe("provisionTopic — idempotent, cached per (stream, subject) (R27/R37)"
 
   it("Edge: a concurrent first-provision that loses the cache claim adopts the winner's id", async () => {
     // Simulate: our INSERT loses (DO NOTHING), and the SELECT-back yields the winner's id.
-    const { pool, store } = fakeProgramStatePool();
+    const { store } = fakeProgramStatePool();
     // Pre-seed the cache row as if a concurrent provision already won.
     store.set(`${NAMESPACE}|__envoy_topics__|digest:IT`, "tp_winner");
     // But make the FIRST read (before create) miss, to force the create+claim path: we model a true

@@ -448,7 +448,8 @@ export async function reconcile(
   const mode = options.mode ?? "dirty";
   const maxContacts = options.maxContacts ?? 200;
   const backoffMs = options.backoffMs ?? DEFAULT_BACKOFF_MS;
-  const sleepFn = options.sleepFn ?? sleep;
+  // sleepFn is threaded straight to reconcileContact (via options.sleepFn) where the per-contact
+  // 429 backoff actually sleeps; the sweep itself never sleeps, so no local binding here.
 
   const topicCache = await loadTopicCache(envoy);
 
