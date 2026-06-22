@@ -66,8 +66,9 @@ helper), then `await envoy.enroll({ email, data }, "onboarding")` from your sign
 ## Full integration guide
 
 A complete, step-by-step host integration guide (auth model, the two crons, consent, webhooks,
-GDPR, the delete-and-import adoption map, and the accepted compliance residuals) lives in the
-repo at [`docs/sdk-agent-integration-guide.md`](https://github.com/getcatalystiq/envoy/blob/main/docs/sdk-agent-integration-guide.md).
+GDPR, the delete-and-import adoption map, and the accepted compliance residuals) ships in this
+package as [`AGENTS.md`](./AGENTS.md) — your coding agent can read it directly from
+`node_modules/@catalystiq/envoy-sdk/AGENTS.md`.
 
 ## License
 

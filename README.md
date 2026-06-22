@@ -41,7 +41,7 @@ It also includes a mountable route handler (per-sub-path auth: host authorize ca
 
 The SDK lives at [`packages/sdk/`](packages/sdk/) as a detached in-repo package with its own `package.json`, lockfile, tsconfig, tsup build, and Vitest suite. It is fully isolated from the app build: the app stays on AWS SES, OAuth, and its visual builder, and `packages/` is excluded from the app's `tsconfig.json`, `eslint.config.mjs`, and `vitest.config.ts`. The SDK imports no app code.
 
-See the [host integration guide](docs/sdk-agent-integration-guide.md) and the [package README](packages/sdk/README.md) to get started.
+See the [host integration guide](packages/sdk/AGENTS.md) and the [package README](packages/sdk/README.md) to get started.
 
 ## Tech Stack
 

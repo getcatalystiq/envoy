@@ -192,7 +192,7 @@ cd packages/sdk && npm test           # Vitest (517 tests)
 Toolchain: TypeScript 6.0.3, React 19.2.7, Next 16.2.9 (peer), zod.
 
 ### Docs
-- Host integration guide: `docs/sdk-agent-integration-guide.md`.
+- Host integration guide: `packages/sdk/AGENTS.md` (ships in the package; read from `node_modules/@catalystiq/envoy-sdk/AGENTS.md`).
 - Design docs: `docs/brainstorms/2026-06-21-envoy-resend-sdk-rearchitecture-requirements.md` (requirements R1-R48) and `docs/plans/2026-06-21-001-feat-envoy-sdk-package-plan.md`.
 
 ## Key Patterns
