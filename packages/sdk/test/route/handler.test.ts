@@ -185,6 +185,58 @@ describe("/api + /read auth (R6)", () => {
     expect(await res.text()).toBe("forbidden");
   });
 
+  it("a redirect (3xx) Response from authorize passes through verbatim (still a denial channel)", async () => {
+    const api = marker("api-body");
+    const h = createEnvoyHandler({
+      envoy: makeEnvoy(),
+      authorize: () => new Response(null, { status: 302, headers: { location: "/login" } }),
+      api: api.handler,
+    });
+    const res = await h.POST(req("/api/envoy/api/enroll"));
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/login");
+    expect(api.calls()).toBe(0); // a redirect is NOT an admit — the handler never runs
+  });
+
+  it("SECURITY: a 2xx Response from authorize is a host contract error → 401, NOT an admit", async () => {
+    // The bug: an `authorize` that returns `new Response("ok")` (a 2xx) was previously treated as
+    // "authorized, continue", opening the whole API surface to anyone. A Response is a DENIAL
+    // channel only — the boolean `true` is the sole admit signal — so a 2xx must fail closed.
+    const api = marker("api-body");
+    const h = createEnvoyHandler({
+      envoy: makeEnvoy(),
+      authorize: () => new Response("ok", { status: 200 }),
+      api: api.handler,
+    });
+    const res = await h.POST(req("/api/envoy/api/enroll"));
+    expect(res.status).toBe(401); // fail-closed, not 200
+    expect(api.calls()).toBe(0); // the handler MUST NOT run — no state change
+  });
+
+  it("SECURITY: a 204 Response from authorize also fails closed (any 2xx is a denial)", async () => {
+    const api = marker("api-body");
+    const h = createEnvoyHandler({
+      envoy: makeEnvoy(),
+      authorize: () => new Response(null, { status: 204 }),
+      api: api.handler,
+    });
+    const res = await h.POST(req("/api/envoy/api/enroll"));
+    expect(res.status).toBe(401);
+    expect(api.calls()).toBe(0);
+  });
+
+  it("only the boolean `true` authorizes — a truthy non-true value (object) does not compile to admit", async () => {
+    // The explicit-`true` contract: nothing other than the boolean true admits. (A Response is
+    // covered above; this guards the boolean branch against a future loosening to truthiness.)
+    const api = marker("api-body");
+    // `1` is truthy but not `true` — must be rejected. Cast through unknown to bypass the type.
+    const authorize = (() => 1 as unknown) as unknown as () => boolean;
+    const h = createEnvoyHandler({ envoy: makeEnvoy(), authorize, api: api.handler });
+    const res = await h.POST(req("/api/envoy/api/enroll"));
+    expect(res.status).toBe(401);
+    expect(api.calls()).toBe(0);
+  });
+
   it("/read is also gated by authorize", async () => {
     const read = marker("read-body");
     const authorize = vi.fn(() => false);

@@ -18,6 +18,7 @@ export const SDK_VERSION = "0.0.0";
 export {
   createDb,
   NamespacedDb,
+  normalizeEmail,
   type SdkPool,
   type SdkQueryResult,
 } from "./db/pool.js";

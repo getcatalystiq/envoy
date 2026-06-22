@@ -282,7 +282,12 @@ describe("handleUnsubscribe", () => {
     expect(res.headers.get("allow")).toContain("POST");
   });
 
-  it("accepts a GET one-click for browser-opened links", async () => {
+  // ------------------------------------------------------------------------------------------
+  // SECURITY (P2): a GET must NOT mutate — link prefetchers / scanners / "open in browser" all
+  // issue GETs. RFC 8058 one-click is a POST. GET renders an interstitial; the POST writes.
+  // ------------------------------------------------------------------------------------------
+
+  it("SECURITY: a GET does NOT mutate — it renders an interstitial confirmation page, writes nothing", async () => {
     const { config, upserts } = landingConfig();
     const token = createUnsubscribeToken(
       { email: "a@example.com", topicKey: "weekly", stream: "alert" },
@@ -290,8 +295,88 @@ describe("handleUnsubscribe", () => {
     );
     const res = await handleUnsubscribe(unsubRequest(token, { method: "GET" }), config);
     expect(res.status).toBe(200);
+    // No opt-out written on GET — this is the whole point (no accidental unsubscribe on prefetch).
+    expect(upserts).toHaveLength(0);
+    // It is an HTML confirmation page with a POSTing form carrying the token.
+    expect(res.headers.get("content-type")).toMatch(/text\/html/);
+    const html = await res.text();
+    expect(html.toLowerCase()).toContain("<form");
+    expect(html).toMatch(/method="POST"/i);
+    expect(html).toContain(token); // the token is reflected into the hidden input
+    expect(res.headers.get("location")).toBeNull(); // never a redirect
+  });
+
+  it("SECURITY: a GET with a FORGED token still renders the same interstitial and writes nothing (no oracle, no mutation)", async () => {
+    const { config, upserts } = landingConfig();
+    const res = await handleUnsubscribe(unsubRequest("forged.sig", { method: "GET" }), config);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/text\/html/);
+    expect(upserts).toHaveLength(0); // GET never writes, valid or not
+  });
+
+  it("SECURITY: the GET interstitial is byte-identical for a valid vs forged token (no validity oracle)", async () => {
+    // Both forms must render the same page modulo the reflected token. We compare with the token
+    // substring stripped so only the static template matters.
+    const valid = landingConfig();
+    const forged = landingConfig();
+    const validToken = createUnsubscribeToken(
+      { email: "a@example.com", topicKey: "weekly", stream: "digest" },
+      SECRET
+    );
+    const forgedToken = "x".repeat(validToken.length); // same length, different bytes
+    const rValid = await handleUnsubscribe(unsubRequest(validToken, { method: "GET" }), valid.config);
+    const rForged = await handleUnsubscribe(unsubRequest(forgedToken, { method: "GET" }), forged.config);
+    const hValid = (await rValid.text()).replace(validToken, "TOKEN");
+    const hForged = (await rForged.text()).replace(forgedToken, "TOKEN");
+    expect(rValid.status).toBe(rForged.status);
+    expect(hValid).toBe(hForged);
+  });
+
+  it("Happy: a POST one-click writes the topic-scoped opt_out (the mutating action lives on POST)", async () => {
+    const { config, upserts } = landingConfig();
+    const token = createUnsubscribeToken(
+      { email: "a@example.com", topicKey: "weekly", stream: "alert" },
+      SECRET
+    );
+    const res = await handleUnsubscribe(unsubRequest(token, { method: "POST" }), config);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(""); // blank body, no redirect
     expect(upserts).toHaveLength(1);
     expect(upserts[0][5]).toBe("opt_out"); // alert stream ($6)
+  });
+
+  it("Happy: a POST from the interstitial (token in the form body, no query token) writes the opt_out", async () => {
+    const { config, upserts } = landingConfig();
+    const token = createUnsubscribeToken(
+      { email: "a@example.com", topicKey: "weekly", stream: "digest" },
+      SECRET
+    );
+    // The interstitial form POSTs back to the bare landing path with the token in the body.
+    const res = await handleUnsubscribe(
+      new Request("https://app.example.com/api/envoy/unsubscribe", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ token }).toString(),
+      }),
+      config
+    );
+    expect(res.status).toBe(200);
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0][4]).toBe("opt_out"); // digest stream ($5)
+  });
+
+  it("a GET over the rate limit still 429s before rendering the interstitial", async () => {
+    const { config, upserts } = landingConfig(21);
+    const token = createUnsubscribeToken(
+      { email: "a@example.com", topicKey: "weekly", stream: "digest" },
+      SECRET
+    );
+    const res = await handleUnsubscribe(
+      unsubRequest(token, { method: "GET", ip: "9.9.9.9" }),
+      config
+    );
+    expect(res.status).toBe(429);
+    expect(upserts).toHaveLength(0);
   });
 });
 

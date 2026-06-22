@@ -37,6 +37,7 @@ import "server-only";
 //     `email_id` guard only gates the (future) per-message analytics join, never suppression.
 
 import type { Envoy } from "../config.js";
+import { jsonResponse } from "./handler.js";
 
 // ---------------------------------------------------------------------------------------------
 // Event payload shapes (structural — external payloads are not strongly typed by the Resend SDK)
@@ -155,15 +156,40 @@ async function enqueueReconcile(envoy: Envoy, email: string): Promise<void> {
 }
 
 /**
- * Apply a GLOBAL suppression to a contact: flip `unsubscribed = TRUE` and mark dirty so reconcile
- * pushes the suppression out to every topic (R26/R29 suppress-all). Monotonic — we only ever set
- * the flag true here; a re-subscribe is a separate, explicit host action.
+ * Apply a GLOBAL suppression to a contact: flip `unsubscribed = TRUE`, mark dirty so reconcile
+ * pushes the suppression out to every topic (R26/R29 suppress-all), AND fan the suppression into
+ * every existing per-topic consent row as monotonic `unsubscribed` so the send gate denies BOTH
+ * lanes immediately (R22) — the gate's per-topic read alone would otherwise miss a suppression that
+ * only lives on the contact flag. Monotonic — we only ever raise suppression here; a re-subscribe is
+ * a separate, explicit host action.
  */
 async function suppressContact(envoy: Envoy, email: string): Promise<void> {
   await envoy.db.query(
     `UPDATE sdk_contacts SET unsubscribed = TRUE, dirty_since = NOW(), updated_at = NOW()
        WHERE namespace = $1 AND lower(email) = $2`,
     [envoy.db.namespace, email]
+  );
+  await fanSuppressionIntoConsent(envoy, email);
+}
+
+/**
+ * Fan a contact's GLOBAL suppression into every one of its per-topic consent rows, raising BOTH
+ * streams to terminal `unsubscribed` (monotonic — never lowers a more-suppressed value). This
+ * bridges a global suppression (bounce/complaint/hosted-page unsub) into the per-`(contact, topic)`
+ * state the send gate reads, so the gate denies every topic on both lanes without waiting for the
+ * reconcile sweep (R22/R26). `email` is the already-lowercased bare recipient; consent rows key on
+ * the namespaced contact, matched case-insensitively to absorb any legacy mixed-case rows.
+ */
+async function fanSuppressionIntoConsent(envoy: Envoy, email: string): Promise<void> {
+  const namespacedContact = envoy.db.namespaceKey(email);
+  await envoy.db.query(
+    `UPDATE sdk_topic_consent
+        SET digest_status = 'unsubscribed',
+            alert_status = 'unsubscribed',
+            dirty_since = NOW(),
+            updated_at = NOW()
+      WHERE namespace = $1 AND lower(contact) = lower($2)`,
+    [envoy.db.namespace, namespacedContact]
   );
 }
 
@@ -314,11 +340,4 @@ function parseEvent(raw: string): ResendWebhookEvent {
     throw new TypeError("webhook body is not a JSON object");
   }
   return parsed as ResendWebhookEvent;
-}
-
-function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
 }

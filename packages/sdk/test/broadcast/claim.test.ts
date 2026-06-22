@@ -322,6 +322,35 @@ describe("resolveResumeBroadcastId — crash gap (id absent) precheck", () => {
     expect(res).toEqual({ status: "absent" });
   });
 
+  it("does NOT match a same-page entry that re-uses our name but is BELOW the lower bound (break, not continue)", async () => {
+    // Page (newest-first): an unrelated newer broadcast, then — older than the claim — a STALE
+    // duplicate re-using our deterministic name (e.g. a previous issue's leftover, or a name
+    // collision from before this claim's createdAt). The scan must STOP at the first below-bound
+    // entry, never fall through to a later below-bound same-page entry that happens to match our
+    // name. Returning that stale id would resume onto the WRONG (older) broadcast.
+    const claimCreatedAt = "2026-06-21T10:00:00.000Z";
+    const pages: ListEntry[][] = [
+      [
+        { id: "bc_unrelated_newer", name: "other:key", created_at: "2026-06-21T10:05:00.000Z" },
+        // Below the lower bound — must terminate the scan here.
+        { id: "bc_boundary", name: "boundary:marker", created_at: "2026-06-20T09:00:00.000Z" },
+        // A stale same-name entry that is ALSO below the bound. With a buggy `continue` this would be
+        // checked and wrongly returned; with `break` it is never reached.
+        { id: "bc_stale_dupe", name: "weekly:2026-06-21", created_at: "2026-06-19T09:00:00.000Z" },
+      ],
+    ];
+    const { handle, list } = fakeResend({ pages });
+
+    const res = await resolveResumeBroadcastId(
+      handle,
+      { broadcastKey: "weekly:2026-06-21", resendBroadcastId: null, createdAt: claimCreatedAt },
+      { sleep: async () => {}, retries: 0 }
+    );
+    // The stale below-bound duplicate is NOT matched → absent → safe to create a fresh broadcast.
+    expect(res).toEqual({ status: "absent" });
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
   it("returns absent when no broadcast matches within the in-window range (safe to create)", async () => {
     const claimCreatedAt = "2026-06-21T10:00:00.000Z";
     const pages: ListEntry[][] = [

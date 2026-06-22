@@ -6,7 +6,8 @@ import {
   createSegmentSync,
   SegmentSync,
 } from "@sdk/contacts.js";
-import { createDb, type SdkPool } from "@sdk/db/pool.js";
+import { createDb, normalizeEmail, type SdkPool } from "@sdk/db/pool.js";
+import { createConsentMirror } from "@sdk/consent/mirror.js";
 import { createResendClientHandle } from "@sdk/resend/client.js";
 import type { ResendClientHandle } from "@sdk/resend/client.js";
 import type { Envoy, ResolvedEnvoyConfig } from "@sdk/config.js";
@@ -32,21 +33,43 @@ interface EnrollStore {
   sequence_key: string;
   status: string;
   current_step: number;
+  data?: Record<string, unknown>;
 }
 
 const NAMESPACE = "prod";
 
+interface ConsentStore {
+  contact: string; // namespaced key (e.g. "prod:a@example.com")
+  topic_key: string;
+  topic_id: string | null;
+  digest_status: "opt_in" | "opt_out" | "unsubscribed";
+  alert_status: "opt_in" | "opt_out" | "unsubscribed";
+  dirty_since: string | null;
+}
+
+const CONSENT_RANK_MAP: Record<string, number> = {
+  opt_in: 0,
+  opt_out: 1,
+  unsubscribed: 2,
+};
+
 function fakePool(seed?: {
   contacts?: ContactStore[];
   topicCache?: Record<string, string>;
+  consent?: ConsentStore[];
+  enrollments?: EnrollStore[];
 }) {
   const contacts = new Map<string, ContactStore>(); // email -> row
   const enrollments = new Map<string, EnrollStore>(); // contact::seq -> row
   const topicCache = new Map<string, string>(); // ns|program|subject -> id
+  const consent = new Map<string, ConsentStore>(); // contact::topic_key -> row
   const calls: Array<{ text: string; params?: ReadonlyArray<unknown> }> = [];
 
   for (const c of seed?.contacts ?? []) contacts.set(c.email, { ...c });
   for (const [k, v] of Object.entries(seed?.topicCache ?? {})) topicCache.set(k, v);
+  for (const r of seed?.consent ?? []) consent.set(`${r.contact}::${r.topic_key}`, { ...r });
+  for (const e of seed?.enrollments ?? [])
+    enrollments.set(`${e.contact}::${e.sequence_key}`, { ...e });
 
   const pool: SdkPool = {
     query: vi.fn(async (text: string, params?: ReadonlyArray<unknown>) => {
@@ -145,11 +168,108 @@ function fakePool(seed?: {
         return { rows: [{ watermark: p[3] }] } as never;
       }
 
+      // --- sdk_topic_consent upsert (monotonic merge, RETURNING) — what enroll()'s consent seed
+      //     and consent.set issue. Models the SQL CASE merge in JS so the REAL mirror.set path runs.
+      if (t.startsWith("INSERT INTO sdk_topic_consent")) {
+        const [, contact, topicKey, topicId, wantDigest, wantAlert] = p as [
+          string,
+          string,
+          string,
+          string | null,
+          "opt_in" | "opt_out" | "unsubscribed" | null,
+          "opt_in" | "opt_out" | "unsubscribed" | null,
+        ];
+        const key = `${contact}::${topicKey}`;
+        const existing = consent.get(key);
+        const rank = (s: string | null) => (s === null ? -1 : CONSENT_RANK_MAP[s] ?? -1);
+        if (!existing) {
+          const row: ConsentStore = {
+            contact,
+            topic_key: topicKey,
+            topic_id: topicId,
+            digest_status: wantDigest ?? "opt_in",
+            alert_status: wantAlert ?? "opt_in",
+            dirty_since: "now",
+          };
+          consent.set(key, row);
+          return { rows: [{ ...row }] } as never;
+        }
+        if (wantDigest !== null && rank(wantDigest) >= rank(existing.digest_status)) {
+          existing.digest_status = wantDigest;
+        }
+        if (wantAlert !== null && rank(wantAlert) >= rank(existing.alert_status)) {
+          existing.alert_status = wantAlert;
+        }
+        existing.topic_id = topicId ?? existing.topic_id;
+        existing.dirty_since = "now";
+        return { rows: [{ ...existing }] } as never;
+      }
+
+      // --- sdk_topic_consent SELECT (mirror.read / gate) ---
+      if (t.startsWith("SELECT contact, topic_key")) {
+        const [, contact, topicKey] = p as [string, string, string];
+        const row = consent.get(`${contact}::${topicKey}`);
+        return { rows: row ? [{ ...row }] : [] } as never;
+      }
+
+      // --- sdk_topic_consent dirty-clear ---
+      if (t.startsWith("UPDATE sdk_topic_consent SET dirty_since = NULL")) {
+        const [, contact, topicKey] = p as [string, string, string];
+        const row = consent.get(`${contact}::${topicKey}`);
+        if (row) row.dirty_since = null;
+        return { rows: [] } as never;
+      }
+
+      // --- sdk_topic_consent fan-out (suppressMirror raises every row to unsubscribed) ---
+      if (t.startsWith("UPDATE sdk_topic_consent") && /digest_status = 'unsubscribed'/.test(t)) {
+        const [, nsContact] = p as [string, string];
+        for (const row of consent.values()) {
+          if (row.contact.toLowerCase() === String(nsContact).toLowerCase()) {
+            row.digest_status = "unsubscribed";
+            row.alert_status = "unsubscribed";
+            row.dirty_since = "now";
+          }
+        }
+        return { rows: [] } as never;
+      }
+
+      // --- sdk_contacts global-suppression read (gate.isGloballySuppressed) ---
+      if (t.startsWith("SELECT unsubscribed FROM sdk_contacts")) {
+        const [, email] = p as [string, string];
+        // email is already lowercased by the caller; contacts are keyed by the email they were
+        // stored with — match case-insensitively to mirror `lower(email) = $2`.
+        let found: ContactStore | undefined;
+        for (const row of contacts.values()) {
+          if (row.email.toLowerCase() === String(email).toLowerCase()) {
+            found = row;
+            break;
+          }
+        }
+        return { rows: found ? [{ unsubscribed: found.unsubscribed }] : [] } as never;
+      }
+
+      // --- sdk_enrollments PII purge (deleteContact → purgeContactPii) ---
+      if (t.startsWith("UPDATE sdk_enrollments") && /data = '\{\}'::jsonb/.test(t)) {
+        const [, nsContact] = p as [string, string];
+        for (const row of enrollments.values()) {
+          if (row.contact.toLowerCase() === String(nsContact).toLowerCase()) {
+            // model the data wipe on the EnrollStore (extended below with an optional `data` field)
+            (row as EnrollStore & { data?: unknown }).data = {};
+          }
+        }
+        return { rows: [] } as never;
+      }
+
+      // --- sdk_steps PII purge (deleteContact → purgeContactPii) ---
+      if (t.startsWith("UPDATE sdk_steps") && /last_error = NULL/.test(t)) {
+        return { rows: [] } as never;
+      }
+
       return { rows: [] } as never;
     }),
   };
 
-  return { pool, contacts, enrollments, topicCache, calls };
+  return { pool, contacts, enrollments, topicCache, consent, calls };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -373,6 +493,69 @@ describe("enroll — event-driven enrollment (R8, R10, R11)", () => {
     const { envoy } = setup();
     await expect(enroll(envoy, { email: "a@example.com" }, "")).rejects.toThrow(/sequenceKey/);
   });
+
+  it("rejects an empty email (fail loud)", async () => {
+    const { envoy } = setup();
+    await expect(enroll(envoy, { email: "   " }, "welcome")).rejects.toThrow(/email/);
+  });
+
+  it("P1: seeds a LOCAL opt_in consent row for the drip topic so the gate passes (no separate consent.set)", async () => {
+    // A bug class: enroll() previously never seeded the local consent row, so the drip gate
+    // (mirror.gate) denied EVERY send until the host separately called consent.set. This exercises
+    // the REAL mirror.gate against the REAL consent row enroll seeds.
+    const { envoy, consent } = setup();
+
+    const res = await enroll(envoy, { email: "drip@example.com" }, "welcome");
+    expect(res.created).toBe(true);
+    expect(res.suppressed).toBe(false);
+
+    // The seeded consent row is keyed on the namespaced contact + the sequenceKey as the topic,
+    // opt_in on the digest stream (the drip lane default).
+    const seeded = consent.get(`${NAMESPACE}:drip@example.com::welcome`);
+    expect(seeded?.digest_status).toBe("opt_in");
+
+    // The drip gate (topicKey = sequenceKey, stream = digest) now PASSES with no extra consent.set.
+    const mirror = createConsentMirror(envoy.db, envoy.resend);
+    expect(await mirror.gate("drip@example.com", "welcome", "digest")).toBe(true);
+  });
+
+  it("P1: a suppressed contact is NOT consent-seeded (monotonic — no opt_in resurrects an unsub)", async () => {
+    const { envoy, consent } = setup(undefined, {
+      contacts: [
+        {
+          email: "gone@example.com",
+          data: {},
+          unsubscribed: true,
+          resend_contact_id: null,
+          dirty: false,
+        },
+      ],
+    });
+
+    await enroll(envoy, { email: "gone@example.com" }, "welcome");
+    // No opt_in consent row was seeded for the suppressed contact.
+    expect(consent.get(`${NAMESPACE}:gone@example.com::welcome`)).toBeUndefined();
+  });
+
+  it("Residual: a Mixed.Case enrollment is keyed lowercase so a lowercased suppression converges", async () => {
+    const { envoy, contacts, consent } = setup();
+
+    await enroll(envoy, { email: "Mixed.Case@Example.com" }, "welcome");
+
+    // The mirror contact + enrollment + consent seed all key on the lowercased email.
+    const lowered = normalizeEmail("Mixed.Case@Example.com");
+    expect(contacts.has(lowered)).toBe(true);
+    expect(consent.get(`${NAMESPACE}:${lowered}::welcome`)).toBeDefined();
+
+    // The gate matches even when queried with a DIFFERENT case (resolution is case-insensitive).
+    const mirror = createConsentMirror(envoy.db, envoy.resend);
+    expect(await mirror.gate("MIXED.case@example.COM", "welcome", "digest")).toBe(true);
+
+    // Now a lowercased suppression (as the webhook writes) flips the same contact row; the gate
+    // then denies the mixed-case enrollment — the two paths converged on one row.
+    contacts.get(lowered)!.unsubscribed = true;
+    expect(await mirror.gate("Mixed.Case@Example.com", "welcome", "digest")).toBe(false);
+  });
 });
 
 describe("SegmentSync.push — push-on-write, fail-soft (R37)", () => {
@@ -575,5 +758,80 @@ describe("deleteContact — right-to-erasure, suppress-before-delete (R34)", () 
   it("rejects an empty email", async () => {
     const { envoy } = setup();
     await expect(deleteContact(envoy, "")).rejects.toThrow(/non-empty email/);
+  });
+
+  it("P2 GDPR: purges the contact's enrollment data snapshot (PII erasure, not just suppression)", async () => {
+    const { envoy, enrollments, calls } = setup(undefined, {
+      contacts: [
+        {
+          email: "pii@example.com",
+          data: { ssn: "secret" },
+          unsubscribed: false,
+          resend_contact_id: null,
+          dirty: false,
+        },
+      ],
+      // Seed an enrollment carrying PII in its data snapshot (namespaced contact, as enroll writes).
+      enrollments: [
+        {
+          contact: `${NAMESPACE}:pii@example.com`,
+          sequence_key: "welcome",
+          status: "active",
+          current_step: 0,
+          data: { firstName: "Real", ssn: "123-45-6789" },
+        },
+      ],
+    });
+
+    const res = await deleteContact(envoy, "pii@example.com");
+    expect(res.piiPurged).toBe(true);
+
+    // The enrollment data snapshot was wiped to an empty object — no residual PII.
+    const enr = enrollments.get(`${NAMESPACE}:pii@example.com::welcome`);
+    expect(enr?.data).toEqual({});
+
+    // The erasure issued BOTH the enrollment-data null AND the step-PII clear (R34).
+    const purgedEnrollments = calls.some(
+      (c) =>
+        c.text.trim().startsWith("UPDATE sdk_enrollments") &&
+        /data = '\{\}'::jsonb/.test(c.text),
+    );
+    const purgedSteps = calls.some(
+      (c) => c.text.trim().startsWith("UPDATE sdk_steps") && /last_error = NULL/.test(c.text),
+    );
+    expect(purgedEnrollments).toBe(true);
+    expect(purgedSteps).toBe(true);
+  });
+
+  it("P1: a globally-suppressed (bounced) contact is denied by the gate on BOTH lanes", async () => {
+    // A contact whose global `unsubscribed` flag is set (bounce/complaint/GDPR/hosted-page) must be
+    // denied on every topic/stream — INCLUDING a topic that still carries a stale opt_in consent row
+    // (the gate previously read only the per-topic row and would have allowed it).
+    const { envoy } = setup(undefined, {
+      contacts: [
+        {
+          email: "bounced@example.com",
+          data: {},
+          unsubscribed: true,
+          resend_contact_id: null,
+          dirty: false,
+        },
+      ],
+      // A stale opt_in consent row on both streams — the per-topic state alone would say "allow".
+      consent: [
+        {
+          contact: `${NAMESPACE}:bounced@example.com`,
+          topic_key: "welcome",
+          topic_id: null,
+          digest_status: "opt_in",
+          alert_status: "opt_in",
+          dirty_since: null,
+        },
+      ],
+    });
+
+    const mirror = createConsentMirror(envoy.db, envoy.resend);
+    expect(await mirror.gate("bounced@example.com", "welcome", "digest")).toBe(false);
+    expect(await mirror.gate("bounced@example.com", "welcome", "alert")).toBe(false);
   });
 });

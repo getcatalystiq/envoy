@@ -601,6 +601,58 @@ describe("reconcile sweep (R29 cost control)", () => {
     expect(db.contacts.get("second@x.com")?.dirty).toBe(true);
   });
 
+  it("full-sweep: a 429 on the LAST budget contact persists the PREVIOUS id (does not skip the un-reconciled contact)", async () => {
+    // Full sweep, budget 2 → reads c1, c2. c1 reconciles; c2 hits a 429 and the sweep breaks. The
+    // resume cursor MUST be c1's id (1), NOT c2's id (2): if it persisted 2, the next full cycle
+    // would resume after id 2 and SKIP the rate-limited c2 for the entire cycle — a PAUSED contact
+    // silently dropped from reconciliation.
+    const db = fakeDb({
+      topicCache: { "digest:w": "tp_1" },
+      contacts: [
+        { email: "c1@x.com", id: 1 },
+        { email: "c2@x.com", id: 2 },
+        { email: "c3@x.com", id: 3 },
+      ],
+    });
+    const topicsList = vi.fn(async ({ email }: { email: string }) => {
+      if (email === "c2@x.com") throw { statusCode: 429, name: "rate_limit" };
+      return { data: { object: "list", data: [], has_more: false }, error: null };
+    });
+    const segmentAdd = vi.fn(async () => ({ data: { id: "s" }, error: null }));
+    const handle = createResendClientHandle("re_test_key");
+    vi.spyOn(handle, "client").mockReturnValue({
+      contacts: { topics: { list: topicsList }, segments: { add: segmentAdd } },
+    } as never);
+    const envoy = makeEnvoy(db.pool, handle);
+
+    const res = await reconcile(envoy, { mode: "full", maxContacts: 2, backoffMs: 1, sleepFn: noSleep });
+    expect(res.rateLimited).toBe(true);
+    expect(res.processed).toBe(2); // both visited
+    // The resume cursor stayed at c1 (the last FULLY reconciled contact), NOT c2 (un-reconciled).
+    expect(res.resumeCursor).toBe("1");
+    expect(db.sweep.cursor).toBe("1");
+  });
+
+  it("full-sweep: a per-contact ERROR does not advance the resume cursor onto the errored contact", async () => {
+    // Full sweep, budget 1, single contact c1 that ERRORS (non-429). The sweep continues (no break)
+    // but must NOT advance the resume cursor onto the errored contact: it stays revisitable. With
+    // only c1 in the budget and no later contact to move the cursor, the persisted cursor stays at
+    // the start (null) so the next full cycle revisits c1.
+    const db = fakeDb({
+      topicCache: {},
+      contacts: [{ email: "err@x.com", id: 1 }],
+    });
+    const { handle } = fakeResend({ listThrows: { statusCode: 500, name: "internal" } });
+    const envoy = makeEnvoy(db.pool, handle);
+
+    const res = await reconcile(envoy, { mode: "full", maxContacts: 1, sleepFn: noSleep });
+    expect(res.processed).toBe(1);
+    // Budget-worth processed (1 === maxContacts) so reachedEnd is false → cursor persisted as lastId,
+    // which was NOT advanced onto the errored contact → stays at the start (null).
+    expect(res.resumeCursor).toBeNull();
+    expect(db.sweep.cursor).toBeNull();
+  });
+
   it("collects unmapped contacts into the sweep result (surfaced for the host)", async () => {
     const db = fakeDb({
       topicCache: { "digest:w": "tp_1" },

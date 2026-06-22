@@ -38,6 +38,7 @@ import "server-only";
 // (non-monotonic / clock skew / replay).
 
 import type { NamespacedDb } from "../db/pool.js";
+import { assertNonEmpty } from "../internal/assert.js";
 
 /** Table backing the per-key broadcast clock (see migrations/001_core.sql). */
 const STATE_TABLE = "sdk_program_state";
@@ -99,11 +100,8 @@ const DEFAULT_STATE: CursorState = {
   paused: false,
 };
 
-function assertNonEmpty(name: string, value: unknown): asserts value is string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`[@envoy/sdk] ${name} must be a non-empty string.`);
-  }
-}
+// `assertNonEmpty(name, value)` is the shared guard from ../internal/assert.js (generic `Error`,
+// the default thrown type — cursor keys carry no module-specific error class).
 
 /**
  * Read the cursor state for `key`. A never-seen key reads as the lazy default
@@ -276,35 +274,36 @@ export async function tryAdvance(
   const program = db.namespaceKey(key.programKey);
   const subject = db.namespaceKey(key.subjectKey);
 
-  // Read the current state to make the monotonic decision in JS (the strictly-greater guard is also
-  // enforced in the UPDATE WHERE, so a concurrent racer cannot slip a lesser value through).
-  const current = await read(db, key);
-
-  if (!isStrictlyGreater(opts.watermark, current.watermark)) {
-    if (rejectNonMonotonic) {
+  // The issue sequence: an explicit host value, or the stored seq + 1. When omitted we resolve it
+  // from the upsert's RETURNING (it echoes the row's issue_seq on a no-op), so the common path does
+  // NOT pre-read. A host-supplied issueSeq is validated up front (a contract bug, not a skip).
+  if (opts.issueSeq !== undefined) {
+    if (
+      typeof opts.issueSeq !== "number" ||
+      !Number.isFinite(opts.issueSeq) ||
+      opts.issueSeq < 0
+    ) {
       throw new Error(
-        `[@envoy/sdk] cursor.advance: watermark "${opts.watermark}" is not strictly greater than ` +
-          `the stored watermark "${String(current.watermark)}" — refusing to advance (a same-instant ` +
-          `or older value would re-send already-sent content; R36 strictly-greater guard).`
+        `[@envoy/sdk] cursor.advance: issueSeq must be a non-negative finite number (got ${String(opts.issueSeq)}).`
       );
     }
-    // Skip path: nothing newer to send. Do not write; surface the unchanged state.
-    return { advanced: false, state: current };
-  }
-
-  const nextSeq = opts.issueSeq ?? current.issueSeq + 1;
-  if (typeof nextSeq !== "number" || !Number.isFinite(nextSeq) || nextSeq < 0) {
-    throw new Error(
-      `[@envoy/sdk] cursor.advance: issueSeq must be a non-negative finite number (got ${String(nextSeq)}).`
-    );
   }
   const itemIds = opts.itemIds ? Array.from(opts.itemIds) : [];
 
-  // Upsert. The `WHERE` on the DO UPDATE re-applies the strictly-greater guard at the storage layer:
-  // a numeric compare when both parse as numbers, else a text compare — mirroring isStrictlyGreater.
-  // The `firedAt` override (tests) lands as a literal; otherwise NOW().
+  // Attempt the upsert DIRECTLY — no redundant pre-read SELECT on the common (advancing) path. The
+  // `WHERE` on the DO UPDATE is the authoritative strictly-greater guard at the storage layer: a
+  // numeric compare when both parse as numbers, else a text compare (mirroring isStrictlyGreater).
+  // For a NEW row the INSERT lands unconditionally; for an existing row the UPDATE matches only when
+  // strictly-greater. The seq is `EXCLUDED.issue_seq` when supplied, else the stored seq + 1 (the DB
+  // increments, so we need no pre-read to compute it). The `firedAt` override (tests) lands as a
+  // literal; otherwise NOW().
   const firedAtSql = opts.firedAt !== undefined ? "$6::timestamptz" : "NOW()";
-  const params: unknown[] = [db.namespace, program, subject, opts.watermark, nextSeq];
+  const seqSql =
+    opts.issueSeq !== undefined ? "$5::bigint" : `${STATE_TABLE}.issue_seq + 1`;
+  // On the INSERT (no conflict) there is no `${STATE_TABLE}` row to read a seq from, so the INSERT's
+  // value list must carry a concrete seq: the supplied one, or 1 (the first issue).
+  const insertSeq = opts.issueSeq !== undefined ? "$5::bigint" : "1";
+  const params: unknown[] = [db.namespace, program, subject, opts.watermark, opts.issueSeq ?? null];
   if (opts.firedAt !== undefined) params.push(opts.firedAt);
 
   const updated = await db.execWrite<{
@@ -315,10 +314,10 @@ export async function tryAdvance(
   }>(
     `INSERT INTO ${STATE_TABLE}
         (namespace, program_key, subject_key, watermark, issue_seq, last_fired_at)
-     VALUES ($1, $2, $3, $4, $5, ${firedAtSql})
+     VALUES ($1, $2, $3, $4, ${insertSeq}, ${firedAtSql})
      ON CONFLICT (namespace, program_key, subject_key) DO UPDATE
         SET watermark     = EXCLUDED.watermark,
-            issue_seq     = EXCLUDED.issue_seq,
+            issue_seq     = ${seqSql},
             last_fired_at = EXCLUDED.last_fired_at,
             updated_at    = NOW()
       WHERE ${STATE_TABLE}.watermark IS NULL
@@ -340,10 +339,28 @@ export async function tryAdvance(
     return { advanced: true, state: stateFromDb(updated.rows[0]!) };
   }
 
-  // The INSERT hit the conflict and the storage-level guard rejected the UPDATE — a concurrent racer
-  // advanced past us between our read and our write. Re-read and surface the (advanced) state. Our
-  // JS guard already passed, so reaching here means a true race; the watermark did NOT move for US.
+  // Zero rows returned: the INSERT hit the conflict AND the storage-level strictly-greater guard
+  // rejected the UPDATE. This is EITHER a non-monotonic watermark (our value is <= the stored one)
+  // OR a concurrent racer that advanced past us. Distinguish the two with a SINGLE re-read (the only
+  // SELECT on this path — the common advancing path issued none). If our watermark is not strictly
+  // greater than what is now stored it is a non-monotonic advance → throw (advance) or skip
+  // (tryAdvance); if it IS greater, a racer moved the row between our write and this read — surface
+  // the (advanced-by-them) state as a no-op for US.
   const after = await read(db, key);
+  if (!isStrictlyGreater(opts.watermark, after.watermark)) {
+    if (rejectNonMonotonic) {
+      throw new Error(
+        `[@envoy/sdk] cursor.advance: watermark "${opts.watermark}" is not strictly greater than ` +
+          `the stored watermark "${String(after.watermark)}" — refusing to advance (a same-instant ` +
+          `or older value would re-send already-sent content; R36 strictly-greater guard).`
+      );
+    }
+    // Skip path: nothing newer to send. Surface the unchanged stored state.
+    return { advanced: false, state: after };
+  }
+  // Our watermark IS greater than the now-stored value, yet our UPDATE matched no row — a concurrent
+  // racer advanced and then was itself overtaken, or the row was just materialized. The watermark did
+  // NOT move for US this call; surface the current state without re-sending.
   return { advanced: false, state: after };
 }
 

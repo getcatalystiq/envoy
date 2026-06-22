@@ -21,9 +21,12 @@ import "server-only";
 import type { NamespacedDb } from "../db/pool.js";
 import type { ResendClientHandle } from "../resend/client.js";
 import type { Stream } from "../consent/mirror.js";
+import { assertNonEmpty } from "../internal/assert.js";
 
-/** Reserved `sdk_program_state.program_key` under which topic-id cache rows live (per install). */
-const TOPIC_CACHE_PROGRAM_KEY = "__envoy_topics__";
+/** Reserved `sdk_program_state.program_key` under which topic-id cache rows live (per install).
+ * Exported so the reconcile sweep (resend/../broadcast/reconcile.ts) reads the SAME cache rows in
+ * reverse (topicId → topicKey) from one shared constant rather than a hand-copied literal. */
+export const TOPIC_CACHE_PROGRAM_KEY = "__envoy_topics__";
 
 /**
  * Canonical topic key for a `(stream, subject)` pair. This is the host-meaningful key stored on
@@ -32,9 +35,9 @@ const TOPIC_CACHE_PROGRAM_KEY = "__envoy_topics__";
  * is only forbidden in the install namespace, not in topic keys).
  */
 export function topicKeyFor(stream: Stream, subject: string): string {
-  if (typeof subject !== "string" || subject.length === 0) {
-    throw new Error("[@envoy/sdk] topic subject must be a non-empty string.");
-  }
+  // Shared guard (../internal/assert.js); generic `Error`, message `… topic subject must be a
+  // non-empty string.` — identical to the prior inline check.
+  assertNonEmpty("topic subject", subject);
   return `${stream}:${subject}`;
 }
 

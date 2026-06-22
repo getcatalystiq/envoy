@@ -43,6 +43,24 @@ export interface SdkPool {
 const NS_SEP = ":";
 
 /**
+ * Canonicalize an email to the single casing every key-bearing path agrees on (lowercase, trimmed).
+ *
+ * Email addresses are case-insensitive in practice, but the SDK keys `sdk_contacts.email`,
+ * `sdk_topic_consent.contact`, and `sdk_enrollments.contact` on the email verbatim — while the
+ * webhook resolves with `lower(email)`. A mixed-case enrollment (`Mixed.Case@x.com`) therefore
+ * never matched a lowercased webhook unsubscribe, and the gate read a different row than the one
+ * the host wrote. Normalizing at the single boundary (enroll, consent.set, gate, and the webhook
+ * resolve all call this) makes every path key on the same string, so suppression converges.
+ *
+ * A non-string / empty value is returned as the empty string; callers that require a non-empty
+ * email validate that separately.
+ */
+export function normalizeEmail(email: string): string {
+  if (typeof email !== "string") return "";
+  return email.trim().toLowerCase();
+}
+
+/**
  * Validate an install namespace once, at wrapper construction. A blank or separator-bearing
  * namespace is a host-contract error and must fail loud (R38) rather than silently produce
  * keys that could alias another install's rows.

@@ -105,8 +105,15 @@ function fakeConsentPool() {
       // --- global suppress UPDATE ---
       if (t.startsWith("UPDATE sdk_contacts SET unsubscribed = TRUE")) {
         const [, email] = params as [string, string];
-        contacts.set(email, { unsubscribed: true });
+        contacts.set(String(email).toLowerCase(), { unsubscribed: true });
         return { rows: [] } as never;
+      }
+
+      // --- global-suppression read used by gate.isGloballySuppressed ---
+      if (t.startsWith("SELECT unsubscribed FROM sdk_contacts")) {
+        const [, email] = params as [string, string];
+        const row = contacts.get(String(email).toLowerCase());
+        return { rows: row ? [{ unsubscribed: row.unsubscribed }] : [] } as never;
       }
 
       return { rows: [] } as never;
@@ -173,6 +180,23 @@ describe("gate — the send gate (R26)", () => {
       topicId: "tp_1",
     });
     expect(await mirror.gate("a@example.com", "weekly", "digest")).toBe(true);
+  });
+
+  it("P1: the global suppression flag denies even a stale opt_in consent row (both lanes)", async () => {
+    const { mirror, contacts } = setup();
+    // A normal opt_in consent row exists for the topic …
+    await mirror.set({
+      email: "a@example.com",
+      topicKey: "weekly",
+      stream: "digest",
+      status: "opt_in",
+      topicId: "tp_1",
+    });
+    expect(await mirror.gate("a@example.com", "weekly", "digest")).toBe(true);
+    // … but a global suppression (bounce/complaint/GDPR) on the contact flag dominates the gate.
+    contacts.set("a@example.com", { unsubscribed: true });
+    expect(await mirror.gate("a@example.com", "weekly", "digest")).toBe(false);
+    expect(await mirror.gate("a@example.com", "weekly", "alert")).toBe(false);
   });
 
   it("Covers R26: consent.set digest off writes the opt-out and gate then denies", async () => {

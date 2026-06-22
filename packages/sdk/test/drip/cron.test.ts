@@ -96,7 +96,12 @@ function fakePool(opts: {
     enrollments.set(e.id, {
       id: e.id,
       namespace: NAMESPACE,
-      contact: e.contact,
+      // enroll() stores the NAMESPACED contact key (`namespaceKey(email)`), so the cron path reads a
+      // namespaced `contact` and strips it back to the bare email before gating/sending. Seed via
+      // that real convention (namespaced) rather than a bare email — the prior bare seed masked the
+      // P0 double-namespacing bug (the engine used `row.contact` directly, so the gate never matched
+      // and `emails.send` would have carried a `ns:email` recipient).
+      contact: `${NAMESPACE}:${e.contact}`,
       sequence_key: e.sequenceKey,
       current_step: e.currentStep,
       next_run_at: e.nextRunAt ?? null,
@@ -151,27 +156,37 @@ function fakePool(opts: {
         return { rows: claim(params ?? []) as unknown as T[] };
       }
 
-      // 2. Step-row upsert (INSERT ... ON CONFLICT DO NOTHING).
+      // 2. Step-row upsert (INSERT ... ON CONFLICT DO NOTHING RETURNING id, agent_session_id).
+      //    The REAL statement RETURNs the row ONLY when it actually inserts; a conflict (DO NOTHING)
+      //    returns zero rows. The fake honors that exactly so the engine's fast path (INSERT
+      //    RETURNING, no follow-up SELECT) is exercised, and the conflict path falls through to the
+      //    read-back below. The prior fixture returned `[]` unconditionally, which masked whether
+      //    `ensureStepRow` ever used RETURNING at all (it forced an always-SELECT N+1 shape).
       if (/INSERT INTO sdk_steps/i.test(t)) {
         const [, enrollmentId, stepIndex] = params as [string, number, number];
         const exists = steps.some(
           (s) => s.enrollment_id === enrollmentId && s.step_index === stepIndex,
         );
-        if (!exists) {
-          steps.push({
-            id: nextStepId++,
-            namespace: NAMESPACE,
-            enrollment_id: enrollmentId as unknown as number,
-            step_index: stepIndex,
-            agent_session_id: null,
-            status: "pending",
-            resend_email_id: null,
-          });
+        if (exists) {
+          // ON CONFLICT DO NOTHING — no row inserted, nothing RETURNed.
+          return { rows: [] as T[] };
         }
-        return { rows: [] as T[] };
+        const row: StepRow = {
+          id: nextStepId++,
+          namespace: NAMESPACE,
+          enrollment_id: enrollmentId as unknown as number,
+          step_index: stepIndex,
+          agent_session_id: null,
+          status: "pending",
+          resend_email_id: null,
+        };
+        steps.push(row);
+        // RETURNING id, agent_session_id from the freshly inserted row.
+        return { rows: [{ id: row.id, agent_session_id: row.agent_session_id }] as T[] };
       }
 
-      // 3. Step-row read-back.
+      // 3. Step-row read-back (fallback — runs ONLY on the INSERT conflict path, for an
+      //    already-existing row, so a prior tick's inflight agent_session_id survives + is harvested).
       if (/SELECT id, agent_session_id\s+FROM sdk_steps/i.test(t)) {
         const [, enrollmentId, stepIndex] = params as [string, number, number];
         const row = steps.find(
@@ -356,6 +371,19 @@ describe("tickDrip — claim + run (R20, R21)", () => {
     expect(result.sent).toBe(2);
     expect(result.failed).toBe(0);
     expect(emailsSend).toHaveBeenCalledTimes(2);
+    // P0 regression: the recipient `to:` MUST be the BARE email, never the namespaced contact key
+    // (`prod:ada@example.com`) that `sdk_enrollments.contact` stores. A double-namespaced `to:`
+    // would also be what the mirror gate sees, denying every send.
+    const recipients = emailsSend.mock.calls.map((c) => (c[0] as { to: string }).to).sort();
+    expect(recipients).toEqual(["ada@example.com", "bob@example.com"]);
+    for (const to of recipients) {
+      expect(to).not.toContain(`${NAMESPACE}:`);
+    }
+    // And the engine items carry the bare email too (gate matched the seeded consent row → sent).
+    expect(result.items.map((i) => i.email).sort()).toEqual([
+      "ada@example.com",
+      "bob@example.com",
+    ]);
     // Both advanced to step 1.
     expect(fp.enrollments.get(10)?.current_step).toBe(1);
     expect(fp.enrollments.get(11)?.current_step).toBe(1);
@@ -557,6 +585,110 @@ describe("tickDrip — claim + run (R20, R21)", () => {
     // Clear the lock set so the same enrollment can be claimed again (simulates a later tick).
     // The fake's lock set persists; create a fresh tick by mutating status back is not needed —
     // instead assert exactly one step row exists after the first tick's upsert path.
+    expect(fp.steps.filter((s) => s.enrollment_id === 10 && s.step_index === 0)).toHaveLength(1);
+  });
+
+  // ---- P2 perf: ensureStepRow uses INSERT ... ON CONFLICT DO NOTHING RETURNING (no N+1) ---------
+
+  it("resolves a first-claim step row from INSERT ... RETURNING with NO follow-up SELECT (perf, no N+1)", async () => {
+    const fp = fakePool({
+      enrollments: [
+        { id: 10, contact: "ada@example.com", sequenceKey: "welcome", currentStep: 0 },
+      ],
+      consent: [{ contact: "ada@example.com", topicKey: "welcome" }],
+    });
+    fakeAgent({ output: '{"GREETING":"Hi"}' });
+    const { handle, emailsSend } = fakeResend();
+    const envoy = makeEnvoy(fp.pool, handle);
+
+    const result = await tickDrip(envoy, REGISTRY, tickConfig(envoy));
+
+    // The send landed using the step row that came straight back from the INSERT — the fast path.
+    expect(result.sent).toBe(1);
+    expect(emailsSend).toHaveBeenCalledTimes(1);
+
+    // The INSERT statement must carry RETURNING (the fix); the OLD code had a bare INSERT.
+    const insertCall = fp.calls.find((c) => /INSERT INTO sdk_steps/i.test(c.text));
+    expect(insertCall).toBeDefined();
+    expect(insertCall!.text).toMatch(/ON CONFLICT[\s\S]*DO NOTHING/i);
+    expect(insertCall!.text).toMatch(/RETURNING id, agent_session_id/i);
+
+    // And crucially: on the FIRST claim the engine must NOT issue the read-back SELECT — the row came
+    // from RETURNING. A read-back here would prove the N+1 is still present (the bug this fix kills).
+    const stepReadBacks = fp.calls.filter((c) =>
+      /SELECT id, agent_session_id\s+FROM sdk_steps/i.test(c.text),
+    );
+    expect(stepReadBacks).toHaveLength(0);
+  });
+
+  it("falls back to the read-back SELECT only on conflict, harvesting a prior tick's inflight session", async () => {
+    const fp = fakePool({
+      enrollments: [
+        { id: 10, contact: "ada@example.com", sequenceKey: "welcome", currentStep: 0 },
+      ],
+      consent: [{ contact: "ada@example.com", topicKey: "welcome" }],
+    });
+    // Pre-seed an EXISTING step row carrying an inflight agent_session_id from a prior (crashed) tick.
+    fp.steps.push({
+      id: 99,
+      namespace: NAMESPACE,
+      enrollment_id: 10,
+      step_index: 0,
+      agent_session_id: "sess_prior",
+      status: "pending",
+      resend_email_id: null,
+    });
+
+    // The agent fake's `list` (harvest) path yields the prior session's output; `create` would mint a
+    // NEW session — assert harvest is used (no second billed session) by spying on both.
+    const create = vi.fn(async () => ({ id: "sess_new" }));
+    const archive = vi.fn(async () => ({}));
+    const send = vi.fn(async () => ({}));
+    const stream = vi.fn(async () => {
+      const controller = new AbortController();
+      return {
+        controller,
+        async *[Symbol.asyncIterator]() {
+          yield { type: "agent.message", content: [{ type: "text", text: '{"GREETING":"new"}' }] };
+          yield { type: "session.status_idle", stop_reason: { type: "end_turn" } };
+        },
+      };
+    });
+    const retrieve = vi.fn(async () => ({ status: "idle" }));
+    const list = vi.fn(async () => {
+      async function* gen() {
+        yield {
+          type: "agent.message",
+          content: [{ type: "text", text: '{"GREETING":"harvested"}' }],
+        };
+        yield { type: "session.status_idle", stop_reason: { type: "end_turn" } };
+      }
+      return gen();
+    });
+    setAgentClient({
+      beta: { sessions: { create, archive, retrieve, events: { stream, send, list } } },
+    } as never);
+
+    const { handle, emailsSend } = fakeResend();
+    const envoy = makeEnvoy(fp.pool, handle);
+
+    const result = await tickDrip(envoy, REGISTRY, tickConfig(envoy));
+
+    expect(result.sent).toBe(1);
+    expect(emailsSend).toHaveBeenCalledTimes(1);
+
+    // Conflict path: the INSERT hit ON CONFLICT (row pre-existed) so the read-back SELECT ran.
+    const stepReadBacks = fp.calls.filter((c) =>
+      /SELECT id, agent_session_id\s+FROM sdk_steps/i.test(c.text),
+    );
+    expect(stepReadBacks).toHaveLength(1);
+
+    // The prior inflight session was harvested (resumed via `list`), NOT re-created (no second
+    // billed session) — proving the fallback SELECT preserved `agent_session_id` from the conflict.
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(create).not.toHaveBeenCalled();
+
+    // Still exactly one step row (no duplicate created by the upsert).
     expect(fp.steps.filter((s) => s.enrollment_id === 10 && s.step_index === 0)).toHaveLength(1);
   });
 });

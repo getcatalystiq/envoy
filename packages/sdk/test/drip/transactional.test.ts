@@ -531,3 +531,34 @@ describe("sendTransactional — Resend send failure (R46 fail-loud)", () => {
     expect((caught as Error).message).not.toContain("ada@example.com");
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// P2 types — compile-time guard that the `payload as CreateEmailOptions` cast (engine.ts +
+// transactional.ts) is a CHECKED assertion, not an `as never` that suppresses all payload
+// typechecking. These statements are evaluated by `tsc --noEmit` (test/ is in the tsconfig
+// include): the @ts-expect-error lines fail the typecheck if the cast ever stops catching a
+// malformed payload field. They never run at runtime.
+// ---------------------------------------------------------------------------------------------
+{
+  type CreateEmailOptions = Parameters<
+    import("resend").Resend["emails"]["send"]
+  >[0];
+
+  // The template-only payload both send sites build IS structurally assignable to the named target.
+  const goodTemplatePayload = {
+    to: "ada@example.com",
+    from: "hi@app.example.com",
+    template: { id: "tmpl_welcome", variables: { name: "Ada" } },
+    headers: { "List-Unsubscribe": "<https://x>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+  };
+  const _assignable: CreateEmailOptions = goodTemplatePayload as CreateEmailOptions;
+  void _assignable;
+
+  // A payload with a wrong-typed `to` must NOT pass `as CreateEmailOptions` — proving the cast
+  // checks the payload shape (an `as never` here would compile and this @ts-expect-error would be
+  // flagged as unused, failing the typecheck).
+  const malformed = { to: 123, from: "hi@app.example.com", template: { id: "t" } };
+  // @ts-expect-error - `to: number` is not assignable to CreateEmailOptions['to'] (string | string[]).
+  const _rejected: CreateEmailOptions = malformed as CreateEmailOptions;
+  void _rejected;
+}

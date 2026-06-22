@@ -37,17 +37,17 @@ import "server-only";
 // lifecycle learning.
 
 import type { Envoy } from "../config.js";
-import type { ConsentStatus, Stream } from "../consent/mirror.js";
+import { rankCase, type ConsentStatus, type Stream } from "../consent/mirror.js";
 import { addToSegment } from "../resend/segments.js";
+import { TOPIC_CACHE_PROGRAM_KEY } from "../resend/topics.js";
 
 // ---------------------------------------------------------------------------------------------
 // Topic-id → (stream, subject) reverse map (U7 provisioning cache)
 // ---------------------------------------------------------------------------------------------
 
-/** Reserved `sdk_program_state.program_key` under which the U7 topic-id cache rows live. MUST match
- * `TOPIC_CACHE_PROGRAM_KEY` in resend/topics.ts — reconcile reads that same cache in reverse
- * (topicId → topicKey) to map a `contacts.topics.list` entry back to its `(stream, subject)`. */
-const TOPIC_CACHE_PROGRAM_KEY = "__envoy_topics__";
+// The U7 topic-id cache program key is imported from resend/topics.ts (the provisioning writer) so
+// reconcile reads that same cache in reverse (topicId → topicKey) off ONE shared constant — see the
+// `TOPIC_CACHE_PROGRAM_KEY` import above.
 
 /** Reserved `sdk_program_state.program_key` under which the resumable full-sweep cursor lives. */
 const SWEEP_CURSOR_PROGRAM_KEY = "__envoy_reconcile_sweep__";
@@ -363,17 +363,6 @@ async function writeOptOut(
   }
 }
 
-/** Emit the SQL fragment mapping a `ConsentStatus` expression to its suppression rank (mirrors the
- * consent mirror's `rankCase`). A null/unknown value sorts lowest so it never wins a merge. */
-function rankCase(expr: string): string {
-  return `CASE ${expr}
-            WHEN 'unsubscribed' THEN 2
-            WHEN 'opt_out' THEN 1
-            WHEN 'opt_in' THEN 0
-            ELSE -1
-          END`;
-}
-
 /** Clear a contact's reconcile-dirty flag (the diff landed clean). Keyed by bare email — the dirty
  * flag lives on `sdk_contacts`, not the per-topic consent rows. */
 async function clearContactDirty(envoy: Envoy, email: string): Promise<void> {
@@ -477,6 +466,12 @@ export async function reconcile(
       ? await readContactPage(envoy, startCursor, maxContacts)
       : await readDirtyContacts(envoy, maxContacts);
 
+  // The full-sweep resume cursor advances ONLY past contacts that fully reconciled this tick. A
+  // contact that did NOT fully reconcile (a 429 that breaks the tick, or a per-contact error) must
+  // stay revisitable: if we advanced `lastId` onto it and the tick then ended, the persisted cursor
+  // would point PAST that contact and the next full cycle would skip it for the whole sweep — a
+  // PAUSED/errored contact silently dropped from the cycle. So we leave `lastId` at the PREVIOUS
+  // (last fully-reconciled) contact when a contact does not fully reconcile.
   let lastId: string | null = startCursor;
 
   for (const row of contacts) {
@@ -487,13 +482,22 @@ export async function reconcile(
       sleepFn: options.sleepFn,
     });
     result.processed += 1;
-    lastId = String(row.id);
 
     if (r.outcome === "rate_limited") {
-      // Pause the rest of this tick — resume next tick. The contact stays dirty.
+      // Pause the rest of this tick — resume next tick. The contact stays dirty and the resume
+      // cursor is NOT advanced onto it (do not skip the un-reconciled contact next cycle).
       result.rateLimited = true;
       break;
     }
+    if (r.outcome === "error") {
+      // A per-contact error: keep sweeping the rest of the tick, but do NOT advance the resume
+      // cursor onto this contact (leave it revisitable next full cycle). Move to the next contact.
+      continue;
+    }
+
+    // The contact was fully handled this tick (reconciled, or unmapped-and-surfaced) — it is safe to
+    // advance the resume cursor past it.
+    lastId = String(row.id);
     if (r.outcome === "reconciled") result.reconciled += 1;
     if (r.outcome === "unmapped") result.unmapped.push(r);
   }

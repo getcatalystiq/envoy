@@ -414,9 +414,12 @@ async function precheckScan(
         const createdMs = Date.parse(b.created_at);
         if (Number.isFinite(createdMs) && createdMs < cfg.lowerBoundMs) {
           // Results are newest-first; once below the claim's createdAt, our broadcast cannot be on
-          // this or any later page. Stop the walk — a true negative, not a budget exhaustion.
+          // this entry, any later entry on this page, or any later page. STOP the page scan here —
+          // a `continue` would keep checking later (older) same-page entries, and a stale duplicate
+          // re-using our deterministic name below the lower bound could then be wrongly returned as
+          // a match. Break out so only in-window entries are ever matched.
           belowLowerBound = true;
-          continue;
+          break;
         }
       }
       if (b.name === broadcastKey) {

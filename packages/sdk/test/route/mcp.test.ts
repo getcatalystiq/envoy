@@ -356,6 +356,25 @@ describe("get_consent tool", () => {
     expect(structured.digest).toBe("opt_in");
     expect(structured.alert).toBe("unsubscribed");
   });
+
+  it("constructs the ConsentMirror ONCE at registration, not per get_consent call (P3)", async () => {
+    const read = vi.fn().mockResolvedValue(null);
+    createMirrorMock.mockReturnValue({ read } as never);
+    const { client } = await connectMcp({ envoy: makeEnvoy(), mcpSecret: MCP_SECRET });
+
+    // Registration (inside connectMcp) is the only place the mirror is built.
+    expect(createMirrorMock).toHaveBeenCalledTimes(1);
+
+    // Three consent reads must NOT re-instantiate the mirror — they reuse the closed-over one.
+    for (let i = 0; i < 3; i += 1) {
+      await client.callTool({
+        name: "get_consent",
+        arguments: { email: `c${i}@example.com`, topicKey: "weekly" },
+      });
+    }
+    expect(createMirrorMock).toHaveBeenCalledTimes(1); // still one — not 1 + 3
+    expect(read).toHaveBeenCalledTimes(3); // the single mirror handled all three reads
+  });
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -435,6 +454,7 @@ describe("delete_contact tool", () => {
       resendContactDeleted: "skipped",
       segmentMembershipRemoved: "skipped",
       topicMembershipCleared: "skipped",
+      piiPurged: true,
     });
     const { client } = await connectMcp({ envoy: makeEnvoy(), mcpSecret: MCP_SECRET });
     const res = await client.callTool({

@@ -22,7 +22,8 @@ import "server-only";
 //      best-effort deletes the Resend Contact + Segment/Topic membership (fail-soft).
 
 import type { Envoy } from "./config.js";
-import type { Stream } from "./consent/mirror.js";
+import { createConsentMirror, type Stream } from "./consent/mirror.js";
+import { normalizeEmail } from "./db/pool.js";
 import { provisionTopic } from "./resend/topics.js";
 import { addToSegment, removeFromSegment } from "./resend/segments.js";
 
@@ -246,6 +247,12 @@ export interface EnrollResult {
 export interface EnrollOptions {
   /** Topic to reflect into Resend for this enrollment (provision + opt-state push). */
   topic?: SyncTopic;
+  /**
+   * The stream the drip lane will send this sequence on (R27). Defaults to `"digest"` — drip
+   * sequences are opt-in nurture, matching the drip engine's `stream` default. Used to seed the
+   * LOCAL consent row the send gate reads, so the gate passes without a separate `consent.set`.
+   */
+  stream?: Stream;
 }
 
 interface EnrollmentRow {
@@ -265,6 +272,12 @@ interface EnrollmentRow {
  *
  * Never throws on a Resend failure — the sync result carries the dirty flag. Throws only on a hard
  * mirror-write failure (a contract violation, not an external-service hiccup).
+ *
+ * Consent seeding (drip-lane correctness): a fresh, non-suppressed enrollment ALSO seeds a LOCAL
+ * `opt_in` consent row for `(email, sequenceKey)` on the drip stream via `mirror.set`. The drip
+ * send gate (U6) reads that local mirror and denies-by-default when no row exists — without this
+ * seed every drip step would be suppressed until the host separately called `consent.set`. The seed
+ * is a monotonic `opt_in`, so it never resurrects a recipient who already unsubscribed.
  */
 export async function enroll(
   envoy: Envoy,
@@ -276,13 +289,23 @@ export async function enroll(
     throw new Error("[@envoy/sdk] enroll requires a non-empty sequenceKey.");
   }
 
+  // Normalize the email at this entry boundary so the mirror contact, enrollment key, consent seed,
+  // and Resend sync all key on the same string (residual casing fix). Build a normalized contact so
+  // the mirror upsert stores the lowercased email too.
+  const email = normalizeEmail(contact.email);
+  if (email.length === 0) {
+    throw new Error("[@envoy/sdk] enroll requires a non-empty email.");
+  }
+  const normalizedContact: ContactInput = { email, data: contact.data };
+  const stream: Stream = options.stream ?? "digest";
+
   // 1. Mirror contact upsert (R9).
-  const { unsubscribed } = await upsertMirrorContact(envoy, contact);
+  const { unsubscribed } = await upsertMirrorContact(envoy, normalizedContact);
 
   // 2. Claim the enrollment (R11). `contact` column on sdk_enrollments stores the namespaced key,
   //    matching sdk_topic_consent's convention. ON CONFLICT DO NOTHING ⇒ a re-enroll of an existing
   //    row loses the claim (count 0); we then read the existing row to report its status.
-  const namespacedContact = envoy.db.namespaceKey(contact.email);
+  const namespacedContact = envoy.db.namespaceKey(email);
   const claim = await envoy.db.execWrite<EnrollmentRow>(
     `INSERT INTO sdk_enrollments (namespace, contact, sequence_key, status, current_step, data, enrolled_at, updated_at)
      VALUES ($1, $2, $3, 'active', 0, $4::jsonb, NOW(), NOW())
@@ -300,7 +323,7 @@ export async function enroll(
     );
     const status = existing.rows[0]?.status ?? "active";
     return {
-      email: contact.email,
+      email,
       sequenceKey,
       status,
       created: false,
@@ -311,10 +334,10 @@ export async function enroll(
 
   // 3. Fresh enrollment. A suppressed contact records the enrollment but does NOT sync to Resend
   //    (it would be re-adding a contact the recipient asked to stop). The send gate (U6) denies the
-  //    actual send; here we simply skip the push.
+  //    actual send; here we simply skip the push AND the consent seed.
   if (unsubscribed) {
     return {
-      email: contact.email,
+      email,
       sequenceKey,
       status: "active",
       created: true,
@@ -323,11 +346,19 @@ export async function enroll(
     };
   }
 
+  // 3a. Seed the LOCAL opt_in consent row for the drip topic (= sequenceKey) so the send gate passes
+  //     without a separate host consent.set. Monotonic merge: `opt_in` never lowers a stored
+  //     unsubscribed/opt_out, so a previously-suppressed contact stays suppressed. No topic id is
+  //     known here, so mirror.set writes the local row and skips the Resend push (reconcile resolves
+  //     the topic id and pushes later) — exactly the local-gate row the drip lane needs.
+  const mirror = createConsentMirror(envoy.db, envoy.resend);
+  await mirror.set({ email, topicKey: sequenceKey, stream, status: "opt_in" });
+
   const sync = createSegmentSync(envoy);
-  const pushed = await sync.push({ email: contact.email, topic: options.topic });
+  const pushed = await sync.push({ email, topic: options.topic });
 
   return {
-    email: contact.email,
+    email,
     sequenceKey,
     status: "active",
     created: true,
@@ -351,6 +382,8 @@ export interface DeleteContactResult {
   resendContactDeleted: "deleted" | "failed" | "skipped";
   segmentMembershipRemoved: "removed" | "failed" | "skipped";
   topicMembershipCleared: "cleared" | "failed" | "skipped";
+  /** True once the contact's enrollment/step PII columns were purged (R34 GDPR erasure). */
+  piiPurged: boolean;
 }
 
 /** Read the captured Resend contact id + suppression flag for a contact, or null if absent. */
@@ -359,19 +392,63 @@ async function readContactMeta(
   email: string
 ): Promise<{ resendContactId: string | null } | null> {
   const res = await envoy.db.query<{ resend_contact_id: string | null }>(
-    `SELECT resend_contact_id FROM sdk_contacts WHERE namespace = $1 AND email = $2 LIMIT 1`,
+    `SELECT resend_contact_id FROM sdk_contacts WHERE namespace = $1 AND lower(email) = $2 LIMIT 1`,
     [envoy.db.namespace, email]
   );
   const row = res.rows[0];
   return row ? { resendContactId: row.resend_contact_id } : null;
 }
 
-/** Suppress the mirror contact: flip `unsubscribed = TRUE` + mark dirty. Monotonic suppress-all. */
+/** Suppress the mirror contact: flip `unsubscribed = TRUE` + mark dirty, then fan the suppression
+ * into every per-topic consent row so the send gate denies both lanes at once. Monotonic suppress-all. */
 async function suppressMirror(envoy: Envoy, email: string): Promise<void> {
   await envoy.db.query(
     `UPDATE sdk_contacts SET unsubscribed = TRUE, dirty_since = NOW(), updated_at = NOW()
-       WHERE namespace = $1 AND email = $2`,
+       WHERE namespace = $1 AND lower(email) = $2`,
     [envoy.db.namespace, email]
+  );
+  // Bridge the global suppression into per-topic consent (R22/R26): raise BOTH streams of every
+  // existing consent row to terminal `unsubscribed` (monotonic) so a deleted/suppressed contact is
+  // denied on every topic the gate reads, without waiting for the reconcile sweep.
+  const namespacedContact = envoy.db.namespaceKey(email);
+  await envoy.db.query(
+    `UPDATE sdk_topic_consent
+        SET digest_status = 'unsubscribed',
+            alert_status = 'unsubscribed',
+            dirty_since = NOW(),
+            updated_at = NOW()
+      WHERE namespace = $1 AND lower(contact) = lower($2)`,
+    [envoy.db.namespace, namespacedContact]
+  );
+}
+
+/**
+ * Hard-purge the contact's residual PII from the drip-state tables (R34 GDPR erasure). Suppression
+ * leaves the contact excluded, but `sdk_enrollments.data` (the host JSON snapshot) and any
+ * `sdk_steps.last_error` text can still carry personal data — erasure must remove it. We null the
+ * `data` JSON to an empty object and clear the step error/marker columns for every enrollment of
+ * this contact (matched case-insensitively on the namespaced key). The rows themselves stay (the
+ * suppressed mirror is what keeps the contact excluded); only the PII-bearing columns are wiped.
+ */
+async function purgeContactPii(envoy: Envoy, email: string): Promise<void> {
+  const namespacedContact = envoy.db.namespaceKey(email);
+  // Clear step PII first (FK child), scoped to this contact's enrollments.
+  await envoy.db.query(
+    `UPDATE sdk_steps
+        SET last_error = NULL, agent_session_id = NULL, updated_at = NOW()
+      WHERE namespace = $1
+        AND enrollment_id IN (
+          SELECT id FROM sdk_enrollments
+           WHERE namespace = $1 AND lower(contact) = lower($2)
+        )`,
+    [envoy.db.namespace, namespacedContact]
+  );
+  // Then null the enrollment data snapshot.
+  await envoy.db.query(
+    `UPDATE sdk_enrollments
+        SET data = '{}'::jsonb, updated_at = NOW()
+      WHERE namespace = $1 AND lower(contact) = lower($2)`,
+    [envoy.db.namespace, namespacedContact]
   );
 }
 
@@ -392,16 +469,27 @@ async function suppressMirror(envoy: Envoy, email: string): Promise<void> {
  */
 export async function deleteContact(
   envoy: Envoy,
-  email: string,
+  rawEmail: string,
   options: { segmentIds?: string[]; topicIds?: string[] } = {}
 ): Promise<DeleteContactResult> {
-  if (typeof email !== "string" || email.length === 0) {
+  if (typeof rawEmail !== "string" || rawEmail.length === 0) {
     throw new Error("[@envoy/sdk] contacts.delete requires a non-empty email.");
   }
+  // Normalize at the boundary so suppression + purge match the rows enroll/webhook wrote regardless
+  // of the case the caller passed (residual casing fix).
+  const email = normalizeEmail(rawEmail);
 
   // 1. Suppress mirror FIRST (may throw on a hard DB failure — that is correct, we must not proceed
-  //    to delete from Resend if we could not record the suppression locally).
+  //    to delete from Resend if we could not record the suppression locally). This also fans the
+  //    suppression into every per-topic consent row so the gate denies both lanes.
   await suppressMirror(envoy, email);
+
+  // 1b. GDPR PII purge (R34): erase the host data snapshot + step error/marker columns so erasure
+  //     removes personal data, not just stops sends. Done after suppression (the mirror suppression
+  //     is the exclusion guarantee), before the best-effort Resend teardown.
+  let piiPurged = false;
+  await purgeContactPii(envoy, email);
+  piiPurged = true;
 
   // 2. Capture the Resend contact id.
   const meta = await readContactMeta(envoy, email);
@@ -414,6 +502,7 @@ export async function deleteContact(
     resendContactDeleted: "skipped",
     segmentMembershipRemoved: "skipped",
     topicMembershipCleared: "skipped",
+    piiPurged,
   };
 
   const client = envoy.resend.client();

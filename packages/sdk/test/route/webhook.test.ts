@@ -9,6 +9,7 @@ import {
 } from "@sdk/route/webhook.js";
 import { createEnvoyHandler } from "@sdk/route/handler.js";
 import { createDb, type SdkPool } from "@sdk/db/pool.js";
+import { createConsentMirror } from "@sdk/consent/mirror.js";
 import type { Envoy, ResolvedEnvoyConfig } from "@sdk/config.js";
 
 // ---------------------------------------------------------------------------------------------
@@ -25,11 +26,22 @@ interface ContactRow {
   dirty: boolean;
 }
 
-function fakeContactsPool(seed: string[] = []) {
+interface ConsentRow {
+  contact: string; // namespaced
+  topic_key: string;
+  topic_id: string | null;
+  digest_status: "opt_in" | "opt_out" | "unsubscribed";
+  alert_status: "opt_in" | "opt_out" | "unsubscribed";
+  dirty_since: string | null;
+}
+
+function fakeContactsPool(seed: string[] = [], consentSeed: ConsentRow[] = []) {
   const contacts = new Map<string, ContactRow>();
   for (const email of seed) {
     contacts.set(email.toLowerCase(), { email, unsubscribed: false, dirty: false });
   }
+  const consent = new Map<string, ConsentRow>();
+  for (const r of consentSeed) consent.set(`${r.contact}::${r.topic_key}`, { ...r });
   const calls: Array<{ text: string; params?: ReadonlyArray<unknown> }> = [];
 
   const pool: SdkPool = {
@@ -41,6 +53,20 @@ function fakeContactsPool(seed: string[] = []) {
         const [, email] = params as [string, string];
         const row = contacts.get(email);
         return { rows: row ? [{ email: row.email }] : [] } as never;
+      }
+
+      // Global-suppression read used by the REAL ConsentMirror.gate (case-insensitive on email).
+      if (t.startsWith("SELECT unsubscribed FROM sdk_contacts")) {
+        const [, email] = params as [string, string];
+        const row = contacts.get(String(email).toLowerCase());
+        return { rows: row ? [{ unsubscribed: row.unsubscribed }] : [] } as never;
+      }
+
+      // Consent SELECT used by ConsentMirror.read/gate.
+      if (t.startsWith("SELECT contact, topic_key")) {
+        const [, contact, topicKey] = params as [string, string, string];
+        const row = consent.get(`${contact}::${topicKey}`);
+        return { rows: row ? [{ ...row }] : [] } as never;
       }
 
       if (t.startsWith("UPDATE sdk_contacts SET unsubscribed = TRUE")) {
@@ -60,22 +86,39 @@ function fakeContactsPool(seed: string[] = []) {
         return { rows: row ? [row] : [] } as never;
       }
 
+      // Fan-out: raise every consent row for the contact to unsubscribed (suppressContact).
+      if (t.startsWith("UPDATE sdk_topic_consent") && /digest_status = 'unsubscribed'/.test(t)) {
+        const [, nsContact] = params as [string, string];
+        for (const row of consent.values()) {
+          if (row.contact.toLowerCase() === String(nsContact).toLowerCase()) {
+            row.digest_status = "unsubscribed";
+            row.alert_status = "unsubscribed";
+            row.dirty_since = "now";
+          }
+        }
+        return { rows: [] } as never;
+      }
+
       return { rows: [] } as never;
     }),
   };
 
-  return { pool, contacts, calls };
+  return { pool, contacts, consent, calls };
 }
 
 const NAMESPACE = "prod";
 
-function makeEnvoy(seed: string[] = []): {
+function makeEnvoy(
+  seed: string[] = [],
+  consentSeed: ConsentRow[] = [],
+): {
   envoy: Envoy;
   contacts: Map<string, ContactRow>;
+  consent: Map<string, ConsentRow>;
   calls: Array<{ text: string; params?: ReadonlyArray<unknown> }>;
   redactSpy: ReturnType<typeof vi.fn>;
 } {
-  const { pool, contacts, calls } = fakeContactsPool(seed);
+  const { pool, contacts, consent, calls } = fakeContactsPool(seed, consentSeed);
   const db = createDb(pool, NAMESPACE);
   const config = {
     installNamespace: NAMESPACE,
@@ -103,7 +146,7 @@ function makeEnvoy(seed: string[] = []): {
     redact: redactSpy,
   };
 
-  return { envoy, contacts, calls, redactSpy };
+  return { envoy, contacts, consent, calls, redactSpy };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -290,6 +333,65 @@ describe("email.* ingest (R22 — suppression vs analytics)", () => {
     expect(result.kind).toBe("ignored");
     expect(result.suppressed).toBe(false);
     expect(calls.filter((c) => c.text.trim().startsWith("UPDATE"))).toHaveLength(0);
+  });
+
+  it("P1: a bounce fans suppression into the contact's consent rows so the gate denies both lanes", async () => {
+    // The contact has a stale opt_in consent row on the drip topic; a bounce must converge the gate
+    // to DENY by raising the consent row to unsubscribed (R22 suppress-all), not just flip the flag.
+    const { envoy, consent } = makeEnvoy(["live@example.com"], [
+      {
+        contact: `${NAMESPACE}:live@example.com`,
+        topic_key: "welcome",
+        topic_id: null,
+        digest_status: "opt_in",
+        alert_status: "opt_in",
+        dirty_since: null,
+      },
+    ]);
+
+    const result = await ingestEvent(
+      envoy,
+      ev("email.bounced", { email_id: "e7", to: ["live@example.com"] })
+    );
+    expect(result.suppressed).toBe(true);
+
+    // The consent row was fanned to terminal unsubscribed on BOTH streams.
+    const row = consent.get(`${NAMESPACE}:live@example.com::welcome`);
+    expect(row?.digest_status).toBe("unsubscribed");
+    expect(row?.alert_status).toBe("unsubscribed");
+
+    // And the REAL gate now denies both lanes (the gate also reads the global flag).
+    const mirror = createConsentMirror(envoy.db, envoy.resend);
+    expect(await mirror.gate("live@example.com", "welcome", "digest")).toBe(false);
+    expect(await mirror.gate("live@example.com", "welcome", "alert")).toBe(false);
+  });
+
+  it("Residual: a Mixed.Case bounce converges with a lowercased enrollment/consent row", async () => {
+    // Enrollment/consent were written lowercase (as enroll does). The webhook receives the recipient
+    // in MIXED case; `extractRecipientEmail` lowercases it, so resolution + fan-out hit the same row.
+    const { envoy, contacts, consent } = makeEnvoy(["mixed.case@example.com"], [
+      {
+        contact: `${NAMESPACE}:mixed.case@example.com`,
+        topic_key: "welcome",
+        topic_id: null,
+        digest_status: "opt_in",
+        alert_status: "opt_in",
+        dirty_since: null,
+      },
+    ]);
+
+    const result = await ingestEvent(
+      envoy,
+      ev("email.complained", { email_id: "e8", to: ["Mixed.Case@Example.com"] })
+    );
+    expect(result.suppressed).toBe(true);
+    expect(contacts.get("mixed.case@example.com")?.unsubscribed).toBe(true);
+    expect(consent.get(`${NAMESPACE}:mixed.case@example.com::welcome`)?.digest_status).toBe(
+      "unsubscribed"
+    );
+
+    const mirror = createConsentMirror(envoy.db, envoy.resend);
+    expect(await mirror.gate("Mixed.Case@Example.com", "welcome", "digest")).toBe(false);
   });
 });
 

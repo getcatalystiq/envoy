@@ -23,7 +23,7 @@ import "server-only";
 //      (`digest`, `alert`). A digest opt-out leaves alerts flowing and vice-versa; only a global
 //      `unsubscribed` (the recipient's "everything" choice) stops both.
 
-import type { NamespacedDb } from "../db/pool.js";
+import { normalizeEmail, type NamespacedDb } from "../db/pool.js";
 import type { ResendClientHandle } from "../resend/client.js";
 
 /**
@@ -147,7 +147,7 @@ export class ConsentMirror {
    * topic was never provisioned for this contact; the gate treats that as deny-by-default).
    */
   async read(email: string, topicKey: string): Promise<ConsentRow | null> {
-    const contact = this.db.namespaceKey(email);
+    const contact = this.db.namespaceKey(normalizeEmail(email));
     const res = await this.db.query<RawConsentRow>(
       `SELECT contact, topic_key, topic_id, digest_status, alert_status, dirty_since
          FROM sdk_topic_consent
@@ -159,16 +159,39 @@ export class ConsentMirror {
   }
 
   /**
+   * Read the contact-level GLOBAL suppression flag (`sdk_contacts.unsubscribed`), case-insensitively
+   * on the bare email (matches the webhook/`set` convention). A bounce, complaint, GDPR delete, or
+   * hosted-page unsubscribe sets this flag; the gate must honor it on EVERY topic/stream — including
+   * topics for which no per-topic consent row exists — so a globally-suppressed contact can never be
+   * re-addressed on any lane (R22/R26 suppress-all). Returns true when the contact is suppressed.
+   */
+  private async isGloballySuppressed(email: string): Promise<boolean> {
+    const res = await this.db.query<{ unsubscribed: boolean }>(
+      `SELECT unsubscribed FROM sdk_contacts
+        WHERE namespace = $1 AND lower(email) = $2 LIMIT 1`,
+      [this.db.namespace, normalizeEmail(email)]
+    );
+    return res.rows[0]?.unsubscribed === true;
+  }
+
+  /**
    * Authoritative send gate (R26). Returns `true` only when this exact stream of this topic is
    * allowed to send to this contact. Denies when:
+   *   - the contact is GLOBALLY suppressed (`sdk_contacts.unsubscribed = TRUE` — bounce, complaint,
+   *     GDPR delete, or hosted-page unsubscribe), regardless of any per-topic consent, or
    *   - the contact has no mirror row for the topic (never provisioned → deny-by-default), or
    *   - the requested stream is `opt_out` or `unsubscribed`, or
    *   - EITHER stream is `unsubscribed` (the global "everything" suppress dominates both streams).
    *
-   * The gate reads the mirror only — never Resend — so it is cheap and deterministic. Reconcile
-   * (U14) is what keeps the mirror honest against Resend's hosted page.
+   * The gate reads the local mirror only — never Resend — so it is cheap and deterministic.
+   * Reconcile (U14) is what keeps the mirror honest against Resend's hosted page.
    */
   async gate(email: string, topicKey: string, stream: Stream): Promise<boolean> {
+    // Global suppression dominates everything (R22/R26). Checked FIRST so a bounced/complained/
+    // erased contact is denied on BOTH lanes even when this topic has no consent row — the consent
+    // row alone never sees a global suppression that fanned in via the contact flag.
+    if (await this.isGloballySuppressed(email)) return false;
+
     const row = await this.read(email, topicKey);
     if (row === null) return false; // deny-by-default: no provisioned consent
     // A global unsubscribe is recorded as `unsubscribed` on every stream (see `set`), so an
@@ -189,7 +212,11 @@ export class ConsentMirror {
    * write dominates BOTH streams and sets the contact's global suppression flag (R26 suppress-all).
    */
   async set(input: ConsentSetInput): Promise<ConsentSetResult> {
-    const contact = this.db.namespaceKey(input.email);
+    // Normalize the email at this write boundary so the consent row keys on the same string the
+    // gate read (and the webhook resolve) use — a mixed-case write and a lowercased suppression
+    // must converge on one row (residual casing fix).
+    const email = normalizeEmail(input.email);
+    const contact = this.db.namespaceKey(email);
     const isGlobalUnsub = input.status === "unsubscribed";
 
     // ----- 1. Mirror write (monotonic merge, atomic upsert) ------------------------------------
@@ -243,8 +270,8 @@ export class ConsentMirror {
     if (isGlobalUnsub) {
       await this.db.query(
         `UPDATE sdk_contacts SET unsubscribed = TRUE, dirty_since = NOW(), updated_at = NOW()
-          WHERE namespace = $1 AND email = $2`,
-        [this.db.namespace, input.email]
+          WHERE namespace = $1 AND lower(email) = $2`,
+        [this.db.namespace, email]
       );
     }
 
@@ -276,7 +303,7 @@ export class ConsentMirror {
         input.stream === "digest" ? beforeRow.digest : beforeRow.alert
       );
       const { error } = await client.contacts.topics.update({
-        email: input.email,
+        email,
         topics: [{ id: topicId, subscription }],
       });
       if (error) {
@@ -304,8 +331,12 @@ export class ConsentMirror {
  * rank, so the upsert can do the monotonic `GREATEST`-style compare in-database. `expr` is either
  * a bound-param placeholder (`$5`) or a column reference. A null/unknown value sorts lowest so it
  * never wins a merge.
+ *
+ * Exported so the broadcast reconcile sweep (which performs the SAME monotonic opt_out merge in
+ * SQL) imports this one definition rather than re-deriving an identical fragment — a single source
+ * of truth for the suppression-rank ordering both write paths depend on.
  */
-function rankCase(expr: string): string {
+export function rankCase(expr: string): string {
   return `CASE ${expr}
             WHEN 'unsubscribed' THEN 2
             WHEN 'opt_out' THEN 1

@@ -34,6 +34,8 @@ import "server-only";
 //      silent no-op (`{ sent: false, reason: "resend_disabled" }`) — mirrors the app mailer and the
 //      rest of the SDK's "unset key ⇒ no-op, never throw" contract.
 
+import type { CreateEmailOptions } from "resend";
+
 import type { Envoy } from "../config.js";
 import type { ConsentMirror, Stream } from "../consent/mirror.js";
 import { buildListUnsubscribeHeaders } from "../consent/unsubscribe.js";
@@ -264,7 +266,15 @@ export async function sendTransactional(
 
   let response: Awaited<ReturnType<typeof client.emails.send>>;
   try {
-    response = await client.emails.send(payload as never, requestOptions);
+    // Cast to the NAMED target type (`emails.send`'s payload `CreateEmailOptions`), not `as never`.
+    // resend@6.14.0 types `CreateEmailOptions` as a union: a content arm (`RequireAtLeastOne<html|
+    // text|react>` + `template?: never`) and a templated arm (`template` required + `react|html|text:
+    // never`). The annotation pins our template-only payload to the templated arm. Unlike `as never`
+    // — which suppressed ALL payload typechecking — `as CreateEmailOptions` is a checked assertion:
+    // the payload is still verified structurally assignable to the real target, so any future drift
+    // (a misspelled `to`/`from`/`headers`/`template`/`subject`/`replyTo` field) is caught. Applied
+    // identically in drip/engine.ts.
+    response = await client.emails.send(payload as CreateEmailOptions, requestOptions);
   } catch (err) {
     // A thrown transport error: the host asked for a one-shot send and the transport failed. This
     // is fail-loud (no later tick to retry, unlike the drip engine). The message is generic — no

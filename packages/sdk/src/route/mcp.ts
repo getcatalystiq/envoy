@@ -1,14 +1,12 @@
 import "server-only";
 
-import { timingSafeEqual } from "node:crypto";
-
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { z } from "zod";
 
 import type { Envoy } from "../config.js";
-import type { SubHandler } from "./handler.js";
+import { secretsMatch, type SubHandler } from "./handler.js";
 import { createConsentMirror, type Stream } from "../consent/mirror.js";
 import { enroll, deleteContact, type SyncTopic } from "../contacts.js";
 import type { Sequence } from "../drip/sequence.js";
@@ -122,16 +120,9 @@ export interface McpRouteConfig {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Constant-time secret compare (reimplemented; never imports the app)
+// Constant-time secret compare — shared with the route factory (imported from ./handler.js so the
+// MCP credential check and the cron/factory checks run the SAME audited timing-safe compare).
 // ---------------------------------------------------------------------------------------------
-
-function secretsMatch(provided: string, expected: string): boolean {
-  if (provided.length === 0 || expected.length === 0) return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
 
 /**
  * The default MCP token verifier: a constant-time compare of the bearer token against `mcpSecret`.
@@ -190,6 +181,10 @@ const STREAM_ENUM = z.enum(["digest", "alert"]);
  */
 export function registerEnvoyTools(server: McpServer, config: McpRouteConfig): void {
   const { envoy } = config;
+
+  // The consent mirror is bound to one install's DB + Resend handle and is stateless across reads —
+  // construct it ONCE here and close over it, rather than re-instantiating per get_consent call.
+  const consentMirror = createConsentMirror(envoy.db, envoy.resend);
 
   // --- enroll_contact (write) — event-driven enrollment (R8/R10/R11). Suppression-honoring: a
   //     globally-unsubscribed contact records the enrollment but is NOT re-synced to Resend, and the
@@ -383,8 +378,7 @@ export function registerEnvoyTools(server: McpServer, config: McpRouteConfig): v
     },
     async (args) => {
       try {
-        const mirror = createConsentMirror(envoy.db, envoy.resend);
-        const row = await mirror.read(args.email, args.topicKey);
+        const row = await consentMirror.read(args.email, args.topicKey);
         if (row === null) {
           return textResult(
             `No consent row for this contact + topic (deny-by-default; the topic was never provisioned).`,

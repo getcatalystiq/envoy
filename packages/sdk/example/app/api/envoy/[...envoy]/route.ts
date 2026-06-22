@@ -5,6 +5,8 @@
 // Svix for /webhook, the signed token for /unsubscribe, the MCP credential for /mcp.
 // Nothing reaches host logic without first clearing its gate.
 
+import { timingSafeEqual } from "node:crypto";
+
 import {
   createEnvoyHandler,
   createDripCronHandler,
@@ -20,13 +22,28 @@ import {
   UNSUBSCRIBE_BASE_URL,
 } from "../../../../envoy";
 
+// Length-checked constant-time string compare — mirrors the SDK's internal `secretsMatch`
+// (src/route/handler.ts). A real host MUST compare bearer tokens / session secrets in constant
+// time: a plain `===` short-circuits on the first differing byte, leaking the secret one character
+// at a time to a timing attacker. `timingSafeEqual` throws on unequal-length buffers, so we
+// length-check first (the length difference is the only thing that leaks, which the attacker
+// already controls).
+function secretsMatch(provided: string, expected: string): boolean {
+  if (provided.length === 0 || expected.length === 0) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
 // In a real host, `authorize` checks the host's own session/cookie. The example trusts a
 // shared admin token so the dogfood run can drive /api from curl. cron/webhook/unsubscribe/mcp
-// do NOT use this — they carry no host session.
+// do NOT use this — they carry no host session. The token compare is constant-time (see above).
 async function authorize(request: Request): Promise<boolean> {
+  const adminToken = process.env.EXAMPLE_ADMIN_TOKEN ?? "";
+  if (adminToken.length === 0) return false; // unset admin token ⇒ /api is closed, never open
   const header = request.headers.get("authorization") ?? "";
-  const expected = `Bearer ${process.env.EXAMPLE_ADMIN_TOKEN ?? ""}`;
-  return expected.length > "Bearer ".length && header === expected;
+  return secretsMatch(header, `Bearer ${adminToken}`);
 }
 
 // The prebuilt drip tick — claims due enrollments, generates-or-harvests, sends, advances.

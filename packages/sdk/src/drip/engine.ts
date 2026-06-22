@@ -1,5 +1,7 @@
 import "server-only";
 
+import type { CreateEmailOptions } from "resend";
+
 import type { Envoy } from "../config.js";
 import type { ConsentMirror, Stream } from "../consent/mirror.js";
 import { buildListUnsubscribeHeaders } from "../consent/unsubscribe.js";
@@ -285,7 +287,15 @@ export async function runDripStep(
 
   let response: Awaited<ReturnType<typeof client.emails.send>>;
   try {
-    response = await client.emails.send(payload as never, { idempotencyKey });
+    // Cast to the NAMED target type (`emails.send`'s payload `CreateEmailOptions`), not `as never`.
+    // resend@6.14.0 types `CreateEmailOptions` as a union: a content arm (`RequireAtLeastOne<html|
+    // text|react>` + `template?: never`) and a templated arm (`template` required + `react|html|text:
+    // never`). The annotation pins our template-only payload to the templated arm. Unlike `as never`
+    // — which suppressed ALL payload typechecking — `as CreateEmailOptions` is a checked assertion:
+    // the payload is still verified structurally assignable to the real target, so any future drift
+    // (a misspelled `to`/`from`/`headers`/`template` field) is caught. Applied identically in
+    // transactional.ts.
+    response = await client.emails.send(payload as CreateEmailOptions, { idempotencyKey });
   } catch (err) {
     // Transport failure — leave the step DUE (R16). Generic message, no recipient/secret leak (R43).
     const reason = `emails.send threw: ${err instanceof Error ? err.message : "unknown transport error"}`;
@@ -439,12 +449,23 @@ async function ensureStepRow(
   enrollmentId: number | string,
   stepIndex: number,
 ): Promise<StepRow> {
-  await envoy.db.execWrite(
+  // Fast path: INSERT ... ON CONFLICT DO NOTHING RETURNING. On a FIRST claim of this step the row is
+  // newly inserted and `RETURNING` hands back its `id` + (null) `agent_session_id` in ONE round trip
+  // — no follow-up SELECT. This collapses the old INSERT-then-SELECT N+1 (up to 200 RTT/tick) to a
+  // single statement for the common first-claim case.
+  const inserted = await envoy.db.execWrite<StepRow>(
     `INSERT INTO sdk_steps (namespace, enrollment_id, step_index, status)
      VALUES ($1, $2, $3, 'pending')
-     ON CONFLICT (namespace, enrollment_id, step_index) DO NOTHING`,
+     ON CONFLICT (namespace, enrollment_id, step_index) DO NOTHING
+     RETURNING id, agent_session_id`,
     [envoy.db.namespace, enrollmentId, stepIndex],
   );
+  const insertedRow = inserted.rows[0];
+  if (insertedRow) return insertedRow;
+
+  // Conflict path: the row already existed (a re-claim of the same step), so `DO NOTHING` returned
+  // nothing. SELECT it back ONLY here — this fallback runs solely for already-existing rows, so the
+  // prior tick's inflight `agent_session_id` survives and is harvested (the U8 second guard).
   const { rows } = await envoy.db.query<StepRow>(
     `SELECT id, agent_session_id
        FROM sdk_steps
@@ -493,11 +514,21 @@ export async function tickDrip(
 
   const items: DripTickItem[] = [];
   for (const row of claimed) {
-    const email = row.contact;
+    // `sdk_enrollments.contact` stores the NAMESPACED key (enroll() wrote `namespaceKey(email)`).
+    // Default `email` to the raw stored value so a fail-soft error item still carries a stable
+    // diagnostic; the BARE recipient is resolved inside the try so a foreign-namespace row fails
+    // only THIS contact (stripNamespace throws → caught below), never the whole tick (R21/R38).
+    let email = row.contact;
     const sequenceKey = row.sequence_key;
     const stepIndex = row.current_step;
 
     try {
+      // Strip the install namespace off the stored contact key (P0): the recipient `to:` and the
+      // RFC 8058 unsubscribe token must be the BARE email, and the mirror gate namespaces the email
+      // AGAIN internally — passing the already-namespaced key would double-prefix and match no
+      // consent row (every send denied). A cross-namespace row throws here (R38 guard).
+      email = envoy.db.stripNamespace(row.contact);
+
       const sequence = resolveSequence(registry, sequenceKey);
       if (!sequence) {
         items.push({

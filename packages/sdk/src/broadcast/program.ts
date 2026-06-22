@@ -34,6 +34,7 @@ import "server-only";
 import type { Envoy } from "../config.js";
 import type { Stream } from "../consent/mirror.js";
 import { provisionTopic } from "../resend/topics.js";
+import { assertNonEmpty } from "../internal/assert.js";
 import {
   claim,
   markSent,
@@ -45,6 +46,7 @@ import {
 } from "./claim.js";
 import {
   advance,
+  tryAdvance,
   due as cursorDue,
   read as readCursor,
   type CursorState,
@@ -230,10 +232,11 @@ export interface RunIssueInput {
 
 const DEFAULT_SUBJECT = "default";
 
+/** Non-empty-string guard sharing the one `assertNonEmpty` implementation but preserving this
+ * module's `BroadcastProgramError` thrown type via the error factory (callers/tests assert the
+ * error is a `BroadcastProgramError`, so the factory is load-bearing). */
 function assertNonEmptyString(name: string, value: unknown): asserts value is string {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new BroadcastProgramError(`${name} is required and must be a non-empty string.`);
-  }
+  assertNonEmpty(name, value, (m) => new BroadcastProgramError(m));
 }
 
 /**
@@ -425,9 +428,26 @@ async function runIssueImpl(envoy: Envoy, bundle: RunIssueBundle): Promise<RunIs
 
   if (!claimResult.won) {
     if (!claimResult.resumable) {
-      // The prior attempt already sent (sent_at set). This is a duplicate trigger — do NOTHING.
+      // The prior attempt already sent (sent_at set). This is a duplicate trigger — do NOT re-send.
+      //
+      // But it is NOT a pure no-op: a crash BETWEEN markSent and advance in the prior attempt
+      // leaves the claim terminal (sent_at set) while the cursor is still un-advanced. If we returned
+      // here without touching the cursor, `cursor.due()` would stay true forever — every subsequent
+      // tick re-derives this SAME issueSeq, loses the claim as already_sent, and returns without
+      // advancing. The program wedges on this issue and never issues a new one.
+      //
+      // Reconcile the cursor forward before returning. tryAdvance is monotonic + idempotent: it
+      // advances when the stored watermark is strictly-less (the crash-gap repair), and no-ops
+      // WITHOUT throwing when a concurrent winner already advanced past us (a true duplicate). Either
+      // way the cursor ends at-or-past this issue, so `due()` clears and the next tick can progress.
+      const reconciled = await tryAdvance(envoy.db, cursorKey, {
+        watermark: rendered.watermark,
+        issueSeq,
+        itemIds,
+      });
       result.skipped = "already_sent";
       result.broadcastId = claimResult.row.resendBroadcastId ?? undefined;
+      result.cursor = reconciled.state;
       return result;
     }
     // A resumable lost claim — a prior attempt crashed mid-issue. Resolve whether the broadcast was

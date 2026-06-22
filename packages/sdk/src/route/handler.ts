@@ -42,8 +42,17 @@ export type SubHandler = (request: Request) => Response | Promise<Response>;
 
 /**
  * Host `authorize(req)` callback (R6). The host owns identity; the SDK ships no login/session.
- * May return a boolean (true ⇒ authorized) or a `Response` (e.g. a custom 401/403 the SDK returns
- * verbatim). Returning anything falsy ⇒ the factory emits a generic 401.
+ *
+ * CONTRACT — the return value is interpreted strictly:
+ *   - `true`  ⇒ authorized; the request proceeds to the sub-handler. The boolean `true` is the
+ *               ONLY value that grants access. Nothing else does.
+ *   - a `Response` ⇒ a DENIAL channel ONLY. A non-2xx `Response` (e.g. a custom 401/403/redirect)
+ *               is returned to the client verbatim. A 2xx `Response` is a host CONTRACT ERROR — an
+ *               `authorize` callback must never signal "allowed" by returning a success Response —
+ *               so the factory treats it as unauthorized (a generic 401), NEVER as authorized. This
+ *               fail-closed reading means a host that accidentally returns `new Response("ok")` from
+ *               authorize cannot open its entire API surface (an ambiguous-host-return admit).
+ *   - any other falsy value (`false`, `undefined`, `null`) ⇒ a generic 401.
  */
 export type Authorize = (request: Request) => AuthorizeResult | Promise<AuthorizeResult>;
 export type AuthorizeResult = boolean | Response;
@@ -117,8 +126,12 @@ function isKnownSubpath(value: string): value is KnownSubpath {
  * Length-checked constant-time compare. A length mismatch short-circuits to `false` (you cannot
  * `timingSafeEqual` buffers of different lengths — it throws), which leaks only the length, never
  * the content. An empty `provided` or `expected` is always a non-match.
+ *
+ * Exported so the MCP route (route/mcp.ts), which authenticates the SAME dedicated credential with
+ * the SAME constant-time discipline, imports this one implementation instead of carrying a copy —
+ * a single audited timing-safe compare across every secret-auth seam in the route layer.
  */
-function secretsMatch(provided: string, expected: string): boolean {
+export function secretsMatch(provided: string, expected: string): boolean {
   if (provided.length === 0 || expected.length === 0) return false;
   const a = Buffer.from(provided);
   const b = Buffer.from(expected);
@@ -148,6 +161,18 @@ function notImplemented(): Response {
   // Reached ONLY after the sub-path's auth gate has passed — so this never doubles as an auth
   // oracle (you must already be authenticated to learn a handler is unwired).
   return new Response("Not Implemented", { status: 501 });
+}
+
+/**
+ * Serialize `body` as a JSON `Response` with the given status. The single JSON-response helper for
+ * the route layer — exported so the webhook receiver (and any other sub-handler) returns JSON
+ * through one implementation instead of re-declaring an identical `new Response(JSON.stringify(...))`.
+ */
+export function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -195,11 +220,15 @@ async function runAuthorize(authorize: Authorize, request: Request): Promise<Res
     return unauthorized();
   }
   if (verdict instanceof Response) {
-    // Host returned its own response (e.g. a 403). Pass through only if it is NOT a success — a
-    // 2xx from authorize would be a misuse; treat the request as authorized and continue.
-    if (verdict.status >= 200 && verdict.status < 300) return null;
+    // A `Response` from authorize is a DENIAL channel, never an authorization. Pass a non-2xx
+    // through to the client verbatim (the host's own 401/403/redirect). A 2xx is a host contract
+    // ERROR — authorize must signal "allowed" with the boolean `true`, not a success Response — so
+    // we DO NOT continue; we fail closed with a generic 401. (Treating a 2xx as authorized would
+    // let an accidental `new Response("ok")` open the whole API surface.)
+    if (verdict.status >= 200 && verdict.status < 300) return unauthorized();
     return verdict;
   }
+  // Only the explicit boolean `true` authorizes. Any other value (false/undefined/null) → 401.
   return verdict === true ? null : unauthorized();
 }
 
@@ -389,7 +418,7 @@ export function createDripCronHandler(
   return async (_request: Request): Promise<Response> => {
     try {
       const result: DripTickResult = await tickDrip(envoy, registry, tick);
-      return cronJson(200, {
+      return jsonResponse(200, {
         ok: true,
         claimed: result.claimed,
         sent: result.sent,
@@ -404,14 +433,7 @@ export function createDripCronHandler(
         "[@envoy/sdk] drip cron tick failed:",
         envoy.redact(err instanceof Error ? err.message : String(err))
       );
-      return cronJson(500, { ok: false, error: "tick_failed" });
+      return jsonResponse(500, { ok: false, error: "tick_failed" });
     }
   };
-}
-
-function cronJson(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
 }

@@ -313,16 +313,80 @@ function uniformOk(): Response {
   });
 }
 
+/** Minimal HTML-escape for the single dynamic value (the token) we echo into the interstitial
+ * form. The token is base64url + `.` so it is already HTML-inert, but we escape defensively so a
+ * future token format change can never inject markup. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /**
- * Handle a one-click unsubscribe request (RFC 8058). Expects a POST with the token in the
- * `token` query param (the `List-Unsubscribe` URL) — a GET is also accepted for MUAs/humans that
- * open the link in a browser, but per RFC 8058 the one-click action is the POST.
+ * The GET interstitial: a tiny confirmation page with a single button that POSTs the token back to
+ * THIS same URL. A GET MUST NOT mutate — link prefetchers, security scanners, and MUA "open in
+ * browser" all issue GETs, and an opt-out write on GET means any of them silently unsubscribes the
+ * recipient (RFC 8058 one-click is a POST). So GET only renders this page; the human's click is the
+ * POST that actually writes.
  *
- * Behavior:
+ * The page is byte-identical for any token value (we do NOT verify the token on GET) so it is not a
+ * validity oracle: a forged token renders the same confirmation page as a valid one, and learns
+ * nothing until the POST — which itself returns the uniform 200.
+ */
+function interstitial(token: string): Response {
+  const safeToken = escapeHtml(token);
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Unsubscribe</title>
+</head>
+<body>
+<main>
+<h1>Confirm unsubscribe</h1>
+<p>Click the button below to stop receiving these emails.</p>
+<form method="POST">
+<input type="hidden" name="token" value="${safeToken}">
+<button type="submit">Unsubscribe</button>
+</form>
+</main>
+</body>
+</html>`;
+  return new Response(html, {
+    status: 200,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      // Defense-in-depth: a confirmation page that never needs scripts, frames, or third-party
+      // resources. Blocks a reflected-token XSS even if the escaping above ever regressed.
+      "content-security-policy": "default-src 'none'; form-action 'self'; style-src 'unsafe-inline'",
+      "referrer-policy": "no-referrer",
+    },
+  });
+}
+
+/**
+ * Handle a one-click unsubscribe request (RFC 8058). The token may arrive in the `token` query
+ * param (the `List-Unsubscribe` URL) or, on the POST, in a form-encoded `token` body field (the
+ * interstitial's hidden input).
+ *
+ * Method semantics (the security boundary):
+ *   - GET performs NO write. It renders a small interstitial confirmation page whose button POSTs
+ *     the token back. This makes the SDK safe against link prefetchers, link-unfurlers, and
+ *     security scanners that GET every URL in an email — none of which should ever be able to
+ *     unsubscribe a recipient. The interstitial is identical regardless of token validity (no
+ *     oracle).
+ *   - POST is the mutating one-click action. It verifies the token and, on success, writes a
+ *     TOPIC-SCOPED `opt_out` via the mirror (NOT a global unsubscribe). Forged/expired/malformed →
+ *     uniform 200 blank, NO state change. Already-opted-out is the same response (monotonic no-op).
+ *
+ * Other invariants:
  *   - Rate-limit by client IP first; over the limit → 429 (uniform, no body detail).
- *   - Verify the token. Forged/expired/malformed → uniform 200 blank, NO state change.
- *   - On a valid token, write a TOPIC-SCOPED `opt_out` via the mirror (NOT a global unsubscribe)
- *     and return uniform 200 blank. Already-opted-out is the same response (monotonic no-op).
  *   - Never 500 on attacker input; never redirect.
  */
 export async function handleUnsubscribe(
@@ -334,7 +398,8 @@ export async function handleUnsubscribe(
     return new Response(null, { status: 405, headers: { allow: "GET, POST" } });
   }
 
-  // 1. Rate limit (fail-open inside checkRateLimit).
+  // 1. Rate limit (fail-open inside checkRateLimit). Applies to both verbs: a scanner hammering the
+  // GET interstitial is bounded too, and the human's click (one GET + one POST) stays well under.
   const limit = config.rateLimit?.limit ?? DEFAULT_UNSUB_RATE_LIMIT;
   const windowSeconds =
     config.rateLimit?.windowSeconds ?? DEFAULT_UNSUB_RATE_WINDOW_SECONDS;
@@ -347,12 +412,33 @@ export async function handleUnsubscribe(
     });
   }
 
-  // 2. Extract + verify the token. Any failure → uniform 200 (no oracle), no state change.
-  let token: string | null = null;
+  // 2. Resolve the token from the query string (always) — used to seed the GET interstitial form.
+  let queryToken: string | null = null;
   try {
-    token = new URL(request.url).searchParams.get("token");
+    queryToken = new URL(request.url).searchParams.get("token");
   } catch {
-    token = null;
+    queryToken = null;
+  }
+
+  // GET never mutates. Render the confirmation interstitial (no token verification, no oracle). A
+  // missing token still renders the page — its POST will simply do nothing (uniform 200).
+  if (method === "GET") {
+    return interstitial(queryToken ?? "");
+  }
+
+  // 3. POST — the mutating one-click action. The token may come from the query param (a real MUA
+  // one-click POSTs to the List-Unsubscribe URL, keeping the query string) OR the interstitial's
+  // form body. Prefer the body when present so the human's confirmation click works.
+  let token: string | null = queryToken;
+  try {
+    const contentType = request.headers.get("content-type") ?? "";
+    if (contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data")) {
+      const form = await request.formData();
+      const bodyToken = form.get("token");
+      if (typeof bodyToken === "string" && bodyToken.length > 0) token = bodyToken;
+    }
+  } catch {
+    // A malformed body is not an oracle — fall back to the query token (possibly null).
   }
   if (token === null) return uniformOk();
 
@@ -362,7 +448,7 @@ export async function handleUnsubscribe(
     return uniformOk();
   }
 
-  // 3. Write the TOPIC-SCOPED opt-out (not global). Fail-soft: any error in the mirror push is
+  // 4. Write the TOPIC-SCOPED opt-out (not global). Fail-soft: any error in the mirror push is
   // already swallowed by `mirror.set` (it never throws on a Resend failure); we additionally guard
   // the whole write so an unexpected DB error still yields the uniform 200 rather than a 500 oracle.
   try {

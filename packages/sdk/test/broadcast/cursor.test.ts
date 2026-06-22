@@ -75,19 +75,25 @@ function statePool(): {
         t.startsWith("INSERT INTO sdk_program_state") &&
         t.includes("(namespace, program_key, subject_key, watermark, issue_seq, last_fired_at)")
       ) {
-        // advance upsert: params = [ns, pk, sk, watermark, issueSeq, (firedAt?)]
+        // advance upsert: params = [ns, pk, sk, watermark, issueSeq|null, (firedAt?)].
+        // The REAL SQL (P2) no longer pre-reads to compute the seq: when issueSeq is omitted, $5 is
+        // null and the seq is derived in-SQL — `1` on the INSERT value list, `issue_seq + 1` in the
+        // DO UPDATE. Model that here verbatim so the fake exercises the real DB-side computation
+        // rather than echoing a JS-precomputed seq.
         const key = k(p[0], p[1], p[2]);
         const watermark = p[3] as string;
-        const issueSeq = p[4] as number;
+        const suppliedSeq = p[4] as number | null; // null ⇒ DB computes it
         const firedAt = p.length > 5 ? (p[5] as string) : now();
         const existing = store.get(key);
         if (!existing) {
+          // INSERT branch: concrete seq is the supplied value, else 1 (the first issue).
+          const insertSeq = suppliedSeq ?? 1;
           const row: StoredState = {
             namespace: p[0] as string,
             program_key: p[1] as string,
             subject_key: p[2] as string,
             watermark,
-            issue_seq: issueSeq,
+            issue_seq: insertSeq,
             last_fired_at: firedAt,
             paused: false,
           };
@@ -96,8 +102,9 @@ function statePool(): {
         }
         // ON CONFLICT DO UPDATE … WHERE strictly-greater guard.
         if (storageStrictlyGreater(watermark, existing.watermark)) {
+          // UPDATE branch: supplied seq, else stored issue_seq + 1.
+          existing.issue_seq = suppliedSeq ?? existing.issue_seq + 1;
           existing.watermark = watermark;
-          existing.issue_seq = issueSeq;
           existing.last_fired_at = firedAt;
           return rowResult(existing);
         }
@@ -263,6 +270,56 @@ describe("due — cadence timer (R36)", () => {
 // =================================================================================================
 // advance() — moves the watermark only on a real send, strictly-greater
 // =================================================================================================
+
+describe("advance — no redundant pre-read on the common path (P2 perf)", () => {
+  it("issues NO SELECT before the upsert when advancing (first advance: one INSERT, zero reads)", async () => {
+    const { pool, store, calls } = statePool();
+    const db = createDb(pool, "prod");
+
+    await advance(db, KEY, { watermark: "100" });
+
+    // The advancing path must hit the DB exactly ONCE — the upsert. No pre-read SELECT, no re-read.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.text.trim().startsWith("INSERT INTO sdk_program_state")).toBe(true);
+    expect(
+      calls.some((c) => c.text.trim().startsWith("SELECT") && c.text.includes("FROM sdk_program_state"))
+    ).toBe(false);
+    expect(store.size).toBe(1);
+  });
+
+  it("issues NO pre-read on a subsequent strictly-greater advance (one INSERT…ON CONFLICT, zero reads)", async () => {
+    const { pool, calls } = statePool();
+    const db = createDb(pool, "prod");
+    await advance(db, KEY, { watermark: "100" });
+    const before = calls.length;
+
+    await advance(db, KEY, { watermark: "200" });
+
+    const since = calls.slice(before);
+    // Exactly one statement for the second advance — the conflict-upsert. No SELECT precedes it.
+    expect(since).toHaveLength(1);
+    expect(since[0]!.text.trim().startsWith("INSERT INTO sdk_program_state")).toBe(true);
+  });
+
+  it("does a SINGLE re-read (not a pre-read) only when the upsert returns zero rows — to classify a rejected advance", async () => {
+    const { pool, calls } = statePool();
+    const db = createDb(pool, "prod");
+    await advance(db, KEY, { watermark: "200" });
+    const before = calls.length;
+
+    // A non-monotonic advance: the upsert's WHERE guard rejects it (zero rows), forcing exactly one
+    // re-read to classify it as non-monotonic → throw.
+    await expect(advance(db, KEY, { watermark: "150" })).rejects.toThrow(/strictly greater/);
+
+    const since = calls.slice(before);
+    // First the upsert (rejected → zero rows), THEN one re-read SELECT. No read BEFORE the upsert.
+    expect(since[0]!.text.trim().startsWith("INSERT INTO sdk_program_state")).toBe(true);
+    const reads = since.filter(
+      (c) => c.text.trim().startsWith("SELECT") && c.text.includes("FROM sdk_program_state")
+    );
+    expect(reads).toHaveLength(1);
+  });
+});
 
 describe("advance — monotonic watermark, advance-only-on-send (R36)", () => {
   it("materializes the row on first advance and records watermark/seq/firedAt", async () => {

@@ -171,6 +171,9 @@ function fakeDb(seed: FakeDbSeed = {}) {
       }
 
       // --- cursor.advance: INSERT … ON CONFLICT … DO UPDATE … WHERE <strictly-greater> ---
+      // The REAL SQL (P2) derives the seq in-SQL when $5 (issueSeq) is null: `1` on INSERT, stored
+      // `issue_seq + 1` on UPDATE. Model that here rather than echoing a JS-precomputed seq, so the
+      // fake exercises the DB-side seq computation the no-pre-read advance now relies on.
       if (
         t.startsWith("INSERT INTO sdk_program_state") &&
         t.includes("issue_seq") &&
@@ -178,25 +181,26 @@ function fakeDb(seed: FakeDbSeed = {}) {
       ) {
         const key = k3(p[0], p[1], p[2]);
         const incoming = p[3] as string;
-        const issueSeq = Number(p[4]);
+        const suppliedSeq = p[4] === null || p[4] === undefined ? null : Number(p[4]);
         const firedAt = (p[5] as string | undefined) ?? now();
         const existing = state.get(key);
         if (!existing) {
+          const insertSeq = suppliedSeq ?? 1;
           state.set(key, {
             watermark: incoming,
-            issue_seq: issueSeq,
+            issue_seq: insertSeq,
             last_fired_at: firedAt,
             paused: false,
           });
           return {
             rows: [
-              { watermark: incoming, issue_seq: issueSeq, last_fired_at: firedAt, paused: false },
+              { watermark: incoming, issue_seq: insertSeq, last_fired_at: firedAt, paused: false },
             ],
           } as never;
         }
         if (storageStrictlyGreater(incoming, existing.watermark)) {
+          existing.issue_seq = suppliedSeq ?? existing.issue_seq + 1;
           existing.watermark = incoming;
-          existing.issue_seq = issueSeq;
           existing.last_fired_at = firedAt;
           return {
             rows: [
@@ -598,6 +602,106 @@ describe("runIssue — gating (cadence / pause / empty)", () => {
 // =================================================================================================
 // runIssue — Error: a fresh concurrent claim loss skips without sending.
 // =================================================================================================
+
+describe("runIssue — crash between markSent and advance (P1 wedge reconcile)", () => {
+  it("reconciles the cursor forward on an already_sent claim whose cursor was never advanced (no re-send, no wedge)", async () => {
+    // The wedge: a prior attempt won the claim, sent the broadcast, and markSent set sent_at — then
+    // CRASHED before cursor.advance ran. The claim row is terminal (sent_at set) but the cursor is
+    // still un-advanced (lazy default: watermark null, never fired). Without the P1 fix, this tick
+    // would take the already_sent branch and RETURN without advancing: cursor.due() stays true
+    // forever, every later tick re-derives the SAME issueSeq, loses the claim as already_sent, and
+    // returns — the program re-ticks this issue forever and never issues a new one.
+    const { pool, state, calls } = fakeDb({
+      topicCache: { "digest:default": "tp_1" },
+      // sent_at set ⇒ non-resumable already_sent; resend id persisted on the prior (crashed) attempt.
+      claims: {
+        "weekly:default:1": {
+          resend_broadcast_id: "bcast_prior",
+          sent_at: "2026-06-20T00:00:00Z",
+        },
+      },
+      // No cursor row seeded — it is the lazy default (watermark null, issue_seq 0, never fired). The
+      // crash happened before advance, so the cursor never moved.
+    });
+    const resend = fakeResend();
+    const envoy = makeEnvoy(pool, resend.handle);
+    const program = defineBroadcastProgram({
+      key: "weekly",
+      segmentId: "seg_1",
+      cadenceDays: 7,
+      from: "news@acme.test",
+      // The host re-derives the same issue (seq 1, wm 100) — the deterministic content for this slot.
+      render: () => ({ templateId: "tmpl_1", subject: "Weekly", watermark: "100", issueSeq: 1 }),
+    });
+
+    const res = await program.runIssue(envoy, { force: true });
+
+    // Did NOT re-send (send-once: the claim was already terminal).
+    expect(res.sent).toBe(false);
+    expect(res.skipped).toBe("already_sent");
+    expect(res.broadcastId).toBe("bcast_prior");
+    expect(resend.create).not.toHaveBeenCalled();
+
+    // The cursor was reconciled FORWARD to this issue's watermark/seq — the row is now materialized.
+    const stateRow = state.get(`${NAMESPACE}|${NS("weekly")}|${NS("default")}`);
+    expect(stateRow).toBeDefined();
+    expect(stateRow!.watermark).toBe("100");
+    expect(stateRow!.issue_seq).toBe(1);
+    expect(stateRow!.last_fired_at).not.toBeNull();
+    // The result surfaces the advanced cursor so the host sees progress.
+    expect(res.cursor?.watermark).toBe("100");
+    expect(res.cursor?.issueSeq).toBe(1);
+
+    // The advance INSERT ran exactly once (the reconcile-forward), proving the cursor moved.
+    const advanceCalls = calls.filter(
+      (c) => c.text.trim().startsWith("INSERT INTO sdk_program_state") && c.text.includes("issue_seq")
+    );
+    expect(advanceCalls).toHaveLength(1);
+  });
+
+  it("after the wedge is reconciled, a fresh tick can issue the NEXT sequence (cursor unblocked)", async () => {
+    // Continuation of the wedge scenario: with the cursor reconciled to seq 1 / wm 100, the next due
+    // tick (new content, wm 200) wins a FRESH claim for seq 2 and sends — proving the program is no
+    // longer stuck re-deriving seq 1.
+    const { pool, state } = fakeDb({
+      topicCache: { "digest:default": "tp_1" },
+      // The cursor is already reconciled to seq 1 / wm 100 (the post-P1 state), past last fire.
+      cursor: {
+        programKey: "weekly",
+        subjectKey: "default",
+        row: { watermark: "100", issue_seq: 1, last_fired_at: "2026-06-10T00:00:00Z" },
+      },
+      // Seq-1 claim is terminal; seq-2 has never been claimed.
+      claims: {
+        "weekly:default:1": { resend_broadcast_id: "bcast_prior", sent_at: "2026-06-10T00:00:00Z" },
+      },
+    });
+    const resend = fakeResend({ createId: "bcast_next" });
+    const envoy = makeEnvoy(pool, resend.handle);
+    const program = defineBroadcastProgram({
+      key: "weekly",
+      segmentId: "seg_1",
+      cadenceDays: 7,
+      from: "news@acme.test",
+      // New content for the next slot: seq 2, wm 200.
+      render: (ctx) => ({
+        templateId: "tmpl_1",
+        subject: "Weekly",
+        watermark: "200",
+        issueSeq: ctx.cursor.issueSeq + 1,
+      }),
+    });
+
+    const res = await program.runIssue(envoy, { now: () => Date.parse("2026-06-30T00:00:00Z") });
+    expect(res.sent).toBe(true);
+    expect(res.broadcastId).toBe("bcast_next");
+    expect(res.broadcastKey).toBe("weekly:default:2");
+    expect(resend.create).toHaveBeenCalledTimes(1);
+    const stateRow = state.get(`${NAMESPACE}|${NS("weekly")}|${NS("default")}`);
+    expect(stateRow!.watermark).toBe("200");
+    expect(stateRow!.issue_seq).toBe(2);
+  });
+});
 
 describe("runIssue — concurrent claim loss (R35 error)", () => {
   it("a lost claim that is NOT resumable (already sent) skips without sending", async () => {
