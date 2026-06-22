@@ -133,24 +133,30 @@ async function advance(
   const completed = nextIndex >= sequence.steps.length;
   const nextRunAt = completed ? null : nextRunAtFor(sequence.steps[nextIndex], now);
 
+  // Mark the step sent AND advance the enrollment in ONE statement so a crash can never leave the
+  // step `sent` while the enrollment is still due (which would re-attempt / re-send next tick).
+  // The injected pool exposes only `.query` — no transaction surface — so atomicity comes from a
+  // single data-modifying CTE: the step UPDATE runs in the WITH clause, the enrollment UPDATE is
+  // the outer statement, and Postgres commits them together or not at all.
   await envoy.db.execWrite(
-    `UPDATE sdk_steps
-       SET status = 'sent', resend_email_id = $3, sent_at = NOW(),
-           attempts = attempts + 1, last_error = NULL, updated_at = NOW()
-     WHERE namespace = $1 AND id = $2`,
-    [envoy.db.namespace, due.stepId, emailId],
-  );
-
-  await envoy.db.execWrite(
-    `UPDATE sdk_enrollments
-       SET current_step = $3, status = $4, next_run_at = $5, updated_at = NOW()
-     WHERE namespace = $1 AND id = $2`,
+    `WITH step_done AS (
+       UPDATE sdk_steps
+          SET status = 'sent', resend_email_id = $3, sent_at = NOW(),
+              attempts = attempts + 1, last_error = NULL, updated_at = NOW()
+        WHERE namespace = $1 AND id = $2
+        RETURNING id
+     )
+     UPDATE sdk_enrollments
+        SET current_step = $4, status = $5, next_run_at = $6, updated_at = NOW()
+      WHERE namespace = $1 AND id = $7`,
     [
       envoy.db.namespace,
-      due.enrollmentId,
+      due.stepId,
+      emailId,
       nextIndex,
       completed ? "completed" : "active",
       nextRunAt ? nextRunAt.toISOString() : null,
+      due.enrollmentId,
     ],
   );
 

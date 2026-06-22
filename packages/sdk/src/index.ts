@@ -59,6 +59,7 @@ export {
   type Authorize,
   type AuthorizeResult,
   type DripCronHandlerConfig,
+  type CronTickResponse,
 } from "./route/handler.js";
 
 // U6 — consent mirror (the send gate) + signed topic-scoped unsubscribe landing.

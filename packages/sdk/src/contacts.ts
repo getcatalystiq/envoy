@@ -322,6 +322,22 @@ export async function enroll(
       [envoy.db.namespace, namespacedContact, sequenceKey]
     );
     const status = existing.rows[0]?.status ?? "active";
+
+    // Self-heal a half-written prior enroll (re-enroll seed gap): the original enroll could have
+    // crashed AFTER the enrollment INSERT but BEFORE seeding the opt_in consent row, leaving an
+    // active enrollment that the send gate (which denies-by-default with no consent row) silently
+    // suppresses forever. A re-enroll is the natural repair point — if the contact is NOT globally
+    // suppressed and NO consent row exists for (email, sequenceKey), seed the monotonic opt_in row
+    // now. We only seed when the row is ABSENT, so a contact who explicitly unsubscribed this topic
+    // (a present opt_out/unsubscribed row) is never resurrected.
+    if (!unsubscribed) {
+      const mirror = createConsentMirror(envoy.db, envoy.resend);
+      const consent = await mirror.read(email, sequenceKey);
+      if (consent === null) {
+        await mirror.set({ email, topicKey: sequenceKey, stream, status: "opt_in" });
+      }
+    }
+
     return {
       email,
       sequenceKey,
@@ -399,56 +415,56 @@ async function readContactMeta(
   return row ? { resendContactId: row.resend_contact_id } : null;
 }
 
-/** Suppress the mirror contact: flip `unsubscribed = TRUE` + mark dirty, then fan the suppression
- * into every per-topic consent row so the send gate denies both lanes at once. Monotonic suppress-all. */
-async function suppressMirror(envoy: Envoy, email: string): Promise<void> {
-  await envoy.db.query(
-    `UPDATE sdk_contacts SET unsubscribed = TRUE, dirty_since = NOW(), updated_at = NOW()
-       WHERE namespace = $1 AND lower(email) = $2`,
-    [envoy.db.namespace, email]
-  );
-  // Bridge the global suppression into per-topic consent (R22/R26): raise BOTH streams of every
-  // existing consent row to terminal `unsubscribed` (monotonic) so a deleted/suppressed contact is
-  // denied on every topic the gate reads, without waiting for the reconcile sweep.
+/**
+ * Atomically suppress AND erase a contact (R34 GDPR erasure) in ONE statement. The injected pool
+ * has no transaction surface, so a single data-modifying CTE is the only way to make erasure atomic:
+ * if any part fails, none of it commits, and we never report `piiPurged: true` for a half-erased
+ * contact. Previously this ran as four independent writes — a crash between them could leave the
+ * contact's `sdk_enrollments.data` snapshot (host PII) intact while the caller still set
+ * `piiPurged = true`. The CTE binds suppression + the fan-out + the PII wipe together:
+ *
+ *   - `enr_ids`        — the enrollment ids for this contact (drives the step PII clear).
+ *   - `step_clear`     — null `sdk_steps.last_error` / `agent_session_id` for those enrollments (FK child first).
+ *   - `enr_purge`      — null `sdk_enrollments.data` (the host JSON snapshot).
+ *   - `contact_suppress` — flip `sdk_contacts.unsubscribed = TRUE` + mark dirty.
+ *   - outer            — fan the suppression into every per-topic consent row (BOTH streams →
+ *                        terminal `unsubscribed`, monotonic), so the gate denies both lanes at once.
+ *
+ * The mirror/enrollment/step ROWS themselves stay (the suppressed mirror is the exclusion guarantee);
+ * only the PII-bearing columns are wiped.
+ */
+async function eraseContact(envoy: Envoy, email: string): Promise<void> {
   const namespacedContact = envoy.db.namespaceKey(email);
   await envoy.db.query(
-    `UPDATE sdk_topic_consent
+    `WITH enr_ids AS (
+       SELECT id FROM sdk_enrollments
+        WHERE namespace = $1 AND lower(contact) = lower($3)
+     ),
+     step_clear AS (
+       UPDATE sdk_steps
+          SET last_error = NULL, agent_session_id = NULL, updated_at = NOW()
+        WHERE namespace = $1 AND enrollment_id IN (SELECT id FROM enr_ids)
+        RETURNING id
+     ),
+     enr_purge AS (
+       UPDATE sdk_enrollments
+          SET data = '{}'::jsonb, updated_at = NOW()
+        WHERE namespace = $1 AND lower(contact) = lower($3)
+        RETURNING id
+     ),
+     contact_suppress AS (
+       UPDATE sdk_contacts
+          SET unsubscribed = TRUE, dirty_since = NOW(), updated_at = NOW()
+        WHERE namespace = $1 AND lower(email) = $2
+        RETURNING email
+     )
+     UPDATE sdk_topic_consent
         SET digest_status = 'unsubscribed',
             alert_status = 'unsubscribed',
             dirty_since = NOW(),
             updated_at = NOW()
-      WHERE namespace = $1 AND lower(contact) = lower($2)`,
-    [envoy.db.namespace, namespacedContact]
-  );
-}
-
-/**
- * Hard-purge the contact's residual PII from the drip-state tables (R34 GDPR erasure). Suppression
- * leaves the contact excluded, but `sdk_enrollments.data` (the host JSON snapshot) and any
- * `sdk_steps.last_error` text can still carry personal data — erasure must remove it. We null the
- * `data` JSON to an empty object and clear the step error/marker columns for every enrollment of
- * this contact (matched case-insensitively on the namespaced key). The rows themselves stay (the
- * suppressed mirror is what keeps the contact excluded); only the PII-bearing columns are wiped.
- */
-async function purgeContactPii(envoy: Envoy, email: string): Promise<void> {
-  const namespacedContact = envoy.db.namespaceKey(email);
-  // Clear step PII first (FK child), scoped to this contact's enrollments.
-  await envoy.db.query(
-    `UPDATE sdk_steps
-        SET last_error = NULL, agent_session_id = NULL, updated_at = NOW()
-      WHERE namespace = $1
-        AND enrollment_id IN (
-          SELECT id FROM sdk_enrollments
-           WHERE namespace = $1 AND lower(contact) = lower($2)
-        )`,
-    [envoy.db.namespace, namespacedContact]
-  );
-  // Then null the enrollment data snapshot.
-  await envoy.db.query(
-    `UPDATE sdk_enrollments
-        SET data = '{}'::jsonb, updated_at = NOW()
-      WHERE namespace = $1 AND lower(contact) = lower($2)`,
-    [envoy.db.namespace, namespacedContact]
+      WHERE namespace = $1 AND lower(contact) = lower($3)`,
+    [envoy.db.namespace, email, namespacedContact]
   );
 }
 
@@ -479,16 +495,14 @@ export async function deleteContact(
   // of the case the caller passed (residual casing fix).
   const email = normalizeEmail(rawEmail);
 
-  // 1. Suppress mirror FIRST (may throw on a hard DB failure — that is correct, we must not proceed
-  //    to delete from Resend if we could not record the suppression locally). This also fans the
-  //    suppression into every per-topic consent row so the gate denies both lanes.
-  await suppressMirror(envoy, email);
-
-  // 1b. GDPR PII purge (R34): erase the host data snapshot + step error/marker columns so erasure
-  //     removes personal data, not just stops sends. Done after suppression (the mirror suppression
-  //     is the exclusion guarantee), before the best-effort Resend teardown.
+  // 1. Suppress AND erase ATOMICALLY (R34). One CTE flips the mirror suppression, fans it into every
+  //    per-topic consent row (gate denies both lanes), AND wipes the PII columns (enrollment data
+  //    snapshot + step error/marker). May throw on a hard DB failure — that is correct: we must not
+  //    proceed to the best-effort Resend teardown if we could not record suppression + erasure
+  //    locally. `piiPurged` is set to true ONLY after the statement resolves, so a thrown/partial
+  //    erasure never reports `piiPurged: true`.
   let piiPurged = false;
-  await purgeContactPii(envoy, email);
+  await eraseContact(envoy, email);
   piiPurged = true;
 
   // 2. Capture the Resend contact id.

@@ -401,6 +401,26 @@ export interface DripCronHandlerConfig {
 }
 
 /**
+ * The JSON body the drip cron handler returns on a successful tick. This is the WIRE shape the host
+ * types its cron route against — deliberately distinct from the engine's {@link DripTickResult}, which
+ * additionally carries the bounded per-enrollment `items[]`. The handler intentionally returns ONLY the
+ * aggregate counts (no `items`), so hosts must not be forced to satisfy a required `items` field that the
+ * response never includes.
+ */
+export interface CronTickResponse {
+  /** Always `true` on the 200 path (a thrown tick surfaces `{ ok: false, error }` with a 500). */
+  ok: true;
+  /** How many due enrollments this tick claimed. */
+  claimed: number;
+  /** How many claimed steps actually sent an email. */
+  sent: number;
+  /** How many were skipped (not_due / suppressed / deferred / unknown_sequence / resend_disabled). */
+  skipped: number;
+  /** How many failed (generation_failed / send_failed / tick_error) — left due for a later tick. */
+  failed: number;
+}
+
+/**
  * Build the `/cron/drip` handler. Returns a {@link SubHandler} — `(request) => Promise<Response>` —
  * the host passes to `createEnvoyHandler({ ..., cron })`. The factory already gated the request on
  * `CRON_SECRET`; this handler runs one tick and returns a JSON summary (claimed/sent/skipped/failed).
@@ -418,13 +438,14 @@ export function createDripCronHandler(
   return async (_request: Request): Promise<Response> => {
     try {
       const result: DripTickResult = await tickDrip(envoy, registry, tick);
-      return jsonResponse(200, {
+      const body: CronTickResponse = {
         ok: true,
         claimed: result.claimed,
         sent: result.sent,
         skipped: result.skipped,
         failed: result.failed,
-      });
+      };
+      return jsonResponse(200, body);
     } catch (err) {
       // The claim or an un-caught tick-level error is OURS, not the caller's — surface 5xx so the
       // cron platform retries. Redact before logging (R43): no recipient/secret leaks.

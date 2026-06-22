@@ -32,6 +32,8 @@ interface ConsentSeed {
   topicId?: string | null;
   digest?: "opt_in" | "opt_out" | "unsubscribed";
   alert?: "opt_in" | "opt_out" | "unsubscribed";
+  /** GLOBAL `sdk_contacts.unsubscribed` flag — the gate's suppress-all check (default false). */
+  unsubscribed?: boolean;
 }
 
 interface RecordedCall {
@@ -45,6 +47,9 @@ function fakePool(seed: ConsentSeed[] = []): {
 } {
   // Key on the NAMESPACED contact (matches the `$2` the mirror's gate SELECT passes).
   const rows = new Map<string, Record<string, unknown>>();
+  // GLOBAL suppression flag store, keyed on the lower-cased bare email (matches the
+  // `sdk_contacts` SELECT in ConsentMirror.gate → isGloballySuppressed). Default unsuppressed.
+  const suppressed = new Map<string, boolean>();
   for (const s of seed) {
     const nsContact = `${NAMESPACE}:${s.contact}`;
     rows.set(`${nsContact}|${s.topicKey}`, {
@@ -55,6 +60,7 @@ function fakePool(seed: ConsentSeed[] = []): {
       alert_status: s.alert ?? "opt_in",
       dirty_since: null,
     });
+    suppressed.set(s.contact.toLowerCase(), s.unsubscribed ?? false);
   }
   const calls: RecordedCall[] = [];
   const pool: SdkPool = {
@@ -64,6 +70,14 @@ function fakePool(seed: ConsentSeed[] = []): {
     ): Promise<SdkQueryResult<T>> {
       calls.push({ text, params: params ?? [] });
       const t = text.trim();
+      // The gate's FIRST query: the GLOBAL suppression flag (ConsentMirror.isGloballySuppressed).
+      // Without this, the suppress-all gate is a no-op in tests (the SELECT would fall through to
+      // the empty default and read as not-suppressed).
+      if (/SELECT unsubscribed[\s\S]*FROM sdk_contacts[\s\S]*lower\(email\)/i.test(t)) {
+        const [, email] = (params ?? []) as unknown[];
+        const flag = suppressed.get(String(email).toLowerCase()) ?? false;
+        return { rows: [{ unsubscribed: flag }] as T[] };
+      }
       // The mirror's gate SELECT — shape mirrors ConsentMirror.gate's query.
       if (/SELECT[\s\S]*digest_status[\s\S]*FROM sdk_topic_consent/i.test(t)) {
         const [, contact, topicKey] = (params ?? []) as unknown[];
@@ -286,6 +300,57 @@ describe("runDripStep — happy path (R14)", () => {
     expect(enrollmentUpdate?.params).toContain("completed");
   });
 
+  it("a stepIndex past the end of the sequence sends nothing and marks the enrollment completed", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: '{"GREETING":"Hi"}' },
+    });
+    // SEQ has 2 steps (indexes 0,1); index 2 is off the end — a never-cleaned enrollment.
+    const res = await runDripStep(env.envoy, SEQ, baseDue({ stepIndex: 2 }), env.config);
+    expect(res).toMatchObject({ sent: false, reason: "generation_failed" });
+    expect(env.emailsSend).not.toHaveBeenCalled();
+    // The enrollment is force-completed so the cron never re-claims a dangling row.
+    const completeWrite = env.calls.find(
+      (c) => /UPDATE sdk_enrollments[\s\S]*status = 'completed'[\s\S]*next_run_at = NULL/i.test(c.text),
+    );
+    expect(completeWrite).toBeDefined();
+    expect(completeWrite!.params).toContain(10); // enrollmentId
+  });
+
+  it("commits the step-sent and the enrollment advance as ONE atomic CTE write (P1 double-send guard)", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: '{"GREETING":"Hi Ada"}' },
+    });
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(res).toMatchObject({ sent: true, advancedTo: 1, completed: false });
+
+    // The advance is a single statement: a data-modifying WITH (sdk_steps -> sent) feeding the
+    // outer enrollment UPDATE. There must NOT be two independent writes that a crash could split.
+    const advanceWrites = env.calls.filter(
+      (c) =>
+        /UPDATE sdk_steps[\s\S]*status = 'sent'[\s\S]*UPDATE sdk_enrollments[\s\S]*current_step/i.test(
+          c.text,
+        ),
+    );
+    expect(advanceWrites).toHaveLength(1);
+    const write = advanceWrites[0]!;
+    expect(write.text).toMatch(/WITH step_done AS/i);
+    // Both the step-sent (resend_email_id) and the advance params travel in the one call.
+    expect(write.params).toContain("email_1"); // resend_email_id ($3)
+    expect(write.params).toContain("active"); // enrollment status ($5)
+    expect(write.params).toContain(100); // stepId ($2)
+    expect(write.params).toContain(10); // enrollmentId ($7)
+
+    // And there is NO standalone `UPDATE sdk_steps SET status = 'sent'` that isn't the CTE.
+    const standaloneStepSent = env.calls.filter(
+      (c) =>
+        /UPDATE sdk_steps[\s\S]*status = 'sent'/i.test(c.text) &&
+        !/UPDATE sdk_enrollments/i.test(c.text),
+    );
+    expect(standaloneStepSent).toHaveLength(0);
+  });
+
   it("sends a non-AI step (no aiSlots) with no variables and without calling the agent", async () => {
     const seq = defineSequence({
       key: "welcome",
@@ -348,6 +413,19 @@ describe("runDripStep — fail-safe (R16)", () => {
     });
     const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
     expect(res).toMatchObject({ sent: false, reason: "send_failed" });
+  });
+
+  it("a step that declares aiSlots with no agent configured rejects before sending (R45)", async () => {
+    // The contact passes the gate (opt_in, not suppressed) so the step reaches the generation
+    // path — where requireAgent must throw because createEnvoy was given no `agent`.
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      configOverrides: { agent: undefined },
+    });
+    await expect(runDripStep(env.envoy, SEQ, baseDue(), env.config)).rejects.toThrow(
+      /aiSlots|agent/i,
+    );
+    expect(env.emailsSend).not.toHaveBeenCalled();
   });
 });
 
@@ -446,6 +524,29 @@ describe("runDripStep — gating", () => {
     });
     const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
     expect(res).toEqual({ sent: false, reason: "suppressed" });
+  });
+
+  it("Edge: a GLOBALLY-suppressed contact is denied even with a stale opt_in topic row (R22/R26)", async () => {
+    // The global `sdk_contacts.unsubscribed` flag (bounce/complaint/GDPR/hosted-page) dominates a
+    // per-topic consent row that still reads `opt_in`. The gate's suppress-all SELECT is what
+    // catches this — without the sdk_contacts handler this contact would wrongly be sent to.
+    const env = setup({
+      seed: [
+        {
+          contact: "ada@example.com",
+          topicKey: "welcome",
+          digest: "opt_in",
+          alert: "opt_in",
+          unsubscribed: true,
+        },
+      ],
+      agent: { output: '{"GREETING":"Hi"}' },
+    });
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(res).toEqual({ sent: false, reason: "suppressed" });
+    expect(env.emailsSend).not.toHaveBeenCalled();
+    // Gate is first — the agent is never even consulted.
+    expect(env.agent!.create).not.toHaveBeenCalled();
   });
 });
 

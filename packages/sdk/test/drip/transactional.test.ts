@@ -35,6 +35,8 @@ interface ConsentSeed {
   digest?: "opt_in" | "opt_out" | "unsubscribed";
   alert?: "opt_in" | "opt_out" | "unsubscribed";
   dirty?: boolean;
+  /** GLOBAL `sdk_contacts.unsubscribed` flag — the gate's suppress-all check (default false). */
+  unsubscribed?: boolean;
 }
 
 function fakePool(seed: ConsentSeed[] = []): {
@@ -43,6 +45,9 @@ function fakePool(seed: ConsentSeed[] = []): {
 } {
   // Key on the NAMESPACED contact (matches what the mirror passes as $2).
   const rows = new Map<string, Record<string, unknown>>();
+  // GLOBAL suppression flag store, keyed on the lower-cased bare email (matches the `sdk_contacts`
+  // SELECT in ConsentMirror.gate → isGloballySuppressed). Default unsuppressed.
+  const suppressed = new Map<string, boolean>();
   for (const s of seed) {
     const nsContact = `${NAMESPACE}:${s.contact}`;
     rows.set(`${nsContact}|${s.topicKey}`, {
@@ -53,6 +58,7 @@ function fakePool(seed: ConsentSeed[] = []): {
       alert_status: s.alert ?? "opt_in",
       dirty_since: s.dirty ? "2026-01-01" : null,
     });
+    suppressed.set(s.contact.toLowerCase(), s.unsubscribed ?? false);
   }
 
   const calls: Array<{ text: string; params?: ReadonlyArray<unknown> }> = [];
@@ -60,6 +66,14 @@ function fakePool(seed: ConsentSeed[] = []): {
     query: vi.fn(async (text: string, params?: ReadonlyArray<unknown>) => {
       calls.push({ text, params });
       const t = text.trim();
+      // The gate's FIRST query: the GLOBAL suppression flag (ConsentMirror.isGloballySuppressed).
+      // Without this, the suppress-all gate is a no-op (the SELECT falls through to the empty
+      // default and reads as not-suppressed).
+      if (/SELECT unsubscribed[\s\S]*FROM sdk_contacts[\s\S]*lower\(email\)/i.test(t)) {
+        const [, email] = (params ?? []) as unknown[];
+        const flag = suppressed.get(String(email).toLowerCase()) ?? false;
+        return { rows: [{ unsubscribed: flag }] } as never;
+      }
       if (t.startsWith("SELECT contact, topic_key, topic_id, digest_status")) {
         const [, contact, topicKey] = params as [string, string, string];
         const row = rows.get(`${contact}|${topicKey}`);
@@ -442,6 +456,39 @@ describe("sendTransactional — mirror gate (R26)", () => {
       config
     );
     expect(res).toEqual({ sent: false, reason: "suppressed" });
+    expect(emailsSend).not.toHaveBeenCalled();
+  });
+
+  it("Edge: a GLOBALLY-suppressed contact with a stale opt_in row is blocked on BOTH streams (R22/R26)", async () => {
+    // The global `sdk_contacts.unsubscribed` flag (bounce/complaint/GDPR/hosted-page) dominates a
+    // per-topic row that still reads opt_in on both lanes. Without the sdk_contacts handler the
+    // suppress-all gate is a no-op and this contact would wrongly be sent to.
+    const { config, emailsSend, ...env } = setup({
+      seed: [
+        {
+          contact: "ada@example.com",
+          topicKey: "welcome",
+          digest: "opt_in",
+          alert: "opt_in",
+          unsubscribed: true,
+        },
+      ],
+    });
+
+    const digestRes = await sendTransactional(
+      env.envoy,
+      baseInput({ stream: "digest", from: "hi@app.example.com" }),
+      config
+    );
+    expect(digestRes).toEqual({ sent: false, reason: "suppressed" });
+
+    const alertRes = await sendTransactional(
+      env.envoy,
+      baseInput({ stream: "alert", from: "hi@app.example.com" }),
+      config
+    );
+    expect(alertRes).toEqual({ sent: false, reason: "suppressed" });
+
     expect(emailsSend).not.toHaveBeenCalled();
   });
 

@@ -69,6 +69,30 @@ function fakeContactsPool(seed: string[] = [], consentSeed: ConsentRow[] = []) {
         return { rows: row ? [{ ...row }] : [] } as never;
       }
 
+      // suppressContact — ONE atomic CTE (P2): flip sdk_contacts.unsubscribed AND fan the
+      // suppression into every per-topic consent row in a single statement. Params:
+      // [namespace, lower(email), namespacedContact].
+      if (
+        t.startsWith("WITH c AS (") &&
+        /UPDATE sdk_contacts/.test(t) &&
+        /UPDATE sdk_topic_consent/.test(t)
+      ) {
+        const [, email, nsContact] = params as [string, string, string];
+        const row = contacts.get(email);
+        if (row) {
+          row.unsubscribed = true;
+          row.dirty = true;
+        }
+        for (const c of consent.values()) {
+          if (c.contact.toLowerCase() === String(nsContact).toLowerCase()) {
+            c.digest_status = "unsubscribed";
+            c.alert_status = "unsubscribed";
+            c.dirty_since = "now";
+          }
+        }
+        return { rows: [] } as never;
+      }
+
       if (t.startsWith("UPDATE sdk_contacts SET unsubscribed = TRUE")) {
         const [, email] = params as [string, string];
         const row = contacts.get(email);
@@ -86,7 +110,7 @@ function fakeContactsPool(seed: string[] = [], consentSeed: ConsentRow[] = []) {
         return { rows: row ? [row] : [] } as never;
       }
 
-      // Fan-out: raise every consent row for the contact to unsubscribed (suppressContact).
+      // Fan-out: raise every consent row for the contact to unsubscribed (standalone form).
       if (t.startsWith("UPDATE sdk_topic_consent") && /digest_status = 'unsubscribed'/.test(t)) {
         const [, nsContact] = params as [string, string];
         for (const row of consent.values()) {

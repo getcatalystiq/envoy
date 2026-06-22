@@ -47,6 +47,8 @@ interface ConsentSeed {
   contact: string;
   topicKey: string;
   digest?: "opt_in" | "opt_out" | "unsubscribed";
+  /** GLOBAL `sdk_contacts.unsubscribed` flag — the gate's suppress-all check (default false). */
+  unsubscribed?: boolean;
 }
 
 interface RecordedCall {
@@ -115,6 +117,9 @@ function fakePool(opts: {
 
   // Consent rows keyed on the NAMESPACED contact (the mirror namespaces before its gate SELECT).
   const consent = new Map<string, Record<string, unknown>>();
+  // GLOBAL suppression flag store, keyed on the lower-cased bare email (matches the `sdk_contacts`
+  // SELECT in ConsentMirror.gate → isGloballySuppressed). Default unsuppressed.
+  const suppressed = new Map<string, boolean>();
   for (const c of opts.consent ?? []) {
     const nsContact = `${NAMESPACE}:${c.contact}`;
     consent.set(`${nsContact}|${c.topicKey}`, {
@@ -125,6 +130,7 @@ function fakePool(opts: {
       alert_status: "opt_in",
       dirty_since: null,
     });
+    suppressed.set(c.contact.toLowerCase(), c.unsubscribed ?? false);
   }
 
   // A "lock set" so a second concurrent tick's claim skips rows the first already returned —
@@ -195,6 +201,15 @@ function fakePool(opts: {
         return { rows: (row ? [{ id: row.id, agent_session_id: row.agent_session_id }] : []) as T[] };
       }
 
+      // 3.5. Gate's FIRST query: the GLOBAL suppression flag (ConsentMirror.isGloballySuppressed).
+      // Without this, the suppress-all gate is a no-op (the SELECT falls through to the empty
+      // default and reads as not-suppressed).
+      if (/SELECT unsubscribed[\s\S]*FROM sdk_contacts[\s\S]*lower\(email\)/i.test(t)) {
+        const [, email] = (params ?? []) as unknown[];
+        const flag = suppressed.get(String(email).toLowerCase()) ?? false;
+        return { rows: [{ unsubscribed: flag }] as T[] };
+      }
+
       // 4. Mirror gate SELECT (real ConsentMirror).
       if (/SELECT[\s\S]*digest_status[\s\S]*FROM sdk_topic_consent/i.test(t)) {
         const [, contact, topicKey] = (params ?? []) as unknown[];
@@ -202,26 +217,27 @@ function fakePool(opts: {
         return { rows: (row ? [row] : []) as T[] };
       }
 
-      // 5. Engine advance: mark step sent.
-      if (/UPDATE sdk_steps[\s\S]*status = 'sent'/i.test(t)) {
-        const [, stepId, emailId] = params as [string, number, string];
+      // 5 + 6. Engine advance — ONE atomic CTE (P1 double-send guard): mark the step sent AND move
+      // the enrollment to the next step in a single statement. Params:
+      //   [namespace, stepId($2), emailId($3), nextStep($4), status($5), nextRunAt($6), enrollmentId($7)]
+      if (
+        /UPDATE sdk_steps[\s\S]*status = 'sent'/i.test(t) &&
+        /UPDATE sdk_enrollments[\s\S]*current_step = \$4/i.test(t)
+      ) {
+        const [, stepId, emailId, nextStep, status, nextRunAt, enrollmentId] = params as [
+          string,
+          number,
+          string,
+          number,
+          string,
+          string | null,
+          number,
+        ];
         const step = steps.find((s) => s.id === stepId);
         if (step) {
           step.status = "sent";
           step.resend_email_id = emailId;
         }
-        return { rows: [] as T[] };
-      }
-
-      // 6. Engine advance: move enrollment to next step.
-      if (/UPDATE sdk_enrollments[\s\S]*current_step = \$3/i.test(t)) {
-        const [, enrollmentId, nextStep, status, nextRunAt] = params as [
-          string,
-          number,
-          number,
-          string,
-          string | null,
-        ];
         const e = enrollments.get(enrollmentId as unknown as number);
         if (e) {
           e.current_step = nextStep;
@@ -387,6 +403,31 @@ describe("tickDrip — claim + run (R20, R21)", () => {
     // Both advanced to step 1.
     expect(fp.enrollments.get(10)?.current_step).toBe(1);
     expect(fp.enrollments.get(11)?.current_step).toBe(1);
+  });
+
+  it("claims a GLOBALLY-suppressed contact but gates it — skipped, nothing sent (R22/R26)", async () => {
+    // The global `sdk_contacts.unsubscribed` flag dominates a per-topic consent row that still
+    // reads `opt_in`. The enrollment IS claimed (the claim CTE doesn't know about suppression),
+    // but the gate denies the send. Without the sdk_contacts handler this would wrongly send.
+    const fp = fakePool({
+      enrollments: [{ id: 10, contact: "ada@example.com", sequenceKey: "welcome", currentStep: 0 }],
+      consent: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in", unsubscribed: true }],
+    });
+    fakeAgent({ output: '{"GREETING":"Hi"}' });
+    const { handle, emailsSend } = fakeResend();
+    const envoy = makeEnvoy(fp.pool, handle);
+
+    const result = await tickDrip(envoy, REGISTRY, tickConfig(envoy));
+
+    expect(result.claimed).toBe(1);
+    expect(result.sent).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(emailsSend).not.toHaveBeenCalled();
+    const item = result.items.find((i) => i.email === "ada@example.com");
+    expect(item?.result).toEqual({ sent: false, reason: "suppressed" });
+    // The enrollment is left untouched (still at step 0) — not advanced, not completed.
+    expect(fp.enrollments.get(10)?.current_step).toBe(0);
   });
 
   it("two concurrent ticks double-send nothing (R21)", async () => {

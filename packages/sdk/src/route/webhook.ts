@@ -164,32 +164,26 @@ async function enqueueReconcile(envoy: Envoy, email: string): Promise<void> {
  * a separate, explicit host action.
  */
 async function suppressContact(envoy: Envoy, email: string): Promise<void> {
-  await envoy.db.query(
-    `UPDATE sdk_contacts SET unsubscribed = TRUE, dirty_since = NOW(), updated_at = NOW()
-       WHERE namespace = $1 AND lower(email) = $2`,
-    [envoy.db.namespace, email]
-  );
-  await fanSuppressionIntoConsent(envoy, email);
-}
-
-/**
- * Fan a contact's GLOBAL suppression into every one of its per-topic consent rows, raising BOTH
- * streams to terminal `unsubscribed` (monotonic — never lowers a more-suppressed value). This
- * bridges a global suppression (bounce/complaint/hosted-page unsub) into the per-`(contact, topic)`
- * state the send gate reads, so the gate denies every topic on both lanes without waiting for the
- * reconcile sweep (R22/R26). `email` is the already-lowercased bare recipient; consent rows key on
- * the namespaced contact, matched case-insensitively to absorb any legacy mixed-case rows.
- */
-async function fanSuppressionIntoConsent(envoy: Envoy, email: string): Promise<void> {
+  // ONE statement: flip the contact flag AND fan the suppression into every per-topic consent row.
+  // The injected pool has no transaction surface, so we lean on a single data-modifying CTE — the
+  // `sdk_contacts` UPDATE runs in the WITH clause, the `sdk_topic_consent` fan-out is the outer
+  // statement, and Postgres commits both or neither. A crash can no longer leave the contact globally
+  // suppressed while its consent rows still read `opt_in` (which the gate would honor and keep sending).
   const namespacedContact = envoy.db.namespaceKey(email);
   await envoy.db.query(
-    `UPDATE sdk_topic_consent
+    `WITH c AS (
+       UPDATE sdk_contacts
+          SET unsubscribed = TRUE, dirty_since = NOW(), updated_at = NOW()
+        WHERE namespace = $1 AND lower(email) = $2
+        RETURNING email
+     )
+     UPDATE sdk_topic_consent
         SET digest_status = 'unsubscribed',
             alert_status = 'unsubscribed',
             dirty_since = NOW(),
             updated_at = NOW()
-      WHERE namespace = $1 AND lower(contact) = lower($2)`,
-    [envoy.db.namespace, namespacedContact]
+      WHERE namespace = $1 AND lower(contact) = lower($3)`,
+    [envoy.db.namespace, email, namespacedContact]
   );
 }
 
@@ -328,7 +322,7 @@ export function createWebhookReceiver(
         "[@envoy/sdk] webhook ingest failed:",
         envoy.redact(err instanceof Error ? err.message : String(err))
       );
-      return jsonResponse(500, { error: "ingest_failed" });
+      return jsonResponse(500, { ok: false, error: "ingest_failed" });
     }
   };
 }

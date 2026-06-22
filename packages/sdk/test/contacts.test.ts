@@ -105,6 +105,40 @@ function fakePool(seed?: {
         return { rows: row ? [{}] : [] } as never;
       }
 
+      // --- deleteContact erasure — ONE atomic CTE (P2 GDPR): suppress sdk_contacts, null the
+      //     enrollment data snapshot, clear step PII, AND fan the suppression into consent, all in
+      //     a single statement. Params: [namespace, lower(email), namespacedContact].
+      if (
+        t.startsWith("WITH enr_ids AS (") &&
+        /UPDATE sdk_steps/.test(t) &&
+        /UPDATE sdk_enrollments/.test(t) &&
+        /UPDATE sdk_contacts/.test(t) &&
+        /UPDATE sdk_topic_consent/.test(t)
+      ) {
+        const [, email, nsContact] = p as [string, string, string];
+        // suppress the contact
+        const crow = contacts.get(email);
+        if (crow) {
+          crow.unsubscribed = true;
+          crow.dirty = true;
+        }
+        // null the enrollment data snapshot + fan suppression into consent
+        for (const row of enrollments.values()) {
+          if (row.contact.toLowerCase() === String(nsContact).toLowerCase()) {
+            (row as EnrollStore & { data?: unknown }).data = {};
+          }
+        }
+        for (const row of consent.values()) {
+          if (row.contact.toLowerCase() === String(nsContact).toLowerCase()) {
+            row.digest_status = "unsubscribed";
+            row.alert_status = "unsubscribed";
+            row.dirty_since = "now";
+          }
+        }
+        // sdk_steps PII clear is modeled as a no-op on this store (no step rows tracked here).
+        return { rows: [] } as never;
+      }
+
       // --- sdk_contacts suppress ---
       if (t.startsWith("UPDATE sdk_contacts SET unsubscribed = TRUE")) {
         const [, email] = p as [string, string];
@@ -677,10 +711,13 @@ describe("deleteContact — right-to-erasure, suppress-before-delete (R34)", () 
     // Mirror suppressed.
     expect(contacts.get("del@example.com")?.unsubscribed).toBe(true);
 
-    // ORDERING: the suppress UPDATE must precede the Resend remove call. Assert the suppress SQL
-    // ran before the SELECT of the resend id (which itself precedes the remove).
-    const suppressIdx = calls.findIndex((c) =>
-      c.text.trim().startsWith("UPDATE sdk_contacts SET unsubscribed = TRUE")
+    // ORDERING: the atomic erasure (suppress + PII wipe + consent fan-out, ONE CTE) must precede
+    // the Resend remove call. Assert it ran before the SELECT of the resend id (which itself
+    // precedes the remove). The suppress is now embedded in the `WITH enr_ids AS (...)` statement.
+    const suppressIdx = calls.findIndex(
+      (c) =>
+        c.text.trim().startsWith("WITH enr_ids AS (") &&
+        /UPDATE sdk_contacts\s+SET unsubscribed = TRUE/.test(c.text)
     );
     const selectIdx = calls.findIndex((c) =>
       c.text.trim().startsWith("SELECT resend_contact_id FROM sdk_contacts")
@@ -790,17 +827,25 @@ describe("deleteContact — right-to-erasure, suppress-before-delete (R34)", () 
     const enr = enrollments.get(`${NAMESPACE}:pii@example.com::welcome`);
     expect(enr?.data).toEqual({});
 
-    // The erasure issued BOTH the enrollment-data null AND the step-PII clear (R34).
-    const purgedEnrollments = calls.some(
+    // P2: erasure is ONE atomic statement. A single data-modifying CTE suppresses the contact,
+    // nulls the enrollment data snapshot, clears step PII, AND fans suppression into consent —
+    // so a crash can never leave the contact half-erased while we still report piiPurged: true.
+    const erasureWrites = calls.filter(
       (c) =>
-        c.text.trim().startsWith("UPDATE sdk_enrollments") &&
-        /data = '\{\}'::jsonb/.test(c.text),
+        c.text.trim().startsWith("WITH enr_ids AS (") &&
+        /data = '\{\}'::jsonb/.test(c.text) &&
+        /last_error = NULL/.test(c.text) &&
+        /UPDATE sdk_contacts/.test(c.text) &&
+        /UPDATE sdk_topic_consent/.test(c.text),
     );
-    const purgedSteps = calls.some(
-      (c) => c.text.trim().startsWith("UPDATE sdk_steps") && /last_error = NULL/.test(c.text),
+    expect(erasureWrites).toHaveLength(1);
+
+    // And there is NO standalone enrollment-data null / step-PII clear that isn't the atomic CTE.
+    const standaloneEnrollmentPurge = calls.filter(
+      (c) =>
+        c.text.trim().startsWith("UPDATE sdk_enrollments") && /data = '\{\}'::jsonb/.test(c.text),
     );
-    expect(purgedEnrollments).toBe(true);
-    expect(purgedSteps).toBe(true);
+    expect(standaloneEnrollmentPurge).toHaveLength(0);
   });
 
   it("P1: a globally-suppressed (bounced) contact is denied by the gate on BOTH lanes", async () => {
