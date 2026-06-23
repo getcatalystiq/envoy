@@ -1,0 +1,161 @@
+import "server-only";
+
+import type { NamespacedDb } from "../db/pool.js";
+import { defineSequence, SequenceDefinitionError, type Sequence, type SequenceStep } from "./sequence.js";
+
+// U-S1 — the DB-backed sequence-definition STORE: raw read/write over sdk_sequence_defs (+ the
+// append-only sdk_sequence_def_history audit), plus the active-enrollment counts the host's editor
+// needs for its in-flight safety gate. Definitions are stored under (namespace, BARE sequence_key)
+// — the namespace lives in the column, never prefixed onto the key (matches sdk_enrollments, so the
+// engine resolves the registry with the same bare key).
+//
+// Validation-on-write (defineSequence shape + validateSequenceSlots network) is the CRUD layer's job
+// (U-S3, crud.ts); this module is the storage primitive. The ONE invariant it enforces itself is on
+// READ: rowToSequence rebuilds every row THROUGH defineSequence, so a malformed stored row fails loud
+// (SequenceDefinitionError) rather than feeding the engine a bad Sequence.
+
+/** A stored steps value is JSONB — parsed to an array by pg/Neon, or still a JSON string. Normalize.
+ *  A corrupt JSON string is surfaced as SequenceDefinitionError so callers get the documented type
+ *  (not a raw SyntaxError); shape-validation of the array is left to defineSequence. */
+function parseSteps(raw: unknown): SequenceStep[] {
+  if (typeof raw !== "string") return raw as SequenceStep[];
+  try {
+    return JSON.parse(raw) as SequenceStep[];
+  } catch (err) {
+    throw new SequenceDefinitionError(
+      `stored sequence steps are not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+/**
+ * Rebuild a frozen, validated {@link Sequence} from a stored row. Re-runs `defineSequence`, so the
+ * loud structural validation + `Object.freeze` the code path gets are preserved for DB rows: a bad
+ * row throws `SequenceDefinitionError`, never silently yields a broken Sequence.
+ */
+export function rowToSequence(key: string, storedSteps: unknown): Sequence {
+  return defineSequence({ key, steps: parseSteps(storedSteps) });
+}
+
+/**
+ * Load EVERY definition in this namespace into a `key → Sequence` Map. Backs the DB registry's
+ * per-tick `refresh()` (U-S2): the sync `resolveSequence` the engine calls cannot await a DB read,
+ * so the registry resolves from this in-memory snapshot, reloaded before each tick. A single
+ * malformed row is SKIPPED + logged (not thrown) so one bad def can't blank the whole registry —
+ * the engine then resolves that key as `unknown_sequence` and skips it (never drops the enrollment).
+ */
+export async function loadAllSequenceDefs(db: NamespacedDb): Promise<Map<string, Sequence>> {
+  const { rows } = await db.query<{ sequence_key: string; steps: unknown }>(
+    `SELECT sequence_key, steps FROM sdk_sequence_defs WHERE namespace = $1`,
+    [db.namespace],
+  );
+  const out = new Map<string, Sequence>();
+  for (const r of rows) {
+    try {
+      out.set(r.sequence_key, rowToSequence(r.sequence_key, r.steps));
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[@catalystiq/envoy-sdk] skipping malformed stored sequence "${r.sequence_key}":`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return out;
+}
+
+/** Lightweight listing row for an admin index (no full steps payload). */
+export interface SequenceDefSummary {
+  key: string;
+  version: number;
+  updatedAt: string;
+}
+
+/** Read one definition by BARE key. `undefined` if absent. Throws (via defineSequence) on a bad row. */
+export async function readSequenceDef(db: NamespacedDb, key: string): Promise<Sequence | undefined> {
+  const { rows } = await db.query<{ steps: unknown }>(
+    `SELECT steps FROM sdk_sequence_defs WHERE namespace = $1 AND sequence_key = $2`,
+    [db.namespace, key],
+  );
+  if (rows.length === 0) return undefined;
+  return rowToSequence(key, rows[0].steps);
+}
+
+/**
+ * Upsert a definition (BARE key) and append its history row **atomically** — one statement, a CTE,
+ * so the def-version bump and the audit row commit together (a partial write would advance the live
+ * version with no matching history / rollback source). Returns the new `version` (1 on insert, prior
+ * + 1 on update). The caller (U-S3 `saveSequence`) MUST have validated the steps first — this is the
+ * storage primitive, not the validation gate. (Mirrors the engine's fused-CTE `advance`.)
+ */
+export async function upsertSequenceDef(
+  db: NamespacedDb,
+  input: { key: string; steps: readonly SequenceStep[]; actor?: string | null },
+): Promise<number> {
+  const stepsJson = JSON.stringify(input.steps);
+  const { rows } = await db.execWrite<{ version: number }>(
+    `WITH up AS (
+       INSERT INTO sdk_sequence_defs (namespace, sequence_key, steps, version)
+         VALUES ($1, $2, $3::jsonb, 1)
+       ON CONFLICT (namespace, sequence_key)
+         DO UPDATE SET steps = EXCLUDED.steps,
+                       version = sdk_sequence_defs.version + 1,
+                       updated_at = NOW()
+       RETURNING version
+     )
+     INSERT INTO sdk_sequence_def_history (namespace, sequence_key, version, actor, steps)
+       SELECT $1, $2, up.version, $4, $3::jsonb FROM up
+     RETURNING version`,
+    [db.namespace, input.key, stepsJson, input.actor ?? null],
+  );
+  return rows[0].version;
+}
+
+/** Delete a definition by BARE key. Returns whether a row was removed. In-flight enrollments on this
+ *  key keep running until the engine resolves `unknown_sequence` and skips them (never dropped). */
+export async function deleteSequenceDef(db: NamespacedDb, key: string): Promise<boolean> {
+  const { count } = await db.execWrite(
+    `DELETE FROM sdk_sequence_defs WHERE namespace = $1 AND sequence_key = $2 RETURNING id`,
+    [db.namespace, key],
+  );
+  return count > 0;
+}
+
+/** List the definitions in this namespace (key + current version + last-edited), for an admin index. */
+export async function listSequenceDefs(db: NamespacedDb): Promise<SequenceDefSummary[]> {
+  const { rows } = await db.query<{ sequence_key: string; version: number; updated_at: string }>(
+    `SELECT sequence_key, version, updated_at
+       FROM sdk_sequence_defs
+      WHERE namespace = $1
+      ORDER BY sequence_key`,
+    [db.namespace],
+  );
+  return rows.map((r) => ({ key: r.sequence_key, version: r.version, updatedAt: r.updated_at }));
+}
+
+/** Active-enrollment counts for a key: total + per-`current_step` breakdown. The host editor uses
+ *  this for the in-flight hard gate (refuse a delete/reorder that would orphan active enrollments). */
+export interface ActiveEnrollmentCounts {
+  total: number;
+  byStep: Record<number, number>;
+}
+
+export async function countActiveEnrollments(
+  db: NamespacedDb,
+  key: string,
+): Promise<ActiveEnrollmentCounts> {
+  const { rows } = await db.query<{ current_step: number; n: number }>(
+    `SELECT current_step, COUNT(*)::int AS n
+       FROM sdk_enrollments
+      WHERE namespace = $1 AND sequence_key = $2 AND status = 'active'
+      GROUP BY current_step`,
+    [db.namespace, key],
+  );
+  const byStep: Record<number, number> = {};
+  let total = 0;
+  for (const r of rows) {
+    byStep[r.current_step] = r.n;
+    total += r.n;
+  }
+  return { total, byStep };
+}
