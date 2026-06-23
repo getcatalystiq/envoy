@@ -107,6 +107,16 @@ describe("provisionTopic — idempotent, cached per (stream, subject) (R27/R37)"
     expect(store.get(`${NAMESPACE}|__envoy_topics__|digest:IT`)).toBe("tp_italy");
   });
 
+  it("creates the Topic opt_out (subscribe-on-request) when defaultSubscription is opt_out", async () => {
+    const { db, handle, create } = setup({ ids: ["tp_italy"] });
+
+    const res = await provisionTopic(db, handle, { stream: "alert", subject: "IT", defaultSubscription: "opt_out" });
+
+    expect(res.created).toBe(true);
+    // The opt_out default reaches Resend — a contact with no preference is NOT subscribed.
+    expect(create.mock.calls[0][0]).toMatchObject({ defaultSubscription: "opt_out" });
+  });
+
   it("Happy: a second provision returns the cached id and creates nothing", async () => {
     const { db, handle, create } = setup({ ids: ["tp_italy"] });
 
