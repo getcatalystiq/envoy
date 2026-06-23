@@ -34,14 +34,13 @@ function fakePool(): SdkPool {
     async query<T = Record<string, unknown>>(text: string, params: ReadonlyArray<unknown> = []): Promise<SdkQueryResult<T>> {
       const sql = text.replace(/\s+/g, " ").trim();
       const p = params as unknown[];
-      if (sql.startsWith("INSERT INTO sdk_sequence_defs")) {
+      if (sql.startsWith("WITH up AS")) {
         const [ns, key, steps] = p as [string, string, string];
         const prev = defs.get(k(ns, key));
         const version = prev ? prev.version + 1 : 1;
         defs.set(k(ns, key), { steps, version });
         return { rows: [{ version }] as T[] };
       }
-      if (sql.startsWith("INSERT INTO sdk_sequence_def_history")) return { rows: [{ id: 1 }] as T[] };
       if (sql.startsWith("SELECT steps FROM sdk_sequence_defs")) {
         const [ns, key] = p as [string, string];
         const row = defs.get(k(ns, key));
@@ -120,6 +119,18 @@ describe("validated sequence CRUD (U-S3)", () => {
     expect(res.version).toBe(1);
     expect(res.warnings.length).toBeGreaterThan(0);
     expect(await getSequence(envoy, "onboarding")).toBeDefined();
+  });
+
+  it("re-save after publishing a draft template clears the deferred warning (refresh:true)", async () => {
+    const templates: Record<string, RawTemplate> = {
+      "tmpl-welcome": tmpl("tmpl-welcome", null), // draft → can't confirm
+      "tmpl-edu": tmpl("tmpl-edu", ["EDU_BODY"]),
+    };
+    const { handle } = fakeResend(templates);
+    const envoy = envoyWith(handle);
+    expect((await saveSequence(envoy, INPUT)).warnings.length).toBeGreaterThan(0); // draft → deferred
+    templates["tmpl-welcome"] = tmpl("tmpl-welcome", ["WELCOME_BODY"]); // publish the template
+    expect((await saveSequence(envoy, INPUT)).warnings).toEqual([]); // refresh:true re-fetches → warning gone
   });
 
   it("re-save increments version; delete removes the row", async () => {

@@ -24,15 +24,12 @@ function fakePool(): SdkPool {
     ): Promise<SdkQueryResult<T>> {
       const sql = text.replace(/\s+/g, " ").trim();
       const p = params as unknown[];
-      if (sql.startsWith("INSERT INTO sdk_sequence_defs")) {
+      if (sql.startsWith("WITH up AS")) {
         const [ns, key, steps] = p as [string, string, string];
         const prev = defs.get(k(ns, key));
         const version = prev ? prev.version + 1 : 1;
         defs.set(k(ns, key), { steps, version });
         return { rows: [{ version }] as T[] };
-      }
-      if (sql.startsWith("INSERT INTO sdk_sequence_def_history")) {
-        return { rows: [{ id: 1 }] as T[] };
       }
       if (sql.startsWith("SELECT sequence_key, steps FROM sdk_sequence_defs")) {
         const [ns] = p as [string];

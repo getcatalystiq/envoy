@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { NamespacedDb } from "../db/pool.js";
-import { defineSequence, type Sequence, type SequenceStep } from "./sequence.js";
+import { defineSequence, SequenceDefinitionError, type Sequence, type SequenceStep } from "./sequence.js";
 
 // U-S1 — the DB-backed sequence-definition STORE: raw read/write over sdk_sequence_defs (+ the
 // append-only sdk_sequence_def_history audit), plus the active-enrollment counts the host's editor
@@ -14,12 +14,18 @@ import { defineSequence, type Sequence, type SequenceStep } from "./sequence.js"
 // READ: rowToSequence rebuilds every row THROUGH defineSequence, so a malformed stored row fails loud
 // (SequenceDefinitionError) rather than feeding the engine a bad Sequence.
 
-/** A stored steps value is JSONB — parsed to an array by pg/Neon, or still a JSON string. Normalize. */
+/** A stored steps value is JSONB — parsed to an array by pg/Neon, or still a JSON string. Normalize.
+ *  A corrupt JSON string is surfaced as SequenceDefinitionError so callers get the documented type
+ *  (not a raw SyntaxError); shape-validation of the array is left to defineSequence. */
 function parseSteps(raw: unknown): SequenceStep[] {
-  const arr = typeof raw === "string" ? (JSON.parse(raw) as unknown) : raw;
-  // Leave shape-validation to defineSequence (it throws SequenceDefinitionError on a non-array /
-  // empty / malformed step list); here we only undo the string encoding.
-  return arr as SequenceStep[];
+  if (typeof raw !== "string") return raw as SequenceStep[];
+  try {
+    return JSON.parse(raw) as SequenceStep[];
+  } catch (err) {
+    throw new SequenceDefinitionError(
+      `stored sequence steps are not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 /**
@@ -76,33 +82,33 @@ export async function readSequenceDef(db: NamespacedDb, key: string): Promise<Se
 }
 
 /**
- * Upsert a definition (BARE key) and append a history row in the same logical write. Returns the new
- * `version` (1 on insert, prior + 1 on update). The caller (U-S3 `saveSequence`) MUST have validated
- * the steps first — this is the storage primitive, not the validation gate.
+ * Upsert a definition (BARE key) and append its history row **atomically** — one statement, a CTE,
+ * so the def-version bump and the audit row commit together (a partial write would advance the live
+ * version with no matching history / rollback source). Returns the new `version` (1 on insert, prior
+ * + 1 on update). The caller (U-S3 `saveSequence`) MUST have validated the steps first — this is the
+ * storage primitive, not the validation gate. (Mirrors the engine's fused-CTE `advance`.)
  */
 export async function upsertSequenceDef(
   db: NamespacedDb,
   input: { key: string; steps: readonly SequenceStep[]; actor?: string | null },
 ): Promise<number> {
   const stepsJson = JSON.stringify(input.steps);
-  const upserted = await db.execWrite<{ version: number }>(
-    `INSERT INTO sdk_sequence_defs (namespace, sequence_key, steps, version)
-       VALUES ($1, $2, $3::jsonb, 1)
-     ON CONFLICT (namespace, sequence_key)
-       DO UPDATE SET steps = EXCLUDED.steps,
-                     version = sdk_sequence_defs.version + 1,
-                     updated_at = NOW()
+  const { rows } = await db.execWrite<{ version: number }>(
+    `WITH up AS (
+       INSERT INTO sdk_sequence_defs (namespace, sequence_key, steps, version)
+         VALUES ($1, $2, $3::jsonb, 1)
+       ON CONFLICT (namespace, sequence_key)
+         DO UPDATE SET steps = EXCLUDED.steps,
+                       version = sdk_sequence_defs.version + 1,
+                       updated_at = NOW()
+       RETURNING version
+     )
+     INSERT INTO sdk_sequence_def_history (namespace, sequence_key, version, actor, steps)
+       SELECT $1, $2, up.version, $4, $3::jsonb FROM up
      RETURNING version`,
-    [db.namespace, input.key, stepsJson],
+    [db.namespace, input.key, stepsJson, input.actor ?? null],
   );
-  const version = upserted.rows[0].version;
-  await db.execWrite(
-    `INSERT INTO sdk_sequence_def_history (namespace, sequence_key, version, actor, steps)
-       VALUES ($1, $2, $3, $4, $5::jsonb)
-     RETURNING id`,
-    [db.namespace, input.key, version, input.actor ?? null, stepsJson],
-  );
-  return version;
+  return rows[0].version;
 }
 
 /** Delete a definition by BARE key. Returns whether a row was removed. In-flight enrollments on this

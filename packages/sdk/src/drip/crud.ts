@@ -51,7 +51,10 @@ export async function saveSequence(
   opts?: { actor?: string | null },
 ): Promise<SaveSequenceResult> {
   const sequence = defineSequence(input);
-  const result = await validateSequenceSlots(envoy.resend, sequence);
+  // refresh:true bypasses the process-global Template-variable cache — a save explicitly wants fresh
+  // Template state, so publishing a draft Template then re-saving clears a prior validation_deferred
+  // warning instead of reading a stale `variables:null`. Saves are rare; the extra fetch is cheap.
+  const result = await validateSequenceSlots(envoy.resend, sequence, { refresh: true });
   const version = await upsertSequenceDef(envoy.db, {
     key: sequence.key,
     steps: sequence.steps,

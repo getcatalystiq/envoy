@@ -175,14 +175,10 @@ export {
   type DripTickItem,
 } from "./drip/engine.js";
 // U-S1/2/3 — DB-backed sequence DEFINITIONS: store, sync registry over a refreshable snapshot, and
-// validated CRUD. Lets a host edit drip sequences (steps/timing/briefs) without a redeploy.
-export {
-  rowToSequence,
-  loadAllSequenceDefs,
-  countActiveEnrollments,
-  type SequenceDefSummary,
-  type ActiveEnrollmentCounts,
-} from "./drip/store.js";
+// validated CRUD. Lets a host edit drip sequences (steps/timing/briefs) without a redeploy. The host
+// holds an `Envoy`, so the public surface is the `Envoy`-facing CRUD + the registry builders; the
+// raw `NamespacedDb`-facing store fns stay package-internal (imported by db-registry/crud).
+export { type SequenceDefSummary, type ActiveEnrollmentCounts } from "./drip/store.js";
 export {
   createDbSequenceRegistry,
   createCompositeRegistry,

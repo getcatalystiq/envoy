@@ -54,8 +54,9 @@ function fakePool(opts: { enrollments?: EnrollSeed[] } = {}): {
       const sql = text.replace(/\s+/g, " ").trim();
       const p = params as unknown[];
 
-      if (sql.startsWith("INSERT INTO sdk_sequence_defs")) {
-        const [ns, key, stepsJson] = p as [string, string, string];
+      if (sql.startsWith("WITH up AS")) {
+        // Atomic upsert + history (one CTE statement). Params: [ns, key, stepsJson, actor].
+        const [ns, key, stepsJson, actor] = p as [string, string, string, string | null];
         const existing = defs.get(k(ns, key));
         const version = existing ? existing.version + 1 : 1;
         defs.set(k(ns, key), {
@@ -65,12 +66,8 @@ function fakePool(opts: { enrollments?: EnrollSeed[] } = {}): {
           version,
           updated_at: "2026-06-23T00:00:00.000Z",
         });
-        return { rows: [{ version }] as T[] };
-      }
-      if (sql.startsWith("INSERT INTO sdk_sequence_def_history")) {
-        const [, key, version, actor, stepsJson] = p as [string, string, number, string | null, string];
         history.push({ sequence_key: key, version, actor, steps: stepsJson });
-        return { rows: [{ id: history.length }] as T[] };
+        return { rows: [{ version }] as T[] };
       }
       if (sql.startsWith("SELECT steps FROM sdk_sequence_defs")) {
         const [ns, key] = p as [string, string];
@@ -131,6 +128,8 @@ describe("sequence-definition store (U-S1)", () => {
       rowToSequence("x", JSON.stringify([{ templateId: "t", waitDays: 0, aiSlots: ["A", "A"], brief: "b" }])),
     ).toThrow(SequenceDefinitionError);
     expect(() => rowToSequence("x", JSON.stringify([]))).toThrow(SequenceDefinitionError);
+    // a corrupt JSON string surfaces as SequenceDefinitionError (the documented type), not a raw SyntaxError
+    expect(() => rowToSequence("x", "{not valid json")).toThrow(SequenceDefinitionError);
   });
 
   it("upsert inserts then increments version, and appends a history row each save", async () => {
