@@ -174,6 +174,28 @@ export {
   type DripTickResult,
   type DripTickItem,
 } from "./drip/engine.js";
+// U-S1/2/3 — DB-backed sequence DEFINITIONS: store, sync registry over a refreshable snapshot, and
+// validated CRUD. Lets a host edit drip sequences (steps/timing/briefs) without a redeploy.
+export {
+  rowToSequence,
+  loadAllSequenceDefs,
+  countActiveEnrollments,
+  type SequenceDefSummary,
+  type ActiveEnrollmentCounts,
+} from "./drip/store.js";
+export {
+  createDbSequenceRegistry,
+  createCompositeRegistry,
+  type DbSequenceRegistry,
+} from "./drip/db-registry.js";
+export {
+  saveSequence,
+  deleteSequence,
+  getSequence,
+  listSequences,
+  countSequenceEnrollments,
+  type SaveSequenceResult,
+} from "./drip/crud.js";
 export {
   runAgentSession,
   harvestAgentSession,

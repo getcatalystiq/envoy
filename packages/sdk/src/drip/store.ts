@@ -31,6 +31,33 @@ export function rowToSequence(key: string, storedSteps: unknown): Sequence {
   return defineSequence({ key, steps: parseSteps(storedSteps) });
 }
 
+/**
+ * Load EVERY definition in this namespace into a `key → Sequence` Map. Backs the DB registry's
+ * per-tick `refresh()` (U-S2): the sync `resolveSequence` the engine calls cannot await a DB read,
+ * so the registry resolves from this in-memory snapshot, reloaded before each tick. A single
+ * malformed row is SKIPPED + logged (not thrown) so one bad def can't blank the whole registry —
+ * the engine then resolves that key as `unknown_sequence` and skips it (never drops the enrollment).
+ */
+export async function loadAllSequenceDefs(db: NamespacedDb): Promise<Map<string, Sequence>> {
+  const { rows } = await db.query<{ sequence_key: string; steps: unknown }>(
+    `SELECT sequence_key, steps FROM sdk_sequence_defs WHERE namespace = $1`,
+    [db.namespace],
+  );
+  const out = new Map<string, Sequence>();
+  for (const r of rows) {
+    try {
+      out.set(r.sequence_key, rowToSequence(r.sequence_key, r.steps));
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[@catalystiq/envoy-sdk] skipping malformed stored sequence "${r.sequence_key}":`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return out;
+}
+
 /** Lightweight listing row for an admin index (no full steps payload). */
 export interface SequenceDefSummary {
   key: string;
