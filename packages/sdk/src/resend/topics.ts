@@ -61,6 +61,14 @@ export interface ProvisionTopicResult {
 export interface ProvisionTopicInput {
   stream: Stream;
   subject: string;
+  /**
+   * The Resend Topic's `defaultSubscription` — how a contact with NO explicit per-topic preference is
+   * treated. `"opt_in"` (default) keeps the subscribe-by-default behavior; `"opt_out"` makes the topic
+   * **subscribe-on-request** — a contact receives this topic's broadcasts ONLY after an explicit
+   * opt-in, which a host uses to gate a topic behind a deliberate action (e.g. starting an application
+   * for that country). Only applied at topic CREATE time; a cache hit ignores it (the topic exists).
+   */
+  defaultSubscription?: "opt_in" | "opt_out";
 }
 
 /**
@@ -111,7 +119,8 @@ async function cacheTopicId(
  * Ordering — cache FIRST, create only on a miss:
  *   1. Read the cache. A hit returns the cached id with `created: false`, creating nothing (the
  *      idempotent fast path — the second `provision` of the same pair is a pure read).
- *   2. On a miss, create the Resend Topic (`opt_in`, public-by-intent), then claim-or-read the
+ *   2. On a miss, create the Resend Topic (`defaultSubscription` per input, default `opt_in`;
+ *      public-by-intent), then claim-or-read the
  *      cache row. If we lost the claim to a concurrent provision, we adopt the winner's id and the
  *      Topic we created is a harmless duplicate-free no-op (we never persisted its id) — the cache
  *      holds exactly one id per topic key.
@@ -145,7 +154,7 @@ export async function provisionTopic(
   const { data, error } = await client.topics.create({
     name: topicName(input.stream, input.subject),
     description: `Envoy ${input.stream} topic for ${input.subject} (public preference-page topic).`,
-    defaultSubscription: "opt_in",
+    defaultSubscription: input.defaultSubscription ?? "opt_in",
   });
   if (error || !data) {
     throw new Error(
