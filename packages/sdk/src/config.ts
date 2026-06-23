@@ -106,6 +106,14 @@ export interface EnvoyConfig {
    * (no template is system-eligible, so each system send must opt its template in explicitly).
    */
   systemTemplateIds?: string[];
+
+  /**
+   * Absolute, `https` unsubscribe landing URL (e.g. `https://app.example.com/api/envoy/unsubscribe`)
+   * the `List-Unsubscribe` header points at (R33). Optional, but REQUIRED to use the handle's
+   * `send.transactional` facade on the STANDARD lane (the facade has nowhere else to read it from);
+   * system-lane sends and the standalone `sendTransactional(envoy, input, config)` form don't need it.
+   */
+  unsubscribeBaseUrl?: string;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -128,6 +136,8 @@ export interface ResolvedEnvoyConfig {
   streams: Readonly<Record<string, EnvoyStreamConfig>>;
   /** Frozen set of Template ids eligible for the `system` transactional lane (KTD7). Empty = none. */
   systemTemplateIds: ReadonlySet<string>;
+  /** Unsubscribe landing URL for the `send.transactional` facade's standard lane (R33). Optional. */
+  unsubscribeBaseUrl?: string;
 }
 
 /**
@@ -346,6 +356,7 @@ export function resolveConfig(cfg: EnvoyConfig): ResolvedEnvoyConfig {
     aiFieldAllowList: normalizeAllowList(cfg.aiFieldAllowList),
     streams: normalizeStreams(cfg.streams),
     systemTemplateIds: normalizeSystemTemplateIds(cfg.systemTemplateIds),
+    unsubscribeBaseUrl: cfg.unsubscribeBaseUrl,
   });
 }
 

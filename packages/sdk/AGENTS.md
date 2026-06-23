@@ -28,10 +28,14 @@
 
 ```bash
 npm i @catalystiq/envoy-sdk resend
-npx envoy migrate            # applies Envoy's tables to your DATABASE_URL (R5)
 ```
 
-`@catalystiq/envoy-sdk` is **published on npm (v0.1.0)** — install it like any other dependency.
+`@catalystiq/envoy-sdk` is **published on npm** — install it like any other dependency.
+
+**Migrate.** There is **no `envoy` CLI** (`npx envoy migrate` does not exist). Apply Envoy's tables to your `DATABASE_URL` one of two ways:
+
+- Call the programmatic `migrate(pool)` from a **server** context (a route / server action / deploy step). It can NOT run from a plain node script — the SDK imports `server-only`, which throws outside a Next/RSC bundler.
+- Or apply the shipped SQL directly from a node script: the package exports it at `@catalystiq/envoy-sdk/migrations/*.sql`. Every file is `CREATE … IF NOT EXISTS`, so applying each file whole (one multi-statement query) is idempotent and re-runnable — no SDK import, no `server-only` guard.
 
 Envoy owns a bounded set of tables (contact mirror, per-topic consent, cursor/watermark, broadcast claim rows). They are **namespace-scoped** (R38) — see §3.
 
@@ -69,9 +73,14 @@ export const envoy = createEnvoy({
   webhookSecret: process.env.RESEND_WEBHOOK_SECRET!,
   cronSecret: process.env.CRON_SECRET!,
   unsubscribeSecret: process.env.ENVOY_UNSUBSCRIBE_SECRET!,
+  // Absolute https unsubscribe landing URL. Required to use `envoy.send.transactional` on the
+  // STANDARD lane (the List-Unsubscribe header points here); system-lane sends don't need it.
+  unsubscribeBaseUrl: "https://www.myapp.com/api/envoy/unsubscribe",
   baseSegmentId: process.env.RESEND_BASE_SEGMENT_ID!,   // provision once; cache the id
-  agent: { id: process.env.ANTHROPIC_AGENT_ID, environmentId: process.env.ANTHROPIC_ENV_ID }, // drip only
-  streams: { digest: { default: "opt_out" }, alert: { default: "opt_in" } }, // dual-stream defaults (R28)
+  agent: { agentId: process.env.ANTHROPIC_AGENT_ID, environmentId: process.env.ANTHROPIC_ENV_ID }, // drip only
+  // Per-stream config carries a default From only. Consent defaults are SDK behavior (topics are
+  // opt_in by default; per-topic opt-out is a user action) — NOT configured here.
+  streams: { digest: { from: "Acme <news@acme.com>" }, alert: { from: "Acme <alerts@acme.com>" } },
   // R44: only these contact fields are forwarded to the AI agent — never the whole `data` blob
   aiFieldAllowList: ["firstName", "plan", "country"],
   // KTD7: Template ids allowed on the non-gated `system` transactional lane (receipts). A

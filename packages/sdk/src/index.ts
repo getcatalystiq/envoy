@@ -34,8 +34,8 @@ export {
 } from "./db/migrate.js";
 
 // U3 — createEnvoy: config validation, secrets, namespace fingerprint, lazy Resend client.
+// `createEnvoy` is re-exported from ./handle.js (the method-facade wrapper) — see below.
 export {
-  createEnvoy,
   resolveConfig,
   computeNamespaceFingerprint,
   redactEmail,
@@ -48,6 +48,10 @@ export {
   type EnvoyStreamConfig,
   type ResolvedEnvoyConfig,
 } from "./config.js";
+// The public `createEnvoy` returns the method-facade handle (EnvoyClient) — `envoy.enroll(…)`,
+// `envoy.send.transactional(…)`, `envoy.consent.set(…)`, `envoy.contacts.delete(…)`, `envoy.ingest(…)`,
+// `envoy.routeHandler(…)`. The standalone forms (enroll(envoy, …), etc.) stay exported below.
+export { createEnvoy, type EnvoyClient } from "./handle.js";
 export {
   createResendClientHandle,
   type ResendClientHandle,

@@ -16,7 +16,8 @@ import {
   createConsentMirror,
   defineSequence,
   defineBroadcastProgram,
-  type Envoy,
+  SystemLaneViolation,
+  type EnvoyClient,
   type RenderContext,
   type RenderedIssue,
   type CursorState,
@@ -34,7 +35,7 @@ function inertPool(): SdkPool {
 }
 
 // The env-free equivalent of the example's `createEnvoy({...})` block (envoy.ts).
-function buildExampleEnvoy(): Envoy {
+function buildExampleEnvoy(): EnvoyClient {
   return createEnvoy({
     db: inertPool(),
     installNamespace: "example",
@@ -137,5 +138,43 @@ describe("example wiring (U19 dogfood)", () => {
     expect(rendered!.watermark).toBe("2026-06-21T00:00:00Z");
     expect(rendered!.subject).toBe("This week: Second");
     expect(rendered!.itemIds).toEqual(["a", "b"]);
+  });
+});
+
+describe("EnvoyClient method facade", () => {
+  const envoy = buildExampleEnvoy();
+
+  it("exposes the bound method sugar the docs use", () => {
+    expect(typeof envoy.enroll).toBe("function");
+    expect(typeof envoy.send.transactional).toBe("function");
+    expect(typeof envoy.consent.set).toBe("function");
+    expect(typeof envoy.consent.gate).toBe("function");
+    expect(typeof envoy.contacts.delete).toBe("function");
+    expect(typeof envoy.ingest).toBe("function");
+    expect(typeof envoy.routeHandler).toBe("function");
+  });
+
+  it("is still a bare handle (config + redact preserved)", () => {
+    expect(typeof envoy.redact).toBe("function");
+    expect(envoy.config.installNamespace).toBeTruthy();
+  });
+
+  it("routeHandler returns mounted { GET, POST } with envoy bound", () => {
+    const handlers = envoy.routeHandler({ authorize: async () => true });
+    expect(typeof handlers.GET).toBe("function");
+    expect(typeof handlers.POST).toBe("function");
+  });
+
+  it("send.transactional forwards the bound envoy (system allow-list enforced)", async () => {
+    // The example handle has no systemTemplateIds, so a system send is rejected by the SDK — proving
+    // the facade forwards the bound envoy + its config into sendTransactional.
+    await expect(
+      envoy.send.transactional({
+        email: "ada@example.com",
+        templateId: "tmpl_unlisted",
+        system: true,
+        from: "receipts@example.com",
+      }),
+    ).rejects.toBeInstanceOf(SystemLaneViolation);
   });
 });
