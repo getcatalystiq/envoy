@@ -46,8 +46,22 @@ import { buildListUnsubscribeHeaders } from "../consent/unsubscribe.js";
  */
 export type TransactionalVariables = Record<string, string | number>;
 
-/** Inputs to {@link sendTransactional} (origin R46). */
-export interface TransactionalSendInput {
+/**
+ * A file attached to a transactional send (e.g. the booking-confirmation `.ics` calendar invite).
+ * Maps onto Resend's `Attachment`: `content` is the file bytes (a base64/utf-8 string or Buffer) and
+ * `contentType` is derived from `filename` when omitted.
+ */
+export interface TransactionalAttachment {
+  /** File name including extension, e.g. `"invite.ics"`. */
+  filename: string;
+  /** File content — a string (base64 or utf-8, e.g. an iCalendar body) or a Buffer. */
+  content: string | Buffer;
+  /** MIME type, e.g. `"text/calendar"`. Derived from `filename` when omitted. */
+  contentType?: string;
+}
+
+/** Fields common to both transactional lanes (the standard consent-gated lane and the `system` lane). */
+export interface TransactionalSendBase {
   /** Recipient email (the contact key; namespace-prefixed only at the DB boundary, not on the wire). */
   email: string;
 
@@ -61,20 +75,6 @@ export interface TransactionalSendInput {
   variables?: TransactionalVariables;
 
   /**
-   * Stream this send belongs to (`digest` | `alert`). REQUIRED — it scopes the `List-Unsubscribe`
-   * token (R33/R46). A missing/empty stream is rejected before any Resend contact (R45).
-   */
-  stream: Stream;
-
-  /**
-   * Topic this send belongs to. Scopes the suppression gate AND the unsubscribe token to a single
-   * `(contact, topic, stream)` so a one-click opt-out leaves the recipient's other topics intact
-   * (R33). Required for the same reason the stream is: a transactional email with no topic has no
-   * place to scope its opt-out.
-   */
-  topicKey: string;
-
-  /**
    * Idempotency key forwarded to Resend as the `Idempotency-Key` request HEADER (NOT a body field)
    * for exactly-once delivery on retry (R46). Optional — a one-shot send may forgo it, but a host
    * that may retry should always supply a stable key.
@@ -83,8 +83,8 @@ export interface TransactionalSendInput {
 
   /**
    * Sender address. Falls back to the stream's configured `from` default (`createEnvoy`'s
-   * `streams[stream].from`) when omitted. A send with neither is rejected (R45-style fail-loud:
-   * Resend requires a verified From).
+   * `streams[stream].from`) when omitted. A send with neither is rejected (Resend requires a verified
+   * From). A `system` send with no `stream` MUST supply `from` explicitly.
    */
   from?: string;
 
@@ -93,7 +93,46 @@ export interface TransactionalSendInput {
 
   /** Optional reply-to address(es). */
   replyTo?: string | string[];
+
+  /**
+   * Optional file attachments (e.g. the booking `.ics`). Forwarded to Resend's `emails.send`
+   * `attachments` (templated arm supports them); max 40 MB per email (Resend limit).
+   */
+  attachments?: TransactionalAttachment[];
 }
+
+/**
+ * Inputs to {@link sendTransactional} (origin R46; system lane KTD7) — a discriminated union on
+ * `system`:
+ *
+ *  - **Standard lane** (`system` absent/`false`): consent-gated against the mirror and carries an
+ *    RFC 8058 `List-Unsubscribe`. `stream` + `topicKey` are REQUIRED — they scope the suppression
+ *    gate and the one-click opt-out.
+ *  - **System lane** (`system: true`): legitimate-interest / transactional-critical mail (a paid
+ *    booking receipt). NOT gated by per-topic/stream consent and carries NO `List-Unsubscribe`, so a
+ *    *marketing* opt-out can never suppress it — BUT it still honors the global hard-suppression
+ *    floor (global unsubscribe, bounce/complaint, GDPR delete). `stream`/`topicKey` are optional (a
+ *    system send has no consent scope; `stream`, if given, only supplies the From default).
+ *    `templateId` MUST be in `createEnvoy`'s `systemTemplateIds` allow-list or the send throws
+ *    {@link SystemLaneViolation} — so marketing copy cannot ride the lane by passing `system: true`.
+ */
+export type TransactionalSendInput =
+  | (TransactionalSendBase & {
+      /** Standard consumer lane (default). Consent-gated + List-Unsubscribe. */
+      system?: false;
+      /** Stream (`digest` | `alert`) — REQUIRED here; scopes the List-Unsubscribe token (R33/R46). */
+      stream: Stream;
+      /** Topic — REQUIRED here; scopes the suppression gate + the one-click opt-out (R33). */
+      topicKey: string;
+    })
+  | (TransactionalSendBase & {
+      /** Legitimate-interest / transactional-critical lane (KTD7). Floor-gated, no unsubscribe. */
+      system: true;
+      /** Optional here — used only to resolve the From default, never for consent scoping. */
+      stream?: Stream;
+      /** Optional here — a system send has no per-topic consent scope. */
+      topicKey?: string;
+    });
 
 /** Why a transactional send did not dispatch (when `sent` is false). */
 export type TransactionalSkipReason =
@@ -126,6 +165,21 @@ export class TransactionalSendError extends Error {
   }
 }
 
+/**
+ * Thrown when a `system: true` send names a `templateId` that is NOT in `createEnvoy`'s
+ * `systemTemplateIds` allow-list (KTD7). The non-gated system lane bypasses marketing consent, so
+ * eligibility is enforced IN the SDK: a missed host-side check — or a copy-paste that passes
+ * `system: true` for a marketing template — fails loud here rather than letting marketing copy ride
+ * the non-suppressible lane. Distinct from {@link TransactionalSendError} so a host can catch the
+ * governance violation specifically.
+ */
+export class SystemLaneViolation extends Error {
+  constructor(message: string) {
+    super(`[@catalystiq/envoy-sdk] ${message}`);
+    this.name = "SystemLaneViolation";
+  }
+}
+
 /** Config the transactional sender needs beyond the Envoy handle. */
 export interface TransactionalSendConfig {
   /** The consent mirror to gate against (U6). */
@@ -147,12 +201,16 @@ function resolveFrom(envoy: Envoy, input: TransactionalSendInput): string {
   if (typeof input.from === "string" && input.from.trim().length > 0) {
     return input.from;
   }
-  const streamDefault = envoy.config.streams[input.stream]?.from;
+  // A system send may carry no `stream`; only consult a stream default when a stream is present.
+  const streamDefault =
+    input.stream !== undefined ? envoy.config.streams[input.stream]?.from : undefined;
   if (typeof streamDefault === "string" && streamDefault.trim().length > 0) {
     return streamDefault;
   }
   throw new TransactionalSendError(
-    `send.transactional has no From address: pass \`from\` or configure streams.${input.stream}.from at createEnvoy time.`
+    input.stream !== undefined
+      ? `send.transactional has no From address: pass \`from\` or configure streams.${input.stream}.from at createEnvoy time.`
+      : "send.transactional (system lane) has no From address: a system send with no `stream` must pass an explicit `from`."
   );
 }
 
@@ -169,18 +227,33 @@ function validateInput(input: TransactionalSendInput): void {
   if (typeof input.email !== "string" || input.email.trim().length === 0) {
     throw new TransactionalSendError("send.transactional requires a non-empty email.");
   }
+  if (typeof input.templateId !== "string" || input.templateId.trim().length === 0) {
+    throw new TransactionalSendError("send.transactional requires a non-empty `templateId`.");
+  }
+  if (input.system === true) {
+    // System lane: stream/topicKey are OPTIONAL (no consent scope). A supplied stream must still be
+    // a valid value — it only resolves the From default, never consent.
+    if (
+      input.stream !== undefined &&
+      input.stream !== "digest" &&
+      input.stream !== "alert"
+    ) {
+      throw new TransactionalSendError(
+        "send.transactional `stream`, when provided on a system send, must be 'digest' or 'alert'."
+      );
+    }
+    return;
+  }
+  // Standard lane: stream + topicKey are REQUIRED — they scope the gate + the List-Unsubscribe token.
   if (input.stream !== "digest" && input.stream !== "alert") {
     throw new TransactionalSendError(
-      "send.transactional requires a `stream` of 'digest' or 'alert' — it scopes the List-Unsubscribe token (R33/R46); a send with no stream is rejected, never sent with a malformed unsubscribe."
+      "send.transactional requires a `stream` of 'digest' or 'alert' — it scopes the List-Unsubscribe token (R33/R46); a send with no stream is rejected. For a non-suppressible receipt, use `system: true`."
     );
   }
   if (typeof input.topicKey !== "string" || input.topicKey.trim().length === 0) {
     throw new TransactionalSendError(
       "send.transactional requires a non-empty `topicKey` — it scopes the suppression gate and the one-click unsubscribe."
     );
-  }
-  if (typeof input.templateId !== "string" || input.templateId.trim().length === 0) {
-    throw new TransactionalSendError("send.transactional requires a non-empty `templateId`.");
   }
 }
 
@@ -207,22 +280,49 @@ export async function sendTransactional(
   // 1. Validate — fail loud (R45).
   validateInput(input);
 
-  if (
-    config === null ||
-    typeof config !== "object" ||
-    typeof config.unsubscribeBaseUrl !== "string" ||
-    config.unsubscribeBaseUrl.trim().length === 0
-  ) {
+  // Both lanes gate against the mirror, so config + its mirror are required regardless of lane.
+  if (config === null || typeof config !== "object" || config.mirror == null) {
     throw new TransactionalSendError(
-      "send.transactional requires config.unsubscribeBaseUrl (the absolute https landing URL the List-Unsubscribe header points at)."
+      "send.transactional requires a config with a consent `mirror`."
     );
+  }
+
+  if (input.system === true) {
+    // 1b. SYSTEM lane: enforce the systemTemplateIds allow-list IN the SDK (KTD7). The non-gated lane
+    //     bypasses marketing consent, so a template not declared system-eligible must not ride it —
+    //     fail loud rather than silently send marketing copy on the unsubscribe-less lane.
+    if (!envoy.config.systemTemplateIds.has(input.templateId)) {
+      throw new SystemLaneViolation(
+        `templateId "${input.templateId}" is not in createEnvoy's systemTemplateIds allow-list. ` +
+          "The system lane is for legitimate-interest transactional mail only; declare the template " +
+          "in systemTemplateIds, or send it on the standard (consent-gated) lane."
+      );
+    }
+  } else {
+    // STANDARD lane needs the unsubscribe landing URL (the system lane sends no List-Unsubscribe).
+    if (
+      typeof config.unsubscribeBaseUrl !== "string" ||
+      config.unsubscribeBaseUrl.trim().length === 0
+    ) {
+      throw new TransactionalSendError(
+        "send.transactional requires config.unsubscribeBaseUrl (the absolute https landing URL the List-Unsubscribe header points at)."
+      );
+    }
   }
 
   // 2. Resolve From (fail loud if neither explicit nor stream default).
   const from = resolveFrom(envoy, input);
 
-  // 3. Gate against the mirror FIRST (R26). A suppressed contact is never sent.
-  const allowed = await config.mirror.gate(input.email, input.topicKey, input.stream);
+  // 3. Suppression gate. STANDARD lane: the full per-topic/stream consent gate (R26). SYSTEM lane:
+  //    ONLY the global hard-suppression floor (global unsubscribe / bounce / complaint / GDPR
+  //    delete) — a *marketing* opt-out can never drop a paid receipt, but a globally-suppressed
+  //    contact must still never be mailed (KTD7).
+  let allowed: boolean;
+  if (input.system === true) {
+    allowed = !(await config.mirror.isGloballySuppressed(input.email));
+  } else {
+    allowed = await config.mirror.gate(input.email, input.topicKey, input.stream);
+  }
   if (!allowed) {
     return { sent: false, reason: "suppressed" };
   }
@@ -233,17 +333,22 @@ export async function sendTransactional(
     return { sent: false, reason: "resend_disabled" };
   }
 
-  // 5. RFC 8058 one-click List-Unsubscribe headers (R33). `buildListUnsubscribeHeaders` itself
-  //    enforces the https + 60-day-TTL compliance floor and throws on a non-https base URL.
-  const unsubHeaders = buildListUnsubscribeHeaders(
-    { email: input.email, topicKey: input.topicKey, stream: input.stream },
-    envoy.config.unsubscribeSecret,
-    config.unsubscribeBaseUrl
-  );
+  // 5. RFC 8058 one-click List-Unsubscribe headers (R33) — STANDARD lane only. The system lane is
+  //    legitimate-interest transactional mail and carries NO unsubscribe (KTD7); injecting one would
+  //    let a recipient suppress their own receipts. `buildListUnsubscribeHeaders` enforces the
+  //    https + 60-day-TTL compliance floor and throws on a non-https base URL.
+  const unsubHeaders =
+    input.system === true
+      ? null
+      : buildListUnsubscribeHeaders(
+          { email: input.email, topicKey: input.topicKey, stream: input.stream },
+          envoy.config.unsubscribeSecret,
+          config.unsubscribeBaseUrl
+        );
 
   // 6. Send. `template` is the templated arm of CreateEmailOptions (from/subject optional there).
   //    The idempotency key is the SECOND arg (the `Idempotency-Key` request header), NOT a body
-  //    field — putting it in the body would be silently dropped by Resend.
+  //    field. Attachments (e.g. the booking .ics) ride the templated arm's `attachments`.
   const payload = {
     to: input.email,
     from,
@@ -251,12 +356,19 @@ export async function sendTransactional(
       id: input.templateId,
       ...(input.variables ? { variables: input.variables } : {}),
     },
-    headers: {
-      "List-Unsubscribe": unsubHeaders["List-Unsubscribe"],
-      "List-Unsubscribe-Post": unsubHeaders["List-Unsubscribe-Post"],
-    },
+    ...(unsubHeaders
+      ? {
+          headers: {
+            "List-Unsubscribe": unsubHeaders["List-Unsubscribe"],
+            "List-Unsubscribe-Post": unsubHeaders["List-Unsubscribe-Post"],
+          },
+        }
+      : {}),
     ...(input.subject !== undefined ? { subject: input.subject } : {}),
     ...(input.replyTo !== undefined ? { replyTo: input.replyTo } : {}),
+    ...(input.attachments && input.attachments.length > 0
+      ? { attachments: input.attachments }
+      : {}),
   };
 
   const requestOptions =

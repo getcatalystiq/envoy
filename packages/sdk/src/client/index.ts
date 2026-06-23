@@ -26,7 +26,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export const SDK_CLIENT_VERSION = "0.0.0";
+// Build-derived from package.json (JSON import — no server-only code, safe for the client bundle),
+// so it tracks the published version instead of a hand-set `0.0.0` placeholder that silently drifts.
+import pkg from "../../package.json";
+
+export const SDK_CLIENT_VERSION: string = pkg.version;
 
 // ---------------------------------------------------------------------------------------------
 // Wire shapes (the JSON the `/read/*` endpoints return). Mirrors of the server types, redefined

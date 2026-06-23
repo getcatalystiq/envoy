@@ -154,6 +154,7 @@ function makeEnvoy(
     agent: undefined,
     aiFieldAllowList: Object.freeze([]),
     streams: Object.freeze({}),
+    systemTemplateIds: new Set<string>(),
   } as ResolvedEnvoyConfig;
 
   // A redact spy that asserts no full email reaches a log site: it reduces emails to a hint.

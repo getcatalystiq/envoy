@@ -97,6 +97,15 @@ export interface EnvoyConfig {
 
   /** Per-stream defaults keyed by stream name (R33/R27). Optional. */
   streams?: Record<string, EnvoyStreamConfig>;
+
+  /**
+   * Allow-list of Resend Template ids permitted on the non-gated `system` transactional lane (KTD7).
+   * `send.transactional({ system: true })` with a `templateId` NOT in this list throws
+   * `SystemLaneViolation` — so a missed host-side check (or marketing copy passing `system: true`)
+   * cannot ride the unsubscribe-less, marketing-consent-bypassing lane. Optional; defaults to empty
+   * (no template is system-eligible, so each system send must opt its template in explicitly).
+   */
+  systemTemplateIds?: string[];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -117,6 +126,8 @@ export interface ResolvedEnvoyConfig {
   aiFieldAllowList: readonly string[];
   /** Frozen stream-defaults map (empty object when none supplied). */
   streams: Readonly<Record<string, EnvoyStreamConfig>>;
+  /** Frozen set of Template ids eligible for the `system` transactional lane (KTD7). Empty = none. */
+  systemTemplateIds: ReadonlySet<string>;
 }
 
 /**
@@ -259,6 +270,28 @@ function normalizeStreams(
   return Object.freeze(out);
 }
 
+/**
+ * Normalize the `system` transactional lane allow-list (KTD7): string Template ids, de-duplicated,
+ * into a Set the sender checks at send time. Empty/undefined ⇒ an empty set, so no template is
+ * system-eligible until the host opts it in explicitly.
+ */
+function normalizeSystemTemplateIds(input: string[] | undefined): ReadonlySet<string> {
+  if (input === undefined) return new Set<string>();
+  if (!Array.isArray(input)) {
+    throw new EnvoyConfigError("systemTemplateIds must be an array of Resend Template ids.");
+  }
+  const set = new Set<string>();
+  for (const id of input) {
+    if (typeof id !== "string" || id.trim().length === 0) {
+      throw new EnvoyConfigError(
+        "systemTemplateIds entries must be non-empty strings (Resend Template ids)."
+      );
+    }
+    set.add(id);
+  }
+  return set;
+}
+
 function normalizeAgent(input: EnvoyAgentConfig | undefined): EnvoyAgentConfig | undefined {
   if (input === undefined) return undefined;
   // If the host provides an `agent` block at all, both fields are required — a half-configured
@@ -312,6 +345,7 @@ export function resolveConfig(cfg: EnvoyConfig): ResolvedEnvoyConfig {
     agent: normalizeAgent(cfg.agent),
     aiFieldAllowList: normalizeAllowList(cfg.aiFieldAllowList),
     streams: normalizeStreams(cfg.streams),
+    systemTemplateIds: normalizeSystemTemplateIds(cfg.systemTemplateIds),
   });
 }
 

@@ -185,6 +185,7 @@ function makeEnvoy(
     agent: { agentId: "agent_1", environmentId: "env_1" },
     aiFieldAllowList: Object.freeze(["first_name"]),
     streams: Object.freeze({ digest: { from: "digest@app.example.com" } }),
+    systemTemplateIds: new Set<string>(),
     ...configOverrides,
   };
   return {

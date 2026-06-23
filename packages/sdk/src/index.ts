@@ -12,7 +12,12 @@
 //   U10 send.transactional         — one-shot templated send
 //   U15 defineBroadcastProgram     — the broadcast program
 
-export const SDK_VERSION = "0.0.0";
+// Version + capability surface (build-derived; the host cutover gate reads these).
+export {
+  SDK_VERSION,
+  getCapabilities,
+  type SdkCapabilities,
+} from "./version.js";
 
 // U2 — DB layer (injected-pool wrapper, namespaced helpers, host-applied migrations).
 export {
@@ -136,11 +141,13 @@ export {
 export {
   sendTransactional,
   TransactionalSendError,
+  SystemLaneViolation,
   type TransactionalSendInput,
   type TransactionalSendResult,
   type TransactionalSendConfig,
   type TransactionalSkipReason,
   type TransactionalVariables,
+  type TransactionalAttachment,
 } from "./drip/transactional.js";
 
 // U8 — Drip engine: sequences, JIT AI personalization (Claude Managed Agents), fail-safe send.

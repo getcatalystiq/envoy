@@ -164,8 +164,13 @@ export class ConsentMirror {
    * hosted-page unsubscribe sets this flag; the gate must honor it on EVERY topic/stream — including
    * topics for which no per-topic consent row exists — so a globally-suppressed contact can never be
    * re-addressed on any lane (R22/R26 suppress-all). Returns true when the contact is suppressed.
+   *
+   * Public because the non-gated `system` transactional lane (KTD7) consults this directly: a system
+   * send skips the per-topic/stream consent `gate` (a marketing opt-out must not drop a paid receipt)
+   * but MUST still honor this global hard-suppression floor — a globally-unsubscribed/bounced/erased
+   * contact is never mailed, even on the system lane.
    */
-  private async isGloballySuppressed(email: string): Promise<boolean> {
+  async isGloballySuppressed(email: string): Promise<boolean> {
     const res = await this.db.query<{ unsubscribed: boolean }>(
       `SELECT unsubscribed FROM sdk_contacts
         WHERE namespace = $1 AND lower(email) = $2 LIMIT 1`,

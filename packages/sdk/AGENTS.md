@@ -74,8 +74,13 @@ export const envoy = createEnvoy({
   streams: { digest: { default: "opt_out" }, alert: { default: "opt_in" } }, // dual-stream defaults (R28)
   // R44: only these contact fields are forwarded to the AI agent — never the whole `data` blob
   aiFieldAllowList: ["firstName", "plan", "country"],
+  // KTD7: Template ids allowed on the non-gated `system` transactional lane (receipts). A
+  // `system: true` send whose templateId is NOT listed here throws SystemLaneViolation.
+  systemTemplateIds: ["tmpl_booking_confirmation", "tmpl_receipt"],
 });
 ```
+
+> **Capability gate.** `import { SDK_VERSION, getCapabilities } from "@catalystiq/envoy-sdk"` — `SDK_VERSION` is build-derived from `package.json` (never a stale constant) and `getCapabilities()` returns `{ attachments, systemLane }`. A host running a no-fallback cutover should assert both in CI against the pinned version before merging, so it can't ship against an SDK missing the enhancements it depends on.
 
 > **Single-tenant invariant (R7/R38):** never co-tenant multiple end customers in one installation. There is no `organization_id` row isolation — a host `authorize()` bug exposes the whole mirror. If you run multiple tenants, run multiple installs (separate namespaces, ideally separate databases).
 
@@ -156,6 +161,24 @@ await envoy.send.transactional({
 ```
 
 It consults the suppression mirror first, sets the `List-Unsubscribe` one-click headers (R33), and forwards Resend's idempotency key.
+
+**Attachments (e.g. a booking `.ics`).** Pass `attachments: [{ filename, content, contentType? }]` — forwarded to Resend's `emails.send` (max 40 MB/email). Works on either lane.
+
+**The `system` lane (legitimate-interest receipts).** A *paid* receipt (booking confirmation) must survive a marketing opt-out but must NOT survive a global unsubscribe / bounce / complaint / GDPR delete. Set `system: true`:
+
+```ts
+await envoy.send.transactional({
+  email,
+  templateId: "tmpl_booking_confirmation",
+  variables: { serviceName, whenLabel },
+  system: true,                       // skip per-topic/stream consent + List-Unsubscribe…
+  from: "receipts@yourapp.com",       // …but a system send has no stream default, so pass `from`
+  attachments: [{ filename: "invite.ics", content: icsBody, contentType: "text/calendar" }],
+  idempotencyKey: `booking-confirm:${bookingId}`,
+});
+```
+
+A `system` send: (1) **skips** the per-topic/stream consent gate and the `List-Unsubscribe` header (a marketing opt-out can't drop a receipt), (2) **still honors** the global hard-suppression floor — a globally-unsubscribed / bounced / complained / GDPR-deleted contact is never mailed, and (3) **requires** its `templateId` to be in `createEnvoy`'s `systemTemplateIds` allow-list, or it throws `SystemLaneViolation` (so marketing copy can't ride the lane). `stream`/`topicKey` are optional on this lane (`stream`, if given, only supplies the From default).
 
 ---
 

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   sendTransactional,
   TransactionalSendError,
+  SystemLaneViolation,
   type TransactionalSendInput,
   type TransactionalSendConfig,
 } from "@sdk/drip/transactional.js";
@@ -133,6 +134,7 @@ function makeEnvoy(
     agent: undefined,
     aiFieldAllowList: Object.freeze([]),
     streams: Object.freeze({}),
+    systemTemplateIds: new Set<string>(),
     ...overrides,
   } as ResolvedEnvoyConfig;
   return {
@@ -609,3 +611,121 @@ describe("sendTransactional — Resend send failure (R46 fail-loud)", () => {
   const _rejected: CreateEmailOptions = malformed as CreateEmailOptions;
   void _rejected;
 }
+
+// =============================================================================================
+// U1 — attachments are forwarded onto the Resend payload (the booking .ics path).
+// =============================================================================================
+
+const ICS = {
+  filename: "invite.ics",
+  content: "BEGIN:VCALENDAR\nEND:VCALENDAR",
+  contentType: "text/calendar",
+};
+
+describe("sendTransactional — attachments (U1)", () => {
+  it("forwards `attachments` onto the Resend payload", async () => {
+    const { config, emailsSend, ...env } = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+    });
+    await sendTransactional(
+      env.envoy,
+      baseInput({ from: "hi@app.example.com", attachments: [ICS] }),
+      config
+    );
+    const payload = emailsSend.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.attachments).toEqual([ICS]);
+  });
+
+  it("omits `attachments` from the payload when none or an empty array is given", async () => {
+    const { config, emailsSend, ...env } = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+    });
+    await sendTransactional(
+      env.envoy,
+      baseInput({ from: "hi@app.example.com", attachments: [] }),
+      config
+    );
+    const payload = emailsSend.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.attachments).toBeUndefined();
+  });
+});
+
+// =============================================================================================
+// U2 / KTD7 — the non-gated `system` lane: floor-respecting, no List-Unsubscribe, allow-listed.
+// =============================================================================================
+
+describe("sendTransactional — system lane (U2/KTD7)", () => {
+  const SYS_CFG: Partial<ResolvedEnvoyConfig> = {
+    systemTemplateIds: new Set<string>(["tmpl_receipt"]),
+  };
+  const systemInput = (over: Record<string, unknown> = {}): TransactionalSendInput =>
+    ({
+      email: "ada@example.com",
+      templateId: "tmpl_receipt",
+      system: true,
+      from: "receipts@app.example.com",
+      ...over,
+    }) as TransactionalSendInput;
+
+  it("delivers to a contact opted OUT of the topic (a marketing opt-out cannot drop a receipt)", async () => {
+    const { config, emailsSend, ...env } = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_out" }],
+      configOverrides: SYS_CFG,
+    });
+    const res = await sendTransactional(env.envoy, systemInput(), config);
+    expect(res.sent).toBe(true);
+    expect(emailsSend).toHaveBeenCalledTimes(1);
+  });
+
+  it("is SUPPRESSED for a globally-suppressed contact (the floor still holds on the system lane)", async () => {
+    const { config, emailsSend, ...env } = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in", unsubscribed: true }],
+      configOverrides: SYS_CFG,
+    });
+    const res = await sendTransactional(env.envoy, systemInput(), config);
+    expect(res).toEqual({ sent: false, reason: "suppressed" });
+    expect(emailsSend).not.toHaveBeenCalled();
+  });
+
+  it("carries NO List-Unsubscribe header (legitimate-interest mail is not unsubscribable)", async () => {
+    const { config, emailsSend, ...env } = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_out" }],
+      configOverrides: SYS_CFG,
+    });
+    await sendTransactional(env.envoy, systemInput(), config);
+    const payload = emailsSend.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.headers).toBeUndefined();
+  });
+
+  it("throws SystemLaneViolation when the templateId is not in systemTemplateIds (marketing cannot ride the lane)", async () => {
+    const { config, emailsSend, ...env } = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      configOverrides: SYS_CFG,
+    });
+    await expect(
+      sendTransactional(env.envoy, systemInput({ templateId: "tmpl_marketing" }), config)
+    ).rejects.toBeInstanceOf(SystemLaneViolation);
+    expect(emailsSend).not.toHaveBeenCalled();
+  });
+
+  it("needs no stream/topicKey but still requires a From (system send without a stream)", async () => {
+    const { config, ...env } = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      configOverrides: SYS_CFG,
+    });
+    await expect(
+      sendTransactional(env.envoy, systemInput({ from: undefined }), config)
+    ).rejects.toThrow(/From address/);
+  });
+
+  it("carries attachments on the system lane (the .ics receipt) with no unsubscribe header", async () => {
+    const { config, emailsSend, ...env } = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_out" }],
+      configOverrides: SYS_CFG,
+    });
+    await sendTransactional(env.envoy, systemInput({ attachments: [ICS] }), config);
+    const payload = emailsSend.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.attachments).toEqual([ICS]);
+    expect(payload.headers).toBeUndefined();
+  });
+});
