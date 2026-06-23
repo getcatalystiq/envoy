@@ -49,13 +49,14 @@ function fakeConsentPool() {
 
       // --- consent upsert (monotonic merge) ---
       if (t.startsWith("INSERT INTO sdk_topic_consent")) {
-        const [, contact, topicKey, topicId, wantDigest, wantAlert] = params as [
+        const [, contact, topicKey, topicId, wantDigest, wantAlert, reactivate] = params as [
           string,
           string,
           string,
           string | null,
           ConsentStatus | null,
-          ConsentStatus | null
+          ConsentStatus | null,
+          boolean
         ];
         const key = `${contact}::${topicKey}`;
         const existing = consent.get(key);
@@ -71,15 +72,18 @@ function fakeConsentPool() {
           consent.set(key, row);
           return { rows: [{ ...row }] } as never;
         }
-        // merge: take the more-suppressed value per stream; null = keep
-        const mergedDigest =
-          wantDigest !== null && rank(wantDigest) >= rank(existing.digest_status)
-            ? wantDigest
-            : existing.digest_status;
-        const mergedAlert =
-          wantAlert !== null && rank(wantAlert) >= rank(existing.alert_status)
-            ? wantAlert
-            : existing.alert_status;
+        // merge: monotonic toward suppression, EXCEPT a `reactivate` opt_in overrides a stored opt_out
+        // (a reversible topic preference); never overrides `unsubscribed`. Null = keep.
+        const mergeStream = (want: ConsentStatus | null, stored: ConsentStatus): ConsentStatus =>
+          want === null
+            ? stored
+            : reactivate && want === "opt_in" && stored === "opt_out"
+              ? "opt_in"
+              : rank(want) >= rank(stored)
+                ? want
+                : stored;
+        const mergedDigest = mergeStream(wantDigest, existing.digest_status);
+        const mergedAlert = mergeStream(wantAlert, existing.alert_status);
         existing.topic_id = topicId ?? existing.topic_id;
         existing.digest_status = mergedDigest;
         existing.alert_status = mergedAlert;
@@ -332,6 +336,46 @@ describe("set — monotonic merge (unsubscribed dominates)", () => {
     });
     expect(up.changed).toBe(true);
     expect(up.row.digest).toBe("unsubscribed");
+  });
+});
+
+describe("set — reactivate (reversible topic opt-out)", () => {
+  it("reactivate opt_in overrides a stored opt_out (the user re-subscribes)", async () => {
+    const { mirror } = setup();
+    await mirror.set({ email: "a@example.com", topicKey: "alert:IT", stream: "alert", status: "opt_out", topicId: "tp_1" });
+    const back = await mirror.set({
+      email: "a@example.com",
+      topicKey: "alert:IT",
+      stream: "alert",
+      status: "opt_in",
+      topicId: "tp_1",
+      reactivate: true,
+    });
+    expect(back.changed).toBe(true);
+    expect(back.row.alert).toBe("opt_in");
+  });
+
+  it("reactivate does NOT override a stored unsubscribed (the sticky floor)", async () => {
+    const { mirror } = setup();
+    await mirror.set({ email: "a@example.com", topicKey: "alert:IT", stream: "alert", status: "unsubscribed", topicId: "tp_1" });
+    const back = await mirror.set({
+      email: "a@example.com",
+      topicKey: "alert:IT",
+      stream: "alert",
+      status: "opt_in",
+      topicId: "tp_1",
+      reactivate: true,
+    });
+    expect(back.changed).toBe(false);
+    expect(back.row.alert).toBe("unsubscribed");
+  });
+
+  it("without reactivate, opt_in over a stored opt_out is still a no-op (default monotonic)", async () => {
+    const { mirror } = setup();
+    await mirror.set({ email: "a@example.com", topicKey: "alert:IT", stream: "alert", status: "opt_out", topicId: "tp_1" });
+    const back = await mirror.set({ email: "a@example.com", topicKey: "alert:IT", stream: "alert", status: "opt_in", topicId: "tp_1" });
+    expect(back.changed).toBe(false);
+    expect(back.row.alert).toBe("opt_out");
   });
 });
 

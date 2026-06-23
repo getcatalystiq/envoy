@@ -114,6 +114,14 @@ export interface ConsentSetInput {
    * nothing to push) and the row is marked dirty for the reconcile sweep to resolve.
    */
   topicId?: string | null;
+  /**
+   * User-initiated RE-SUBSCRIBE. When `true` with `status: "opt_in"`, an `opt_in` is allowed to
+   * override a stored `opt_out` for the requested stream — a topic-level opt-out is a reversible
+   * preference, so the user can turn it back on. It NEVER overrides a stored `unsubscribed` (a
+   * one-click email/global unsubscribe stays the sticky floor and requires explicit re-consent).
+   * Default `false` preserves the monotonic-toward-suppression merge for all other writes.
+   */
+  reactivate?: boolean;
 }
 
 /** Outcome of a `consent.set` — whether the mirror changed and whether the Resend push confirmed. */
@@ -247,12 +255,14 @@ export class ConsentMirror {
          topic_id = COALESCE(EXCLUDED.topic_id, sdk_topic_consent.topic_id),
          digest_status = CASE
            WHEN $5 IS NULL THEN sdk_topic_consent.digest_status
+           WHEN $7 AND $5 = 'opt_in' AND sdk_topic_consent.digest_status = 'opt_out' THEN 'opt_in'
            WHEN ${rankCase("$5")} >= ${rankCase("sdk_topic_consent.digest_status")}
              THEN $5
            ELSE sdk_topic_consent.digest_status
          END,
          alert_status = CASE
            WHEN $6 IS NULL THEN sdk_topic_consent.alert_status
+           WHEN $7 AND $6 = 'opt_in' AND sdk_topic_consent.alert_status = 'opt_out' THEN 'opt_in'
            WHEN ${rankCase("$6")} >= ${rankCase("sdk_topic_consent.alert_status")}
              THEN $6
            ELSE sdk_topic_consent.alert_status
@@ -260,7 +270,15 @@ export class ConsentMirror {
          dirty_since = NOW(),
          updated_at = NOW()
        RETURNING contact, topic_key, topic_id, digest_status, alert_status, dirty_since`,
-      [this.db.namespace, contact, input.topicKey, input.topicId ?? null, wantDigest, wantAlert]
+      [
+        this.db.namespace,
+        contact,
+        input.topicKey,
+        input.topicId ?? null,
+        wantDigest,
+        wantAlert,
+        input.reactivate ?? false,
+      ]
     );
 
     const stored = res.rows[0];
