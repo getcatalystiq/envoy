@@ -136,7 +136,7 @@ function fakeAgent(opts: AgentOpts = {}) {
     const events = opts.errorEvent
       ? [{ type: "session.error", error: { message: "boom" } }]
       : [
-          { type: "agent.message", content: [{ type: "text", text: opts.output ?? '{"GREETING":"Hi Ada"}' }] },
+          { type: "agent.message", content: [{ type: "text", text: opts.output ?? '{"body":"Hi Ada"}' }] },
           { type: "session.status_idle", stop_reason: { type: "end_turn" } },
         ];
     const controller = new AbortController();
@@ -152,7 +152,7 @@ function fakeAgent(opts: AgentOpts = {}) {
     async function* gen() {
       yield {
         type: "agent.message",
-        content: [{ type: "text", text: opts.listOutput ?? '{"GREETING":"prev"}' }],
+        content: [{ type: "text", text: opts.listOutput ?? '{"body":"prev"}' }],
       };
       yield { type: "session.status_idle", stop_reason: { type: "end_turn" } };
     }
@@ -231,6 +231,7 @@ function baseDue(over: Partial<DueStep> = {}): DueStep {
     stepIndex: 0,
     data: { first_name: "Ada", secret: "leak-me" },
     agentSessionId: null,
+    blockSessions: {},
     nextRunAt: null,
     ...over,
   };
@@ -244,7 +245,7 @@ describe("runDripStep — happy path (R14)", () => {
   it("generates the declared slot and sends with template id + variables; idempotency key is a request option", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
-      agent: { output: '{"GREETING":"Hi Ada"}' },
+      agent: { output: '{"body":"Hi Ada"}' },
     });
 
     const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
@@ -276,7 +277,7 @@ describe("runDripStep — happy path (R14)", () => {
   it("only allow-listed contact fields reach the agent payload (R44)", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
-      agent: { output: '{"GREETING":"Hi"}' },
+      agent: { output: '{"body":"Hi"}' },
     });
     await runDripStep(env.envoy, SEQ, baseDue(), env.config);
     // The goal text sent to the agent never contains the non-allow-listed `secret` field.
@@ -288,7 +289,7 @@ describe("runDripStep — happy path (R14)", () => {
   it("marks the last step's send as completing the enrollment", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
-      agent: { output: '{"FOLLOWUP":"Still here?"}' },
+      agent: { output: '{"body":"Still here?"}' },
     });
     const past = new Date(Date.now() - 60 * 1000); // the wait already elapsed (tick set next_run_at)
     const res = await runDripStep(
@@ -306,7 +307,7 @@ describe("runDripStep — happy path (R14)", () => {
   it("a stepIndex past the end of the sequence sends nothing and marks the enrollment completed", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
-      agent: { output: '{"GREETING":"Hi"}' },
+      agent: { output: '{"body":"Hi"}' },
     });
     // SEQ has 2 steps (indexes 0,1); index 2 is off the end — a never-cleaned enrollment.
     const res = await runDripStep(env.envoy, SEQ, baseDue({ stepIndex: 2 }), env.config);
@@ -323,7 +324,7 @@ describe("runDripStep — happy path (R14)", () => {
   it("commits the step-sent and the enrollment advance as ONE atomic CTE write (P1 double-send guard)", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
-      agent: { output: '{"GREETING":"Hi Ada"}' },
+      agent: { output: '{"body":"Hi Ada"}' },
     });
     const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
     expect(res).toMatchObject({ sent: true, advancedTo: 1, completed: false });
@@ -399,7 +400,7 @@ describe("runDripStep — fail-safe (R16)", () => {
   it("an in-band Resend error leaves the step due (no advance) and sends nothing further", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
-      agent: { output: '{"GREETING":"Hi"}' },
+      agent: { output: '{"body":"Hi"}' },
       resend: { sendError: true },
     });
     const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
@@ -411,7 +412,7 @@ describe("runDripStep — fail-safe (R16)", () => {
   it("a thrown Resend transport error leaves the step due (send_failed), not advanced", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
-      agent: { output: '{"GREETING":"Hi"}' },
+      agent: { output: '{"body":"Hi"}' },
       resend: { sendThrows: true },
     });
     const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
@@ -442,7 +443,7 @@ describe("runDripStep — fail-safe (R16)", () => {
     });
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
-      agent: { output: '{"GREETING":"Hi"}' },
+      agent: { output: '{"body":"Hi"}' },
     });
     await runDripStep(env.envoy, withVault, baseDue(), env.config);
     // the fake's sessions.create spy records its payload — assert vault_ids carried through
@@ -452,7 +453,7 @@ describe("runDripStep — fail-safe (R16)", () => {
   it("omits vault_ids when the sequence agent has no vaultId", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
-      agent: { output: '{"GREETING":"Hi"}' },
+      agent: { output: '{"body":"Hi"}' },
     });
     await runDripStep(env.envoy, SEQ, baseDue(), env.config); // SEQ agent has no vaultId
     const calls = env.agent?.create.mock.calls as ReadonlyArray<ReadonlyArray<unknown>> | undefined;
@@ -474,7 +475,7 @@ describe("runDripStep — crash-resume (R21)", () => {
     const res = await runDripStep(
       env.envoy,
       SEQ,
-      baseDue({ agentSessionId: "sess_prior" }),
+      baseDue({ blockSessions: { GREETING: "sess_prior" } }),
       env.config,
     );
     expect(res).toEqual({ sent: false, reason: "deferred" });
@@ -487,12 +488,12 @@ describe("runDripStep — crash-resume (R21)", () => {
   it("a re-claimed step whose prior session COMPLETED is harvested, not regenerated, and sent once", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
-      agent: { retrieveStatus: "idle", listOutput: '{"GREETING":"harvested"}' },
+      agent: { retrieveStatus: "idle", listOutput: '{"body":"harvested"}' },
     });
     const res = await runDripStep(
       env.envoy,
       SEQ,
-      baseDue({ agentSessionId: "sess_prior" }),
+      baseDue({ blockSessions: { GREETING: "sess_prior" } }),
       env.config,
     );
     expect(res).toMatchObject({ sent: true });
@@ -505,14 +506,16 @@ describe("runDripStep — crash-resume (R21)", () => {
   it("persists the new session id as the inflight marker BEFORE sending (fresh path)", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
-      agent: { output: '{"GREETING":"Hi"}' },
+      agent: { output: '{"body":"Hi"}' },
     });
     await runDripStep(env.envoy, SEQ, baseDue(), env.config);
-    // The marker UPDATE (agent_session_id) happens, and it precedes the emails.send call ordering:
+    // The per-slot marker UPDATE (block_sessions merge) happens, and it precedes the emails.send call:
     // the marker write is recorded among the pool calls before the send resolves.
-    const markerWrite = env.calls.find((c) => /UPDATE sdk_steps[\s\S]*agent_session_id = \$3/i.test(c.text));
+    const markerWrite = env.calls.find((c) => /UPDATE sdk_steps[\s\S]*block_sessions = block_sessions/i.test(c.text));
     expect(markerWrite).toBeDefined();
+    // params: [namespace, stepId, slotName, sessionId] — the new session id + the slot it belongs to.
     expect(markerWrite?.params).toContain("sess_new");
+    expect(markerWrite?.params).toContain("GREETING");
   });
 });
 
@@ -524,7 +527,7 @@ describe("runDripStep — gating", () => {
   it("Edge: a step whose wait hasn't elapsed is skipped (not_due), nothing touched", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
-      agent: { output: '{"FOLLOWUP":"x"}' },
+      agent: { output: '{"body":"x"}' },
     });
     const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000); // due in 2 days
     const res = await runDripStep(
@@ -540,7 +543,7 @@ describe("runDripStep — gating", () => {
   it("Edge: a suppressed contact is denied before send (R26)", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_out" }],
-      agent: { output: '{"GREETING":"Hi"}' },
+      agent: { output: '{"body":"Hi"}' },
     });
     const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
     expect(res).toEqual({ sent: false, reason: "suppressed" });
@@ -552,7 +555,7 @@ describe("runDripStep — gating", () => {
   it("Edge: an unsubscribed contact (global) is denied", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "unsubscribed" }],
-      agent: { output: '{"GREETING":"Hi"}' },
+      agent: { output: '{"body":"Hi"}' },
     });
     const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
     expect(res).toEqual({ sent: false, reason: "suppressed" });
@@ -572,7 +575,7 @@ describe("runDripStep — gating", () => {
           unsubscribed: true,
         },
       ],
-      agent: { output: '{"GREETING":"Hi"}' },
+      agent: { output: '{"body":"Hi"}' },
     });
     const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
     expect(res).toEqual({ sent: false, reason: "suppressed" });
@@ -590,7 +593,7 @@ describe("runDripStep — Resend disabled (R43)", () => {
   it("no Resend key ⇒ resend_disabled no-op; the step is not advanced", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
-      agent: { output: '{"GREETING":"Hi"}' },
+      agent: { output: '{"body":"Hi"}' },
       resend: { enabled: false },
     });
     const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);

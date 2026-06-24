@@ -522,6 +522,59 @@ export async function generateOrHarvestSlots(
   return { kind: "generated", slots, sessionId: result.sessionId };
 }
 
+/** Input for one per-block generation (one AI slot → one `{body}`). */
+export interface GenerateOrHarvestBlockInput {
+  agentId: string;
+  environmentId: string;
+  /** OPTIONAL vault id forwarded to session-create as `vault_ids`. */
+  vaultId?: string;
+  /** The structured per-block contract the agent receives. */
+  contract: BlockAgentContract;
+  /** A prior tick's session id for THIS slot — harvest it, never fork a second billed session. */
+  resumeSessionId?: string;
+  /** Persist the session id BEFORE the billed turn (per-slot marker). */
+  onSessionCreated?: (sessionId: string) => void | Promise<void>;
+  timeoutMs?: number;
+}
+
+/**
+ * Per-block twin of {@link generateOrHarvestSlots}: generate (or harvest) ONE block and return its
+ * `{body}`. Same crash-resume contract — a resumable session is harvested, a running one defers, a
+ * gone one re-runs fresh. The agent gets the structured per-block contract (not a free-text goal) and
+ * returns `{"body": ...}` (not a multi-slot keyed object).
+ */
+export async function generateOrHarvestBlock(
+  input: GenerateOrHarvestBlockInput,
+): Promise<BlockAgentResult> {
+  if (typeof input.resumeSessionId === "string" && input.resumeSessionId.length > 0) {
+    const harvest = await harvestAgentSession(input.resumeSessionId);
+    if (harvest.state === "running") return { kind: "deferred" };
+    if (harvest.state === "completed") {
+      const body = extractBlockBody(harvest.output);
+      if (body !== null) return { kind: "harvested", body };
+      // Prior session finished but its output is unusable — fall through to a fresh run.
+    }
+    // `unavailable` (gone/terminated) ⇒ a fresh run is safe.
+  }
+
+  const goal = buildBlockGoal(input.contract);
+  let result: AgentSessionResult;
+  try {
+    result = await runAgentSession(input.agentId, input.environmentId, goal, {
+      onSessionCreated: input.onSessionCreated,
+      timeoutMs: input.timeoutMs,
+      vaultId: input.vaultId,
+    });
+  } catch (err) {
+    if (err instanceof AgentError) return { kind: "failed", reason: err.message };
+    return { kind: "failed", reason: "agent session failed" };
+  }
+
+  const body = extractBlockBody(result.output);
+  if (body === null) return { kind: "failed", reason: "agent output missing body" };
+  return { kind: "generated", body, sessionId: result.sessionId };
+}
+
 // ---------------------------------------------------------------------------------------------
 // Content-seek extraction (reimplemented from the app, transport-agnostic).
 // ---------------------------------------------------------------------------------------------

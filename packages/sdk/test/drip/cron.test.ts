@@ -73,6 +73,7 @@ interface StepRow {
   enrollment_id: number;
   step_index: number;
   agent_session_id: string | null;
+  block_sessions: Record<string, string> | null;
   status: string;
   resend_email_id: string | null;
 }
@@ -183,22 +184,23 @@ function fakePool(opts: {
           enrollment_id: enrollmentId as unknown as number,
           step_index: stepIndex,
           agent_session_id: null,
+          block_sessions: {},
           status: "pending",
           resend_email_id: null,
         };
         steps.push(row);
         // RETURNING id, agent_session_id from the freshly inserted row.
-        return { rows: [{ id: row.id, agent_session_id: row.agent_session_id }] as T[] };
+        return { rows: [{ id: row.id, agent_session_id: row.agent_session_id, block_sessions: row.block_sessions }] as T[] };
       }
 
       // 3. Step-row read-back (fallback — runs ONLY on the INSERT conflict path, for an
       //    already-existing row, so a prior tick's inflight agent_session_id survives + is harvested).
-      if (/SELECT id, agent_session_id\s+FROM sdk_steps/i.test(t)) {
+      if (/SELECT id, agent_session_id, block_sessions\s+FROM sdk_steps/i.test(t)) {
         const [, enrollmentId, stepIndex] = params as [string, number, number];
         const row = steps.find(
           (s) => s.enrollment_id === enrollmentId && s.step_index === stepIndex,
         );
-        return { rows: (row ? [{ id: row.id, agent_session_id: row.agent_session_id }] : []) as T[] };
+        return { rows: (row ? [{ id: row.id, agent_session_id: row.agent_session_id, block_sessions: row.block_sessions }] : []) as T[] };
       }
 
       // 3.5. Gate's FIRST query: the GLOBAL suppression flag (ConsentMirror.isGloballySuppressed).
@@ -292,7 +294,7 @@ function fakeAgent(opts: AgentOpts = {}): void {
   const send = vi.fn(async () => ({}));
   const stream = vi.fn(async () => {
     const events = [
-      { type: "agent.message", content: [{ type: "text", text: opts.output ?? '{"GREETING":"Hi"}' }] },
+      { type: "agent.message", content: [{ type: "text", text: opts.output ?? '{"body":"Hi"}' }] },
       { type: "session.status_idle", stop_reason: { type: "end_turn" } },
     ];
     const controller = new AbortController();
@@ -308,7 +310,7 @@ function fakeAgent(opts: AgentOpts = {}): void {
     async function* gen() {
       yield {
         type: "agent.message",
-        content: [{ type: "text", text: opts.output ?? '{"GREETING":"prev"}' }],
+        content: [{ type: "text", text: opts.output ?? '{"body":"prev"}' }],
       };
       yield { type: "session.status_idle", stop_reason: { type: "end_turn" } };
     }
@@ -379,7 +381,7 @@ describe("tickDrip — claim + run (R20, R21)", () => {
         { contact: "bob@example.com", topicKey: "welcome" },
       ],
     });
-    fakeAgent({ output: '{"GREETING":"Hi"}' });
+    fakeAgent({ output: '{"body":"Hi"}' });
     const { handle, emailsSend } = fakeResend();
     const envoy = makeEnvoy(fp.pool, handle);
 
@@ -415,7 +417,7 @@ describe("tickDrip — claim + run (R20, R21)", () => {
       enrollments: [{ id: 10, contact: "ada@example.com", sequenceKey: "welcome", currentStep: 0 }],
       consent: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in", unsubscribed: true }],
     });
-    fakeAgent({ output: '{"GREETING":"Hi"}' });
+    fakeAgent({ output: '{"body":"Hi"}' });
     const { handle, emailsSend } = fakeResend();
     const envoy = makeEnvoy(fp.pool, handle);
 
@@ -640,7 +642,7 @@ describe("tickDrip — claim + run (R20, R21)", () => {
       ],
       consent: [{ contact: "ada@example.com", topicKey: "welcome" }],
     });
-    fakeAgent({ output: '{"GREETING":"Hi"}' });
+    fakeAgent({ output: '{"body":"Hi"}' });
     const { handle, emailsSend } = fakeResend();
     const envoy = makeEnvoy(fp.pool, handle);
 
@@ -659,7 +661,7 @@ describe("tickDrip — claim + run (R20, R21)", () => {
     // And crucially: on the FIRST claim the engine must NOT issue the read-back SELECT — the row came
     // from RETURNING. A read-back here would prove the N+1 is still present (the bug this fix kills).
     const stepReadBacks = fp.calls.filter((c) =>
-      /SELECT id, agent_session_id\s+FROM sdk_steps/i.test(c.text),
+      /SELECT id, agent_session_id, block_sessions\s+FROM sdk_steps/i.test(c.text),
     );
     expect(stepReadBacks).toHaveLength(0);
   });
@@ -671,13 +673,15 @@ describe("tickDrip — claim + run (R20, R21)", () => {
       ],
       consent: [{ contact: "ada@example.com", topicKey: "welcome" }],
     });
-    // Pre-seed an EXISTING step row carrying an inflight agent_session_id from a prior (crashed) tick.
+    // Pre-seed an EXISTING step row carrying an inflight per-slot session from a prior (crashed) tick.
+    // The slot is GREETING (step 0's only aiSlot), so its session id lives under block_sessions.
     fp.steps.push({
       id: 99,
       namespace: NAMESPACE,
       enrollment_id: 10,
       step_index: 0,
-      agent_session_id: "sess_prior",
+      agent_session_id: null,
+      block_sessions: { GREETING: "sess_prior" },
       status: "pending",
       resend_email_id: null,
     });
@@ -692,7 +696,7 @@ describe("tickDrip — claim + run (R20, R21)", () => {
       return {
         controller,
         async *[Symbol.asyncIterator]() {
-          yield { type: "agent.message", content: [{ type: "text", text: '{"GREETING":"new"}' }] };
+          yield { type: "agent.message", content: [{ type: "text", text: '{"body":"new"}' }] };
           yield { type: "session.status_idle", stop_reason: { type: "end_turn" } };
         },
       };
@@ -702,7 +706,7 @@ describe("tickDrip — claim + run (R20, R21)", () => {
       async function* gen() {
         yield {
           type: "agent.message",
-          content: [{ type: "text", text: '{"GREETING":"harvested"}' }],
+          content: [{ type: "text", text: '{"body":"harvested"}' }],
         };
         yield { type: "session.status_idle", stop_reason: { type: "end_turn" } };
       }
@@ -722,7 +726,7 @@ describe("tickDrip — claim + run (R20, R21)", () => {
 
     // Conflict path: the INSERT hit ON CONFLICT (row pre-existed) so the read-back SELECT ran.
     const stepReadBacks = fp.calls.filter((c) =>
-      /SELECT id, agent_session_id\s+FROM sdk_steps/i.test(c.text),
+      /SELECT id, agent_session_id, block_sessions\s+FROM sdk_steps/i.test(c.text),
     );
     expect(stepReadBacks).toHaveLength(1);
 

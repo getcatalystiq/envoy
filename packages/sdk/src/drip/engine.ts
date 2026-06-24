@@ -6,10 +6,14 @@ import type { Envoy, EnvoyAgentConfig } from "../config.js";
 import type { ConsentMirror, Stream } from "../consent/mirror.js";
 import { buildListUnsubscribeHeaders } from "../consent/unsubscribe.js";
 import {
-  generateOrHarvestSlots,
+  generateOrHarvestBlock,
+  sanitizeContactForAgent,
+  shapeAgentTarget,
+  BLOCK_AGENT_MODE,
   type GeneratedSlots,
 } from "../agent/session.js";
-import type { Sequence, SequenceStep } from "./sequence.js";
+import { getTemplate } from "../resend/templates.js";
+import { type Sequence, type SequenceStep, blockTypeForSlot } from "./sequence.js";
 
 // Drip engine — run one due step: gate → generate-or-harvest → send → advance (U8 / origin
 // R12–R16, R23). The cron tick (U9) selects due steps under an atomic claim and calls `runDripStep`
@@ -40,9 +44,16 @@ export interface DueStep {
   data: Record<string, unknown>;
   /**
    * Inflight crash-resume marker (`sdk_steps.agent_session_id`). Non-null ⇒ a prior tick started a
-   * session for this exact step — harvest it, never fork a second billed one.
+   * session for this exact step — harvest it, never fork a second billed one. Legacy per-step marker;
+   * the per-block path uses {@link DueStep.blockSessions} instead.
    */
   agentSessionId: string | null;
+  /**
+   * Per-slot inflight markers (`sdk_steps.block_sessions`): `{ slotName -> sessionId }`. A slot present
+   * here had its session started on a prior tick — harvest that slot, never re-bill it. Empty `{}` for
+   * a fresh step. This replaces the single `agentSessionId` for the per-block agent contract.
+   */
+  blockSessions: Record<string, string>;
   /** When the current step became eligible (`sdk_enrollments.next_run_at`). Null ⇒ eligible now. */
   nextRunAt: Date | string | null;
 }
@@ -103,13 +114,47 @@ function isWaitElapsed(step: SequenceStep, nextRunAt: Date | string | null, now:
  * reimplementation of the `onSessionCreated` contract: a crash after this write but before the send
  * leaves a resumable marker; a re-claim harvests it.
  */
-async function markInflight(envoy: Envoy, stepId: DueStep["stepId"], sessionId: string): Promise<void> {
+/**
+ * Persist ONE slot's inflight session id into the
+ * `block_sessions` JSONB map (`{ slotName -> sessionId }`) BEFORE that slot's billed turn. A JSONB
+ * merge (`||`) so a slot already persisted in the same step is not clobbered by a later slot. A crash
+ * after this write but before the send leaves a per-slot resumable marker the next tick harvests.
+ */
+async function markBlockInflight(
+  envoy: Envoy,
+  stepId: DueStep["stepId"],
+  slotName: string,
+  sessionId: string,
+): Promise<void> {
   await envoy.db.execWrite(
     `UPDATE sdk_steps
-       SET agent_session_id = $3, updated_at = NOW()
+       SET block_sessions = block_sessions || jsonb_build_object($3::text, $4::text), updated_at = NOW()
      WHERE namespace = $1 AND id = $2`,
-    [envoy.db.namespace, stepId, sessionId],
+    [envoy.db.namespace, stepId, slotName, sessionId],
   );
+}
+
+/**
+ * The per-variable fallback copy of a step's template, keyed by variable name — used as each AI
+ * slot's `original_content` (the agent's length-anchor). Fetched once per step (the template fetch is
+ * cached). A fetch failure or a disabled Resend client is non-fatal: an empty map ⇒ empty
+ * `original_content` ⇒ the agent writes fresh (a thin anchor, not a hard error).
+ */
+async function originalContentFallbacks(
+  envoy: Envoy,
+  templateId: string,
+): Promise<Record<string, string>> {
+  if (!envoy.resend.enabled) return {};
+  try {
+    const tmpl = await getTemplate(envoy.resend, templateId);
+    const map: Record<string, string> = {};
+    for (const v of tmpl.variables) {
+      map[v.key] = v.fallback === null || v.fallback === undefined ? "" : String(v.fallback);
+    }
+    return map;
+  } catch {
+    return {};
+  }
 }
 
 /** Compute the absolute time the NEXT step becomes eligible from its wait. */
@@ -234,31 +279,44 @@ export async function runDripStep(
   // 4. Resolve From (fail loud — the cron tick's per-contact try/catch turns this into fail-soft).
   const from = resolveFrom(envoy, stream);
 
-  // 5. Generate or harvest the declared slots (R14/R23). Only allow-listed contact fields reach the
-  //    agent (R44). The marker is persisted to the step row BEFORE the billed turn.
-  let slots: GeneratedSlots = {};
+  // 5. Generate or harvest each declared slot, ONE BLOCK PER CALL (R14/R23). The agent returns one
+  //    `{body}` per slot, so we loop: shape the allow-listed contact into `target` once (R44), fetch
+  //    the template's per-variable fallbacks once (the `original_content` length-anchor), then per
+  //    slot derive its block_type, generate-or-harvest with that slot's marker, and accumulate.
+  //    Aggregate rule: any slot defers ⇒ defer the whole step (resolved slots' sessions are persisted
+  //    and harvested free next tick); any slot fails ⇒ fail (no partial send); all resolve ⇒ send.
+  //    Each slot's marker is persisted to `block_sessions` BEFORE that slot's billed turn.
+  const slots: GeneratedSlots = {};
   if (step.aiSlots.length > 0) {
     const agent = requireAgent(sequence);
-    const gen = await generateOrHarvestSlots({
-      agentId: agent.agentId,
-      environmentId: agent.environmentId,
-      vaultId: agent.vaultId,
-      aiSlots: step.aiSlots,
-      brief: step.brief,
-      contactData: due.data,
-      aiFieldAllowList: envoy.config.aiFieldAllowList,
-      resumeSessionId: due.agentSessionId,
-      onSessionCreated: (sessionId) => markInflight(envoy, due.stepId, sessionId),
-      timeoutMs: config.agentTimeoutMs,
-    });
-    if (gen.kind === "deferred") {
-      return { sent: false, reason: "deferred" };
+    const safe = sanitizeContactForAgent(due.data, envoy.config.aiFieldAllowList);
+    const target = shapeAgentTarget(safe);
+    const fallbackByKey = await originalContentFallbacks(envoy, step.templateId);
+    for (const slotName of step.aiSlots) {
+      const gen = await generateOrHarvestBlock({
+        agentId: agent.agentId,
+        environmentId: agent.environmentId,
+        vaultId: agent.vaultId,
+        contract: {
+          mode: BLOCK_AGENT_MODE,
+          original_content: fallbackByKey[slotName] ?? "",
+          prompt: step.brief,
+          target,
+          block_type: blockTypeForSlot(step, slotName),
+        },
+        resumeSessionId: due.blockSessions[slotName],
+        onSessionCreated: (sessionId) => markBlockInflight(envoy, due.stepId, slotName, sessionId),
+        timeoutMs: config.agentTimeoutMs,
+      });
+      if (gen.kind === "deferred") {
+        return { sent: false, reason: "deferred" };
+      }
+      if (gen.kind === "failed") {
+        await recordFailure(envoy, due.stepId, gen.reason);
+        return { sent: false, reason: "generation_failed", detail: gen.reason };
+      }
+      slots[slotName] = gen.body;
     }
-    if (gen.kind === "failed") {
-      await recordFailure(envoy, due.stepId, gen.reason);
-      return { sent: false, reason: "generation_failed", detail: gen.reason };
-    }
-    slots = gen.slots;
   }
 
   // 6. No Resend key ⇒ silent no-op; the step stays due (R43). Checked AFTER generation so a
@@ -376,6 +434,7 @@ interface ClaimedEnrollmentRow {
 interface StepRow {
   id: number | string;
   agent_session_id: string | null;
+  block_sessions: Record<string, string> | null;
 }
 
 /** Per-enrollment outcome the tick collects (one entry per CLAIMED enrollment). */
@@ -467,7 +526,7 @@ async function ensureStepRow(
     `INSERT INTO sdk_steps (namespace, enrollment_id, step_index, status)
      VALUES ($1, $2, $3, 'pending')
      ON CONFLICT (namespace, enrollment_id, step_index) DO NOTHING
-     RETURNING id, agent_session_id`,
+     RETURNING id, agent_session_id, block_sessions`,
     [envoy.db.namespace, enrollmentId, stepIndex],
   );
   const insertedRow = inserted.rows[0];
@@ -477,7 +536,7 @@ async function ensureStepRow(
   // nothing. SELECT it back ONLY here — this fallback runs solely for already-existing rows, so the
   // prior tick's inflight `agent_session_id` survives and is harvested (the U8 second guard).
   const { rows } = await envoy.db.query<StepRow>(
-    `SELECT id, agent_session_id
+    `SELECT id, agent_session_id, block_sessions
        FROM sdk_steps
       WHERE namespace = $1 AND enrollment_id = $2 AND step_index = $3`,
     [envoy.db.namespace, enrollmentId, stepIndex],
@@ -560,6 +619,7 @@ export async function tickDrip(
         stepIndex,
         data: row.data ?? {},
         agentSessionId: step.agent_session_id,
+        blockSessions: step.block_sessions ?? {},
         nextRunAt: row.next_run_at,
       };
 
