@@ -2,7 +2,7 @@ import "server-only";
 
 import type { CreateEmailOptions } from "resend";
 
-import type { Envoy } from "../config.js";
+import type { Envoy, EnvoyAgentConfig } from "../config.js";
 import type { ConsentMirror, Stream } from "../consent/mirror.js";
 import { buildListUnsubscribeHeaders } from "../consent/unsubscribe.js";
 import {
@@ -238,9 +238,11 @@ export async function runDripStep(
   //    agent (R44). The marker is persisted to the step row BEFORE the billed turn.
   let slots: GeneratedSlots = {};
   if (step.aiSlots.length > 0) {
+    const agent = requireAgent(sequence);
     const gen = await generateOrHarvestSlots({
-      agentId: requireAgent(envoy).agentId,
-      environmentId: requireAgent(envoy).environmentId,
+      agentId: agent.agentId,
+      environmentId: agent.environmentId,
+      vaultId: agent.vaultId,
       aiSlots: step.aiSlots,
       brief: step.brief,
       contactData: due.data,
@@ -321,13 +323,15 @@ export async function runDripStep(
   return { sent: true, emailId: data.id, advancedTo, completed };
 }
 
-/** Require the agent to be configured before an AI step runs. A drip step that declares slots needs
- * an agent; surfacing this loud (rather than silently sending an un-personalized email) is R45. */
-function requireAgent(envoy: Envoy): { agentId: string; environmentId: string } {
-  const agent = envoy.config.agent;
+/** Require the running SEQUENCE to carry its own agent before an AI step runs. The agent is resolved
+ * PER-SEQUENCE (sequence.agent), not from a global config — a sequence with no agent fails loud rather
+ * than silently sending un-personalized copy or falling back to some other sequence's agent (R45/R9).
+ * `sequence.agent` is carried through the load path (store.rowToSequence), so the live cron sees it. */
+function requireAgent(sequence: Sequence): EnvoyAgentConfig {
+  const agent = sequence.agent;
   if (!agent) {
     throw new Error(
-      "[@catalystiq/envoy-sdk] a drip step declares aiSlots but no `agent` is configured at createEnvoy time (R45).",
+      `[@catalystiq/envoy-sdk] sequence "${sequence.key}" declares an AI step (aiSlots) but has no per-sequence \`agent\` configured (R45/R9). Assign an agent to this sequence — the engine no longer falls back to a global agent.`,
     );
   }
   return agent;

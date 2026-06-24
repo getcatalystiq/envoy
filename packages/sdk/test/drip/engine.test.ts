@@ -214,6 +214,8 @@ function setup(opts: {
 
 const SEQ: Sequence = defineSequence({
   key: "welcome",
+  // Agent is resolved PER-SEQUENCE now (not from a global config) — the sequence carries it.
+  agent: { agentId: "agent_1", environmentId: "env_1" },
   steps: [
     { templateId: "tmpl_day0", waitDays: 0, aiSlots: ["GREETING"], brief: "warm intro" },
     { templateId: "tmpl_day3", waitDays: 3, aiSlots: ["FOLLOWUP"], brief: "nudge" },
@@ -416,17 +418,46 @@ describe("runDripStep — fail-safe (R16)", () => {
     expect(res).toMatchObject({ sent: false, reason: "send_failed" });
   });
 
-  it("a step that declares aiSlots with no agent configured rejects before sending (R45)", async () => {
-    // The contact passes the gate (opt_in, not suppressed) so the step reaches the generation
-    // path — where requireAgent must throw because createEnvoy was given no `agent`.
+  it("a step that declares aiSlots on a sequence with no per-sequence agent rejects before sending (R45/R9)", async () => {
+    // The contact passes the gate (opt_in, not suppressed) so the step reaches the generation path —
+    // where requireAgent(sequence) must throw because THE SEQUENCE has no agent (no global fallback).
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
-      configOverrides: { agent: undefined },
     });
-    await expect(runDripStep(env.envoy, SEQ, baseDue(), env.config)).rejects.toThrow(
+    const noAgentSeq = defineSequence({
+      key: "welcome",
+      steps: [{ templateId: "tmpl_day0", waitDays: 0, aiSlots: ["GREETING"], brief: "warm intro" }],
+    });
+    await expect(runDripStep(env.envoy, noAgentSeq, baseDue(), env.config)).rejects.toThrow(
       /aiSlots|agent/i,
     );
     expect(env.emailsSend).not.toHaveBeenCalled();
+  });
+
+  it("passes vault_ids to session-create only when the sequence agent carries a vaultId", async () => {
+    const withVault = defineSequence({
+      key: "welcome",
+      agent: { agentId: "agent_1", environmentId: "env_1", vaultId: "vlt_abc" },
+      steps: [{ templateId: "tmpl_day0", waitDays: 0, aiSlots: ["GREETING"], brief: "warm intro" }],
+    });
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: '{"GREETING":"Hi"}' },
+    });
+    await runDripStep(env.envoy, withVault, baseDue(), env.config);
+    // the fake's sessions.create spy records its payload — assert vault_ids carried through
+    expect(env.agent?.create).toHaveBeenCalledWith(expect.objectContaining({ vault_ids: ["vlt_abc"] }));
+  });
+
+  it("omits vault_ids when the sequence agent has no vaultId", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: '{"GREETING":"Hi"}' },
+    });
+    await runDripStep(env.envoy, SEQ, baseDue(), env.config); // SEQ agent has no vaultId
+    const calls = env.agent?.create.mock.calls as ReadonlyArray<ReadonlyArray<unknown>> | undefined;
+    const createArg = calls?.[0]?.[0] as Record<string, unknown> | undefined;
+    expect(createArg && "vault_ids" in createArg).toBe(false);
   });
 });
 

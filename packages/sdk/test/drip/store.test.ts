@@ -69,7 +69,7 @@ function fakePool(opts: { enrollments?: EnrollSeed[] } = {}): {
         history.push({ sequence_key: key, version, actor, steps: stepsJson });
         return { rows: [{ version }] as T[] };
       }
-      if (sql.startsWith("SELECT steps FROM sdk_sequence_defs")) {
+      if (sql.startsWith("SELECT steps, agent_config FROM sdk_sequence_defs")) {
         const [ns, key] = p as [string, string];
         const row = defs.get(k(ns, key));
         return { rows: row ? ([{ steps: row.steps }] as T[]) : [] };

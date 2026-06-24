@@ -58,6 +58,7 @@ export async function saveSequence(
   const version = await upsertSequenceDef(envoy.db, {
     key: sequence.key,
     steps: sequence.steps,
+    agent: sequence.agent, // validated + frozen by defineSequence; persisted as agent_config
     actor: opts?.actor ?? null,
   });
   return { sequence, version, warnings: result.warnings };
