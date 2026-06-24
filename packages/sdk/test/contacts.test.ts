@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   enroll,
   deleteContact,
+  isContactAlreadyGone,
   createSegmentSync,
   SegmentSync,
 } from "@sdk/contacts.js";
@@ -319,6 +320,10 @@ interface ResendSpyOpts {
   topicCreateError?: boolean;
   contactRemoveError?: boolean;
   contactRemoveThrows?: boolean;
+  /** Resend returns a 404 not-found on remove (the contact is already gone). */
+  contactRemoveNotFound?: boolean;
+  /** Resend throws a not-found-shaped error on remove. */
+  contactRemoveThrowsNotFound?: boolean;
   segmentRemoveError?: boolean;
 }
 
@@ -344,6 +349,8 @@ function fakeResend(opts: ResendSpyOpts = {}): {
   });
   const contactRemove = vi.fn(async () => {
     if (opts.contactRemoveThrows) throw new Error("network");
+    if (opts.contactRemoveThrowsNotFound) throw { message: "Contact not found", statusCode: 404, name: "not_found" };
+    if (opts.contactRemoveNotFound) return { data: null, error: { message: "Contact not found", statusCode: 404, name: "not_found" } };
     return { data: opts.contactRemoveError ? null : { object: "contact", deleted: true, contact: "x" }, error: opts.contactRemoveError ? err("remove failed") : null };
   });
   const segmentAdd = vi.fn(async () => ({
@@ -769,6 +776,41 @@ describe("deleteContact — right-to-erasure, suppress-before-delete (R34)", () 
     const res = await deleteContact(envoy, "x@example.com");
     expect(res.resendContactDeleted).toBe("failed");
     expect(res.suppressed).toBe(true);
+  });
+
+  it("isContactAlreadyGone: true only for clear not-found signals", () => {
+    expect(isContactAlreadyGone({ name: "not_found", statusCode: 404, message: "Contact not found" })).toBe(true);
+    expect(isContactAlreadyGone({ statusCode: 404 })).toBe(true);
+    expect(isContactAlreadyGone({ name: "not_found" })).toBe(true);
+    expect(isContactAlreadyGone({ message: "no such contact" })).toBe(true);
+    // Real failures stay failures.
+    expect(isContactAlreadyGone({ name: "validation_error", statusCode: 422, message: "bad" })).toBe(false);
+    expect(isContactAlreadyGone({ name: "rate_limit_error", statusCode: 429 })).toBe(false);
+    expect(isContactAlreadyGone(null)).toBe(false);
+    expect(isContactAlreadyGone("not_found")).toBe(false);
+    expect(isContactAlreadyGone(new Error("boom"))).toBe(false);
+  });
+
+  it("Edge: a 404 not-found on remove reads as `skipped` (already gone = GDPR goal met), NOT failed", async () => {
+    // Without this the host reconcile sweep retries a contact that can never return and exhausts.
+    const { envoy } = setup({ contactRemoveNotFound: true }, {
+      contacts: [
+        { email: "gone@example.com", data: {}, unsubscribed: false, resend_contact_id: "ct_1", dirty: false },
+      ],
+    });
+    const res = await deleteContact(envoy, "gone@example.com");
+    expect(res.resendContactDeleted).toBe("skipped");
+    expect(res.suppressed).toBe(true);
+  });
+
+  it("Edge: a thrown not-found on remove also reads as `skipped`", async () => {
+    const { envoy } = setup({ contactRemoveThrowsNotFound: true }, {
+      contacts: [
+        { email: "gone2@example.com", data: {}, unsubscribed: false, resend_contact_id: "ct_1", dirty: false },
+      ],
+    });
+    const res = await deleteContact(envoy, "gone2@example.com");
+    expect(res.resendContactDeleted).toBe("skipped");
   });
 
   it("Edge: Resend unset → mirror suppressed, no upstream teardown attempted", async () => {

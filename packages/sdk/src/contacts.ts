@@ -483,6 +483,27 @@ async function eraseContact(envoy: Envoy, email: string): Promise<void> {
  * SDK never hard-deletes rows (the suppressed mirror is what keeps the contact excluded across both
  * lanes). The host's own data-retention policy governs purging the mirror row itself.
  */
+/**
+ * A Resend teardown error that means the contact is ALREADY GONE (404 / not-found). For a GDPR delete
+ * this is success, not failure: the goal — the contact no longer existing — is met. Classifying it as
+ * `"failed"` makes the host's reconcile sweep retry forever and exhaust its attempt cap (the contact
+ * can never come back), so a delete of an already-absent contact must read as terminal, not retryable.
+ * Conservative: only clear not-found signals count; anything ambiguous stays a real failure.
+ */
+export function isContactAlreadyGone(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as { name?: unknown; message?: unknown; statusCode?: unknown };
+  const name = String(e.name ?? "").toLowerCase();
+  const message = String(e.message ?? "").toLowerCase();
+  return (
+    e.statusCode === 404 ||
+    name === "not_found" ||
+    name.includes("not_found") ||
+    message.includes("not found") ||
+    message.includes("no such")
+  );
+}
+
 export async function deleteContact(
   envoy: Envoy,
   rawEmail: string,
@@ -552,12 +573,17 @@ export async function deleteContact(
     }
   }
 
-  // 3c. Best-effort: delete the global Resend Contact (by email — Resend accepts the email form).
+  // 3c. Best-effort: delete the global Resend Contact (by email — Resend accepts the email form). A
+  //     not-found (the contact is already gone) is the GDPR goal MET, so it reads as `skipped`, not
+  //     `failed` — otherwise the host reconcile sweep retries a contact that can never return and
+  //     exhausts its attempt cap.
   try {
     const { error } = await client.contacts.remove(email);
-    result.resendContactDeleted = error ? "failed" : "deleted";
-  } catch {
-    result.resendContactDeleted = "failed";
+    if (!error) result.resendContactDeleted = "deleted";
+    else if (isContactAlreadyGone(error)) result.resendContactDeleted = "skipped";
+    else result.resendContactDeleted = "failed";
+  } catch (err) {
+    result.resendContactDeleted = isContactAlreadyGone(err) ? "skipped" : "failed";
   }
 
   return result;
