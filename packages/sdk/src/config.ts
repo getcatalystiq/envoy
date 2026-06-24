@@ -38,6 +38,12 @@ export interface EnvoyAgentConfig {
   agentId: string;
   /** The Managed-Agents environment id. */
   environmentId: string;
+  /**
+   * OPTIONAL vault id (`vlt_*`). When set, it is passed as `vault_ids` on session-create — it carries
+   * the agent's MCP-tool credentials. Most drip agents need none (the host's content-draft path is not
+   * MCP-authenticated), so this is nullable; supply it only for an agent that uses authenticated MCP.
+   */
+  vaultId?: string;
 }
 
 /**
@@ -308,7 +314,18 @@ function normalizeAgent(input: EnvoyAgentConfig | undefined): EnvoyAgentConfig |
   // agent is a fail-loud init error, not a runtime surprise.
   const agentId = requireNonEmptyString(input.agentId, "agent.agentId");
   const environmentId = requireNonEmptyString(input.environmentId, "agent.environmentId");
-  return Object.freeze({ agentId, environmentId });
+  // vaultId is optional; carry it through only when a non-empty string was supplied.
+  const vaultId = typeof input.vaultId === "string" && input.vaultId.length > 0 ? input.vaultId : undefined;
+  return Object.freeze(vaultId ? { agentId, environmentId, vaultId } : { agentId, environmentId });
+}
+
+/**
+ * Validate + freeze an agent config that arrives on a SEQUENCE DEFINITION (not createEnvoy config) —
+ * same rule as {@link normalizeAgent}: if present, agentId + environmentId required, vaultId optional.
+ * Exported so the sequence layer reuses the one validation.
+ */
+export function normalizeSequenceAgent(input: EnvoyAgentConfig | undefined): EnvoyAgentConfig | undefined {
+  return normalizeAgent(input);
 }
 
 /**

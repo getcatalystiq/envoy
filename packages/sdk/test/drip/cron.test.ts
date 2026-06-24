@@ -348,6 +348,8 @@ function makeEnvoy(
 
 const SEQ: Sequence = defineSequence({
   key: "welcome",
+  // Per-sequence agent (the engine no longer reads a global config).
+  agent: { agentId: "agent_1", environmentId: "env_1" },
   steps: [
     { templateId: "tmpl_day0", waitDays: 0, aiSlots: ["GREETING"], brief: "warm intro" },
     { templateId: "tmpl_day3", waitDays: 3, aiSlots: ["FOLLOWUP"], brief: "nudge" },

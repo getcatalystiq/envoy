@@ -41,6 +41,11 @@ export interface AgentCallOpts {
   /** Invocation timeout. Defaults to 10 minutes — matches the app's run timeout. */
   timeoutMs?: number;
   /**
+   * OPTIONAL vault id (`vlt_*`). When set, passed as `vault_ids: [vaultId]` on session-create — it
+   * binds the agent's MCP-tool credentials for this session. Omitted entirely when not set.
+   */
+  vaultId?: string;
+  /**
    * Invoked with the new session id immediately after `sessions.create` and BEFORE the billed
    * `events.send` turn. The caller persists it as an inflight crash-resume marker that always
    * precedes any billed work. If it throws, the un-sent (unbilled) session is archived and the
@@ -158,6 +163,8 @@ export async function runAgentSession(
     const session = await shape.beta.sessions.create({
       agent: { type: "agent", id: agentId },
       environment_id: environmentId,
+      // vault_ids carries the agent's MCP credentials; include only when the caller supplied one.
+      ...(opts.vaultId ? { vault_ids: [opts.vaultId] } : {}),
     });
     sessionId = session.id;
   } catch (err) {
@@ -296,6 +303,8 @@ export type GeneratedSlots = Record<string, string>;
 export interface GenerateSlotsInput {
   agentId: string;
   environmentId: string;
+  /** OPTIONAL vault id, forwarded to session-create as `vault_ids` (MCP credentials). */
+  vaultId?: string;
   /** The slot names the step declares the agent must fill (R12/R14). */
   aiSlots: readonly string[];
   /** The per-step personalization brief (R12). */
@@ -421,6 +430,7 @@ export async function generateOrHarvestSlots(
     result = await runAgentSession(input.agentId, input.environmentId, goal, {
       onSessionCreated: input.onSessionCreated,
       timeoutMs: input.timeoutMs,
+      vaultId: input.vaultId,
     });
   } catch (err) {
     if (err instanceof AgentError) return { kind: "failed", reason: err.message };

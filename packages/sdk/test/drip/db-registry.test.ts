@@ -15,7 +15,7 @@ const STEPS: SequenceStep[] = [
 
 /** Fake pool backing sdk_sequence_defs: upsert + history + the loadAll SELECT. */
 function fakePool(): SdkPool {
-  const defs = new Map<string, { steps: string; version: number }>();
+  const defs = new Map<string, { steps: string; version: number; agent?: string | null }>();
   const k = (ns: string, key: string) => `${ns}|${key}`;
   return {
     async query<T = Record<string, unknown>>(
@@ -25,18 +25,23 @@ function fakePool(): SdkPool {
       const sql = text.replace(/\s+/g, " ").trim();
       const p = params as unknown[];
       if (sql.startsWith("WITH up AS")) {
-        const [ns, key, steps] = p as [string, string, string];
+        // params: [ns, key, stepsJson, actor, agentJson]
+        const [ns, key, steps, , agent] = p as [string, string, string, unknown, string | null];
         const prev = defs.get(k(ns, key));
         const version = prev ? prev.version + 1 : 1;
-        defs.set(k(ns, key), { steps, version });
+        defs.set(k(ns, key), { steps, version, agent: agent ?? null });
         return { rows: [{ version }] as T[] };
       }
-      if (sql.startsWith("SELECT sequence_key, steps FROM sdk_sequence_defs")) {
+      if (sql.startsWith("SELECT sequence_key, steps, agent_config FROM sdk_sequence_defs")) {
         const [ns] = p as [string];
         const prefix = `${ns}|`;
         const rows = [...defs.entries()]
           .filter(([key]) => key.startsWith(prefix))
-          .map(([key, v]) => ({ sequence_key: key.slice(prefix.length), steps: v.steps }));
+          .map(([key, v]) => ({
+            sequence_key: key.slice(prefix.length),
+            steps: v.steps,
+            agent_config: v.agent ? JSON.parse(v.agent) : null,
+          }));
         return { rows: rows as T[] };
       }
       throw new Error(`fakePool: unhandled SQL: ${sql}`);
@@ -74,6 +79,25 @@ describe("createDbSequenceRegistry (U-S2)", () => {
     expect(reg.resolve("onboarding")?.steps).toHaveLength(2); // stale within the tick
     await reg.refresh();
     expect(reg.resolve("onboarding")?.steps).toHaveLength(1); // current after refresh
+  });
+
+  // P0 GUARD: the live cron resolves a sequence through loadAllSequenceDefs → rowToSequence →
+  // defineSequence (NOT getSequence). The per-sequence agent MUST survive that path, or the engine
+  // sees `sequence.agent === undefined` at runtime despite a green getSequence round-trip.
+  it("carries a per-sequence agent through the load path onto the resolved Sequence", async () => {
+    const envoy = envoyWith(fakePool());
+    const reg = createDbSequenceRegistry(envoy);
+    await upsertSequenceDef(envoy.db, {
+      key: "onboarding",
+      steps: STEPS,
+      agent: { agentId: "agent_x", environmentId: "env_x", vaultId: "vlt_x" },
+    });
+    await reg.refresh();
+    expect(reg.resolve("onboarding")?.agent).toEqual({
+      agentId: "agent_x",
+      environmentId: "env_x",
+      vaultId: "vlt_x",
+    });
   });
 });
 

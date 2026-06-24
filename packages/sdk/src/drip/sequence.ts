@@ -1,5 +1,7 @@
 import "server-only";
 
+import { type EnvoyAgentConfig, normalizeSequenceAgent } from "../config.js";
+
 // Drip sequence definition (U8 / origin R12, R13, R15).
 //
 // A sequence is an ORDERED set of steps. Each step references a saved Resend Template by id, carries
@@ -38,12 +40,20 @@ export interface Sequence {
   readonly key: string;
   /** The ordered steps. Index is the step's position (`sdk_steps.step_index`). */
   readonly steps: readonly Readonly<SequenceStep>[];
+  /**
+   * OPTIONAL per-sequence agent override. When set, the drip engine resolves THIS agent for the
+   * sequence's AI steps instead of the global `envoy.config.agent`. Carried through the load path
+   * (store.rowToSequence) so the live cron sees it — not only `getSequence`.
+   */
+  readonly agent?: EnvoyAgentConfig;
 }
 
 /** Inputs to {@link defineSequence}. */
 export interface DefineSequenceInput {
   key: string;
   steps: SequenceStep[];
+  /** Optional per-sequence agent override `{agentId, environmentId, vaultId?}`. */
+  agent?: EnvoyAgentConfig;
 }
 
 /** Raised when a sequence definition is malformed (fail loud at definition time). */
@@ -115,5 +125,12 @@ export function defineSequence(input: DefineSequenceInput): Sequence {
     );
   }
   const steps = input.steps.map((step, i) => validateStep(step, i));
-  return Object.freeze({ key: input.key, steps: Object.freeze(steps) });
+  // Validate + freeze the optional agent (agentId + environmentId required when present; vaultId
+  // optional). normalizeSequenceAgent throws a clear error on a half-configured agent.
+  const agent = normalizeSequenceAgent(input.agent);
+  return Object.freeze(
+    agent
+      ? { key: input.key, steps: Object.freeze(steps), agent }
+      : { key: input.key, steps: Object.freeze(steps) },
+  );
 }

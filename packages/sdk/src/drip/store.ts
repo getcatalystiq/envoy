@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { NamespacedDb } from "../db/pool.js";
+import type { EnvoyAgentConfig } from "../config.js";
 import { defineSequence, SequenceDefinitionError, type Sequence, type SequenceStep } from "./sequence.js";
 
 // U-S1 — the DB-backed sequence-definition STORE: raw read/write over sdk_sequence_defs (+ the
@@ -33,8 +34,14 @@ function parseSteps(raw: unknown): SequenceStep[] {
  * loud structural validation + `Object.freeze` the code path gets are preserved for DB rows: a bad
  * row throws `SequenceDefinitionError`, never silently yields a broken Sequence.
  */
-export function rowToSequence(key: string, storedSteps: unknown): Sequence {
-  return defineSequence({ key, steps: parseSteps(storedSteps) });
+export function rowToSequence(key: string, storedSteps: unknown, storedAgent?: unknown): Sequence {
+  // storedAgent is the `agent_config` JSONB (object or null). defineSequence → normalizeSequenceAgent
+  // validates it (and throws on a malformed agent, so a bad row is skipped/loud, never silently used).
+  return defineSequence({
+    key,
+    steps: parseSteps(storedSteps),
+    agent: (storedAgent ?? undefined) as EnvoyAgentConfig | undefined,
+  });
 }
 
 /**
@@ -45,14 +52,14 @@ export function rowToSequence(key: string, storedSteps: unknown): Sequence {
  * the engine then resolves that key as `unknown_sequence` and skips it (never drops the enrollment).
  */
 export async function loadAllSequenceDefs(db: NamespacedDb): Promise<Map<string, Sequence>> {
-  const { rows } = await db.query<{ sequence_key: string; steps: unknown }>(
-    `SELECT sequence_key, steps FROM sdk_sequence_defs WHERE namespace = $1`,
+  const { rows } = await db.query<{ sequence_key: string; steps: unknown; agent_config: unknown }>(
+    `SELECT sequence_key, steps, agent_config FROM sdk_sequence_defs WHERE namespace = $1`,
     [db.namespace],
   );
   const out = new Map<string, Sequence>();
   for (const r of rows) {
     try {
-      out.set(r.sequence_key, rowToSequence(r.sequence_key, r.steps));
+      out.set(r.sequence_key, rowToSequence(r.sequence_key, r.steps, r.agent_config));
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(
@@ -73,12 +80,12 @@ export interface SequenceDefSummary {
 
 /** Read one definition by BARE key. `undefined` if absent. Throws (via defineSequence) on a bad row. */
 export async function readSequenceDef(db: NamespacedDb, key: string): Promise<Sequence | undefined> {
-  const { rows } = await db.query<{ steps: unknown }>(
-    `SELECT steps FROM sdk_sequence_defs WHERE namespace = $1 AND sequence_key = $2`,
+  const { rows } = await db.query<{ steps: unknown; agent_config: unknown }>(
+    `SELECT steps, agent_config FROM sdk_sequence_defs WHERE namespace = $1 AND sequence_key = $2`,
     [db.namespace, key],
   );
   if (rows.length === 0) return undefined;
-  return rowToSequence(key, rows[0].steps);
+  return rowToSequence(key, rows[0].steps, rows[0].agent_config);
 }
 
 /**
@@ -90,23 +97,25 @@ export async function readSequenceDef(db: NamespacedDb, key: string): Promise<Se
  */
 export async function upsertSequenceDef(
   db: NamespacedDb,
-  input: { key: string; steps: readonly SequenceStep[]; actor?: string | null },
+  input: { key: string; steps: readonly SequenceStep[]; agent?: EnvoyAgentConfig; actor?: string | null },
 ): Promise<number> {
   const stepsJson = JSON.stringify(input.steps);
+  const agentJson = input.agent ? JSON.stringify(input.agent) : null; // null clears a prior agent
   const { rows } = await db.execWrite<{ version: number }>(
     `WITH up AS (
-       INSERT INTO sdk_sequence_defs (namespace, sequence_key, steps, version)
-         VALUES ($1, $2, $3::jsonb, 1)
+       INSERT INTO sdk_sequence_defs (namespace, sequence_key, steps, agent_config, version)
+         VALUES ($1, $2, $3::jsonb, $5::jsonb, 1)
        ON CONFLICT (namespace, sequence_key)
          DO UPDATE SET steps = EXCLUDED.steps,
+                       agent_config = EXCLUDED.agent_config,
                        version = sdk_sequence_defs.version + 1,
                        updated_at = NOW()
        RETURNING version
      )
-     INSERT INTO sdk_sequence_def_history (namespace, sequence_key, version, actor, steps)
-       SELECT $1, $2, up.version, $4, $3::jsonb FROM up
+     INSERT INTO sdk_sequence_def_history (namespace, sequence_key, version, actor, steps, agent_config)
+       SELECT $1, $2, up.version, $4, $3::jsonb, $5::jsonb FROM up
      RETURNING version`,
-    [db.namespace, input.key, stepsJson, input.actor ?? null],
+    [db.namespace, input.key, stepsJson, input.actor ?? null, agentJson],
   );
   return rows[0].version;
 }
