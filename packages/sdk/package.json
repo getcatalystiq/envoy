@@ -1,6 +1,6 @@
 {
   "name": "@catalystiq/envoy-sdk",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Headless Resend drip + broadcast email SDK for Next.js — bring-your-own-Postgres, host-owns-auth.",
   "type": "module",
   "license": "MIT",
