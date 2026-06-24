@@ -2,6 +2,8 @@ import "server-only";
 
 import Anthropic from "@anthropic-ai/sdk";
 
+import type { BlockType } from "../drip/sequence.js";
+
 // Claude Managed Agents flow for the SDK drip lane (U8 / origin R23, R44, KTD5).
 //
 // This is a REIMPLEMENTATION of the app's `lib/agent-session.ts` — never an import. The SDK is a
@@ -383,6 +385,82 @@ export function extractSlots(
   return slots;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Per-block agent contract (U1/U2). The drip agent expects a structured input per BLOCK and returns
+// `{ "body": <string> }` for one block — not a multi-slot keyed object. The host invokes it once per
+// AI slot; these helpers build that one contract and unwrap that one body.
+// ---------------------------------------------------------------------------------------------
+
+/** The recipient shape the agent's `target` field carries (snake_case core + nested metadata). */
+export interface AgentTarget {
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  metadata: Record<string, unknown>;
+}
+
+/** The structured per-block input the agent reads (`{mode, original_content, prompt, target, block_type}`). */
+export interface BlockAgentContract {
+  /** Sent but the agent does not branch on it in this version — a stable constant (e.g. "generate"). */
+  mode: string;
+  /** The block's current content (its Resend template-variable fallback); the agent's length-anchor. */
+  original_content: string;
+  /** The per-step personalization brief. */
+  prompt: string;
+  /** The recipient (allow-listed, shaped). */
+  target: AgentTarget;
+  /** Which kind of block the agent writes. */
+  block_type: BlockType;
+}
+
+/** Discriminated result of a single per-block generation. */
+export type BlockAgentResult =
+  | { kind: "generated"; body: string; sessionId: string }
+  | { kind: "harvested"; body: string }
+  | { kind: "deferred" }
+  | { kind: "failed"; reason: string };
+
+/** The constant `mode` sent on every block (the agent does not branch on it — see contract). */
+export const BLOCK_AGENT_MODE = "generate";
+
+/**
+ * Map the sanitized (allow-listed) flat contact into the agent's `target`: the core identity fields
+ * become snake_case top-level keys; everything else nests under `metadata`. Casing is handled HERE
+ * (the host keeps writing `firstName`/`lastName`); fields outside the allow-list never arrive because
+ * {@link sanitizeContactForAgent} already dropped them.
+ */
+export function shapeAgentTarget(safe: Record<string, unknown>): AgentTarget {
+  const target: AgentTarget = { metadata: {} };
+  for (const [key, value] of Object.entries(safe)) {
+    if (key === "firstName" || key === "first_name") target.first_name = String(value);
+    else if (key === "lastName" || key === "last_name") target.last_name = String(value);
+    else if (key === "email") target.email = String(value);
+    else target.metadata[key] = value;
+  }
+  return target;
+}
+
+/** Build the JSON string the agent receives for one block. The agent parses this as its structured
+ * input; `target` is data, never instructions (the agent's own prompt enforces that). */
+export function buildBlockGoal(contract: BlockAgentContract): string {
+  return JSON.stringify(contract);
+}
+
+/**
+ * Unwrap the agent's `{ "body": <string> }` output for one block. Returns `null` when the output is
+ * not a JSON object or `body` is missing / not a string — the caller treats `null` as a generation
+ * failure (leave the step due, never send empty). A number/boolean `body` is coerced to string.
+ */
+export function extractBlockBody(output: string): string | null {
+  const obj = tryParseObject(output);
+  if (!obj) return null;
+  const value = obj["body"];
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return null;
+}
+
 /**
  * Generate (or harvest) the declared slots for a drip step. When `resumeSessionId` is set this is a
  * re-claimed step: harvest the prior session and DEFER on `running` (never fork a second billed
@@ -442,6 +520,59 @@ export async function generateOrHarvestSlots(
     return { kind: "failed", reason: "agent output missing one or more declared slots" };
   }
   return { kind: "generated", slots, sessionId: result.sessionId };
+}
+
+/** Input for one per-block generation (one AI slot → one `{body}`). */
+export interface GenerateOrHarvestBlockInput {
+  agentId: string;
+  environmentId: string;
+  /** OPTIONAL vault id forwarded to session-create as `vault_ids`. */
+  vaultId?: string;
+  /** The structured per-block contract the agent receives. */
+  contract: BlockAgentContract;
+  /** A prior tick's session id for THIS slot — harvest it, never fork a second billed session. */
+  resumeSessionId?: string;
+  /** Persist the session id BEFORE the billed turn (per-slot marker). */
+  onSessionCreated?: (sessionId: string) => void | Promise<void>;
+  timeoutMs?: number;
+}
+
+/**
+ * Per-block twin of {@link generateOrHarvestSlots}: generate (or harvest) ONE block and return its
+ * `{body}`. Same crash-resume contract — a resumable session is harvested, a running one defers, a
+ * gone one re-runs fresh. The agent gets the structured per-block contract (not a free-text goal) and
+ * returns `{"body": ...}` (not a multi-slot keyed object).
+ */
+export async function generateOrHarvestBlock(
+  input: GenerateOrHarvestBlockInput,
+): Promise<BlockAgentResult> {
+  if (typeof input.resumeSessionId === "string" && input.resumeSessionId.length > 0) {
+    const harvest = await harvestAgentSession(input.resumeSessionId);
+    if (harvest.state === "running") return { kind: "deferred" };
+    if (harvest.state === "completed") {
+      const body = extractBlockBody(harvest.output);
+      if (body !== null) return { kind: "harvested", body };
+      // Prior session finished but its output is unusable — fall through to a fresh run.
+    }
+    // `unavailable` (gone/terminated) ⇒ a fresh run is safe.
+  }
+
+  const goal = buildBlockGoal(input.contract);
+  let result: AgentSessionResult;
+  try {
+    result = await runAgentSession(input.agentId, input.environmentId, goal, {
+      onSessionCreated: input.onSessionCreated,
+      timeoutMs: input.timeoutMs,
+      vaultId: input.vaultId,
+    });
+  } catch (err) {
+    if (err instanceof AgentError) return { kind: "failed", reason: err.message };
+    return { kind: "failed", reason: "agent session failed" };
+  }
+
+  const body = extractBlockBody(result.output);
+  if (body === null) return { kind: "failed", reason: "agent output missing body" };
+  return { kind: "generated", body, sessionId: result.sessionId };
 }
 
 // ---------------------------------------------------------------------------------------------

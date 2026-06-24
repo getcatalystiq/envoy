@@ -7,6 +7,10 @@ import {
   sanitizeContactForAgent,
   buildSlotGoal,
   extractSlots,
+  buildBlockGoal,
+  extractBlockBody,
+  shapeAgentTarget,
+  BLOCK_AGENT_MODE,
   setAgentClient,
   AgentError,
 } from "@sdk/agent/session.js";
@@ -416,3 +420,71 @@ describe("generateOrHarvestSlots", () => {
     expect(res).toMatchObject({ kind: "failed" });
   });
 });
+
+// ── Per-block contract (U1/U2) ──────────────────────────────────────────────────────────────
+
+describe("shapeAgentTarget", () => {
+  it("maps core identity to snake_case and nests the rest under metadata", () => {
+    const t = shapeAgentTarget({
+      firstName: "Ada",
+      lastName: "Lovelace",
+      email: "ada@example.com",
+      heritage: "Italian",
+      ancestor_country: "Italy",
+    });
+    expect(t).toEqual({
+      first_name: "Ada",
+      last_name: "Lovelace",
+      email: "ada@example.com",
+      metadata: { heritage: "Italian", ancestor_country: "Italy" },
+    });
+  });
+
+  it("emits an empty metadata object when only core fields are present", () => {
+    expect(shapeAgentTarget({ firstName: "Ada" })).toEqual({ first_name: "Ada", metadata: {} });
+  });
+
+  it("accepts already-snake_case core keys", () => {
+    const t = shapeAgentTarget({ first_name: "Ada", email: "ada@example.com" });
+    expect(t.first_name).toBe("Ada");
+    expect(t.email).toBe("ada@example.com");
+  });
+});
+
+describe("buildBlockGoal", () => {
+  it("serializes the full per-block contract as JSON", () => {
+    const goal = buildBlockGoal({
+      mode: BLOCK_AGENT_MODE,
+      original_content: "Welcome!",
+      prompt: "Warmly welcome the user.",
+      target: { first_name: "Ada", metadata: { heritage: "Italian" } },
+      block_type: "Html",
+    });
+    const parsed = JSON.parse(goal);
+    expect(parsed).toEqual({
+      mode: "generate",
+      original_content: "Welcome!",
+      prompt: "Warmly welcome the user.",
+      target: { first_name: "Ada", metadata: { heritage: "Italian" } },
+      block_type: "Html",
+    });
+  });
+});
+
+describe("extractBlockBody", () => {
+  it("unwraps a string body", () => {
+    expect(extractBlockBody('{"body":"Hello Ada"}')).toBe("Hello Ada");
+  });
+  it("coerces a numeric/boolean body to string", () => {
+    expect(extractBlockBody('{"body":42}')).toBe("42");
+  });
+  it("returns null for a missing body", () => {
+    expect(extractBlockBody("{}")).toBeNull();
+  });
+  it("returns null for non-JSON", () => {
+    expect(extractBlockBody("not json")).toBeNull();
+  });
+  it("returns null for a non-scalar body", () => {
+    expect(extractBlockBody('{"body":{"x":1}}')).toBeNull();
+  });
+})

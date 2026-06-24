@@ -14,6 +14,16 @@ import { type EnvoyAgentConfig, normalizeSequenceAgent } from "../config.js";
 // error, not a runtime surprise. Config-time AI-slots ⇄ Template-variables validation (the real
 // network check) lands in U18 via `envoy.validate()`; here we only validate the shape.
 
+/**
+ * The kind of email block an AI slot fills. Drives the agent's output format (`Text`/`Heading` →
+ * plain text; `Button`/`Html` → HTML) and image eligibility. Mirrors the drip agent's `block_type`
+ * contract field.
+ */
+export type BlockType = "Text" | "Heading" | "Button" | "Html";
+
+/** The default block type for a slot with no explicit type (back-compat for bare-string slots). */
+export const DEFAULT_BLOCK_TYPE: BlockType = "Text";
+
 /** One step of a drip sequence. */
 export interface SequenceStep {
   /** Saved Resend Template id this step sends (`emails.send({ template: { id } })`, R12). */
@@ -30,8 +40,22 @@ export interface SequenceStep {
    * non-AI step (a fully static Template).
    */
   aiSlots: readonly string[];
+  /**
+   * Per-slot block type, keyed by the slot name in `aiSlots`. Drives the per-block agent contract's
+   * `block_type`. A slot absent from this map defaults to {@link DEFAULT_BLOCK_TYPE} (`Text`) — so a
+   * legacy step with bare-string slots and no map keeps working unchanged.
+   */
+  slotBlockTypes?: Readonly<Record<string, BlockType>>;
   /** The per-step personalization brief the agent is given (R12). May be empty when `aiSlots` is. */
   brief: string;
+}
+
+const BLOCK_TYPES: ReadonlySet<string> = new Set<BlockType>(["Text", "Heading", "Button", "Html"]);
+
+/** Resolve a slot's block type from a step, defaulting to `Text` when unset/invalid (back-compat). */
+export function blockTypeForSlot(step: SequenceStep, slotName: string): BlockType {
+  const t = step.slotBlockTypes?.[slotName];
+  return t && BLOCK_TYPES.has(t) ? t : DEFAULT_BLOCK_TYPE;
 }
 
 /** A defined, validated drip sequence. Immutable. */
