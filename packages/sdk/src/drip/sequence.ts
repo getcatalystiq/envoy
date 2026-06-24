@@ -123,10 +123,38 @@ function validateStep(step: SequenceStep, index: number): Readonly<SequenceStep>
       `step ${index} declares aiSlots but has an empty brief — the agent has nothing to act on.`,
     );
   }
+
+  // Per-slot block types (optional). Validate when present: every key must be a declared slot and
+  // every value a valid BlockType — then CARRY IT THROUGH (this rebuild would otherwise drop it, so
+  // the type would never survive defineSequence → store → engine). An empty/absent map is omitted.
+  let slotBlockTypes: Readonly<Record<string, BlockType>> | undefined;
+  if (step.slotBlockTypes !== undefined && step.slotBlockTypes !== null) {
+    if (typeof step.slotBlockTypes !== "object") {
+      throw new SequenceDefinitionError(`step ${index} slotBlockTypes must be an object.`);
+    }
+    const slotSet = new Set(aiSlots);
+    const normalized: Record<string, BlockType> = {};
+    for (const [slot, type] of Object.entries(step.slotBlockTypes)) {
+      if (!slotSet.has(slot)) {
+        throw new SequenceDefinitionError(
+          `step ${index} slotBlockTypes references "${slot}", which is not a declared aiSlot.`,
+        );
+      }
+      if (!BLOCK_TYPES.has(type)) {
+        throw new SequenceDefinitionError(
+          `step ${index} slotBlockTypes["${slot}"] must be one of Text/Heading/Button/Html (got ${String(type)}).`,
+        );
+      }
+      normalized[slot] = type;
+    }
+    if (Object.keys(normalized).length > 0) slotBlockTypes = Object.freeze(normalized);
+  }
+
   return Object.freeze({
     templateId: step.templateId,
     waitDays: step.waitDays,
     aiSlots: Object.freeze([...aiSlots]),
+    ...(slotBlockTypes ? { slotBlockTypes } : {}),
     brief,
   });
 }

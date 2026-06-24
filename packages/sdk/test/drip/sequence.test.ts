@@ -69,3 +69,40 @@ describe("defineSequence", () => {
     expect(seq.steps[0]!.waitDays).toBe(0.5);
   });
 });
+
+describe("defineSequence — per-slot block types (U1)", () => {
+  it("carries slotBlockTypes through (the rebuild must not drop it)", () => {
+    const seq = defineSequence({
+      key: "k",
+      steps: [{ templateId: "t0", waitDays: 0, aiSlots: ["BODY"], slotBlockTypes: { BODY: "Html" }, brief: "x" }],
+    });
+    expect(seq.steps[0]!.slotBlockTypes).toEqual({ BODY: "Html" });
+  });
+
+  it("omits slotBlockTypes when empty/absent", () => {
+    const seq = defineSequence({
+      key: "k",
+      steps: [{ templateId: "t0", waitDays: 0, aiSlots: ["BODY"], brief: "x" }],
+    });
+    expect(seq.steps[0]!.slotBlockTypes).toBeUndefined();
+  });
+
+  it("rejects a block type for an undeclared slot", () => {
+    expect(() =>
+      defineSequence({
+        key: "k",
+        steps: [{ templateId: "t0", waitDays: 0, aiSlots: ["BODY"], slotBlockTypes: { OTHER: "Text" }, brief: "x" }],
+      }),
+    ).toThrow(/not a declared aiSlot/);
+  });
+
+  it("rejects an invalid block type value", () => {
+    expect(() =>
+      defineSequence({
+        key: "k",
+        // @ts-expect-error — invalid BlockType at the type level; the runtime guard must still reject it.
+        steps: [{ templateId: "t0", waitDays: 0, aiSlots: ["BODY"], slotBlockTypes: { BODY: "Bogus" }, brief: "x" }],
+      }),
+    ).toThrow(/Text\/Heading\/Button\/Html/);
+  });
+})
