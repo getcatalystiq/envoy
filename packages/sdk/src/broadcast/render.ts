@@ -81,15 +81,33 @@ function resolveValue(
   return "";
 }
 
+/** Extract the key from a `{{{ ... }}}` merge tag, dropping any `|fallback` suffix. */
+function tripleTagKey(mergeTag: string): string {
+  return mergeTag.slice(3, -3).split("|")[0]!.trim();
+}
+
 function fillBody(
   body: string,
   variables: BroadcastVariables | undefined,
   specByKey: Map<string, TemplateVariableSpec>
 ): string {
   return body.replace(TOKEN, (match, mergeTag: string | undefined, varKey: string | undefined) => {
-    // A `{{{...}}}` Resend merge tag — preserve verbatim. This is the load-bearing line: per-contact
-    // tokens like `{{{RESEND_UNSUBSCRIBE_URL}}}` MUST survive into broadcasts.create untouched.
-    if (mergeTag !== undefined) return mergeTag;
+    if (mergeTag !== undefined) {
+      // A `{{{...}}}` tag. Resend's Templates API stores EVERY declared template variable as a
+      // triple-brace token (it rejects `{{double}}` with 422), so a `{{{KEY}}}` whose KEY is a
+      // DECLARED variable (or supplied in `variables`) is a content slot we must fill in code —
+      // otherwise it ships literal (e.g. `{{{COUNTRY_NAME}}}` in a country newsletter).
+      // A triple-brace tag that is NOT declared is a genuine Resend per-contact merge token
+      // (`{{{RESEND_UNSUBSCRIBE_URL}}}`, `{{{FIRST_NAME|there}}}`) and MUST survive verbatim into
+      // broadcasts.create for Resend to resolve per recipient.
+      const key = tripleTagKey(mergeTag);
+      const declared = specByKey.has(key);
+      const supplied = variables?.[key];
+      if (declared || (supplied !== undefined && supplied !== null)) {
+        return resolveValue(key, variables, specByKey);
+      }
+      return mergeTag;
+    }
     // A declared `{{ key }}` variable — substitute in code.
     if (varKey !== undefined) return resolveValue(varKey, variables, specByKey);
     return match;

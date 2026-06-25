@@ -169,6 +169,36 @@ describe("renderBroadcast", () => {
     expect(out.html).toContain("{{{RESEND_UNSUBSCRIBE_URL}}}");
   });
 
+  it("fills a DECLARED variable authored as a triple-brace tag (Resend stores every var {{{triple}}})", async () => {
+    // Resend's Templates API rejects {{double}} (422 'use {{{VARIABLE_NAME}}}'), so a template's declared
+    // content variables are ALL authored triple-brace. They must be filled in code, not shipped literal
+    // (the country-newsletter bug: {{{COUNTRY_NAME}}}/{{{ITEMS_HTML}}} rendered verbatim).
+    const { handle } = fakeResend({
+      template: tmpl({
+        html:
+          "<h1>{{{COUNTRY_NAME}}}</h1><div>{{{ITEMS_HTML}}}</div>" +
+          "<a href=\"{{{RESEND_UNSUBSCRIBE_URL}}}\">unsub</a>",
+        text: null,
+        variables: [
+          { key: "COUNTRY_NAME", fallback_value: null, type: "string" },
+          { key: "ITEMS_HTML", fallback_value: null, type: "string" },
+        ],
+      }),
+    });
+
+    const out = await renderBroadcast(handle, {
+      templateId: "tmpl_123",
+      variables: { COUNTRY_NAME: "Canada", ITEMS_HTML: "<p>x</p>" },
+    });
+
+    // Declared triple-brace content vars filled (raw — triple = unescaped markup slot).
+    expect(out.html).toContain("<h1>Canada</h1>");
+    expect(out.html).toContain("<div><p>x</p></div>");
+    expect(out.html).not.toContain("{{{COUNTRY_NAME}}}");
+    // An UNDECLARED triple-brace tag is a per-contact Resend token — still preserved verbatim.
+    expect(out.html).toContain("{{{RESEND_UNSUBSCRIBE_URL}}}");
+  });
+
   it("uses the Template fallback when a variable value is missing", async () => {
     const { handle } = fakeResend({ template: tmpl({ text: null }) });
     const out = await renderBroadcast(handle, { templateId: "tmpl_123", variables: { plan: "Pro" } });
