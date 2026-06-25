@@ -233,6 +233,7 @@ function baseDue(over: Partial<DueStep> = {}): DueStep {
     agentSessionId: null,
     blockSessions: {},
     nextRunAt: null,
+    enrolledAt: null,
     ...over,
   };
 }
@@ -553,6 +554,26 @@ describe("runDripStep — gating", () => {
     );
     expect(res).toEqual({ sent: false, reason: "not_due" });
     expect(env.emailsSend).not.toHaveBeenCalled();
+  });
+
+  it("Edge: a step-0 wait anchors to enrolled_at when next_run_at is NULL (hours/days first step)", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: '{"body":"x"}' },
+    });
+    // Override step 0 to a 1-hour wait (waitDays = 1/24); enroll() leaves next_run_at NULL.
+    const seq = { ...SEQ, steps: [{ ...SEQ.steps[0], waitDays: 1 / 24 }, ...SEQ.steps.slice(1)] };
+    const now = new Date("2026-01-01T12:00:00Z");
+
+    // Enrolled 2h ago → the 1h wait has elapsed → eligible (no longer deadlocked as not_due).
+    const elapsed = baseDue({ stepIndex: 0, nextRunAt: null, enrolledAt: new Date(now.getTime() - 2 * 3600_000) });
+    const r1 = await runDripStep(env.envoy, seq, elapsed, env.config, now);
+    expect(r1).not.toMatchObject({ reason: "not_due" });
+
+    // Enrolled 10m ago → the 1h wait has NOT elapsed → still not_due.
+    const pending = baseDue({ stepIndex: 0, nextRunAt: null, enrolledAt: new Date(now.getTime() - 10 * 60_000) });
+    const r2 = await runDripStep(env.envoy, seq, pending, env.config, now);
+    expect(r2).toEqual({ sent: false, reason: "not_due" });
   });
 
   it("Edge: a suppressed contact is denied before send (R26)", async () => {

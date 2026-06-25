@@ -54,8 +54,14 @@ export interface DueStep {
    * a fresh step. This replaces the single `agentSessionId` for the per-block agent contract.
    */
   blockSessions: Record<string, string>;
-  /** When the current step became eligible (`sdk_enrollments.next_run_at`). Null ⇒ eligible now. */
+  /** When the current step became eligible (`sdk_enrollments.next_run_at`). Null ⇒ not yet scheduled. */
   nextRunAt: Date | string | null;
+  /**
+   * `sdk_enrollments.enrolled_at`. Anchors a step whose `next_run_at` is still NULL (e.g. step 0 —
+   * `enroll()` never sets `next_run_at`): a positive-wait first step fires at `enrolled_at + waitDays`,
+   * so a step-0 wait in hours or days is honored instead of deadlocking.
+   */
+  enrolledAt: Date | string | null;
 }
 
 /** Why a step did not send (when `sent` is false). */
@@ -99,11 +105,23 @@ function resolveFrom(envoy: Envoy, stream: Stream): string {
 }
 
 /** Convert `waitDays` against the cron clock into an eligibility check. `0` ⇒ eligible immediately. */
-function isWaitElapsed(step: SequenceStep, nextRunAt: Date | string | null, now: Date): boolean {
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function isWaitElapsed(
+  step: SequenceStep,
+  nextRunAt: Date | string | null,
+  now: Date,
+  enrolledAt: Date | string | null = null,
+): boolean {
   if (nextRunAt === null || nextRunAt === undefined) {
-    // No scheduled time recorded: a 0-wait step is eligible; a positive-wait step is only eligible
-    // if there is no gating time (the tick is expected to set next_run_at on advance).
-    return step.waitDays <= 0;
+    // No scheduled time recorded (step 0 — enroll() never sets next_run_at). A 0-wait step is eligible
+    // immediately; a positive-wait step is anchored to enrolled_at so its hour/day delay is honored
+    // (without this, a non-zero step-0 wait would deadlock — claimed every tick, never due). Fall back
+    // to the 0-wait check only when enrolled_at is unavailable.
+    if (step.waitDays <= 0) return true;
+    if (enrolledAt === null || enrolledAt === undefined) return false;
+    const anchor = enrolledAt instanceof Date ? enrolledAt : new Date(enrolledAt);
+    return anchor.getTime() + step.waitDays * MS_PER_DAY <= now.getTime();
   }
   const due = nextRunAt instanceof Date ? nextRunAt : new Date(nextRunAt);
   return due.getTime() <= now.getTime();
@@ -265,7 +283,7 @@ export async function runDripStep(
   }
 
   // 2. Honor the time-based wait (R15).
-  if (!isWaitElapsed(step, due.nextRunAt, now)) {
+  if (!isWaitElapsed(step, due.nextRunAt, now, due.enrolledAt)) {
     return { sent: false, reason: "not_due" };
   }
 
@@ -430,6 +448,7 @@ interface ClaimedEnrollmentRow {
   sequence_key: string;
   current_step: number;
   next_run_at: string | null;
+  enrolled_at: string | null;
   data: Record<string, unknown> | null;
 }
 
@@ -501,9 +520,9 @@ async function claimDueEnrollments(
         UPDATE sdk_enrollments
            SET updated_at = NOW()
          WHERE namespace = $1 AND id IN (SELECT id FROM claimable)
-         RETURNING id, contact, sequence_key, current_step, next_run_at, data
+         RETURNING id, contact, sequence_key, current_step, next_run_at, enrolled_at, data
       )
-      SELECT id, contact, sequence_key, current_step, next_run_at, data FROM claimed`,
+      SELECT id, contact, sequence_key, current_step, next_run_at, enrolled_at, data FROM claimed`,
     [envoy.db.namespace, now.toISOString(), limit],
   );
   return rows;
@@ -624,6 +643,7 @@ export async function tickDrip(
         agentSessionId: step.agent_session_id,
         blockSessions: step.block_sessions ?? {},
         nextRunAt: row.next_run_at,
+        enrolledAt: row.enrolled_at,
       };
 
       const result = await runDripStep(envoy, sequence, due, config, now);
