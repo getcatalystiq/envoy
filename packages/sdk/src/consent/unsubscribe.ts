@@ -202,12 +202,18 @@ export interface ListUnsubscribeHeaders {
  * RFC 8058: the presence of `List-Unsubscribe-Post: List-Unsubscribe=One-Click` tells the MUA the
  * `List-Unsubscribe` URL accepts a POST one-click. The URL MUST be `https`.
  */
-export function buildListUnsubscribeHeaders(
+/**
+ * The signed, per-recipient unsubscribe landing URL (token-scoped to email + topic + stream). Same URL
+ * the List-Unsubscribe header points at — exposed so a transactional send can ALSO inject it as a
+ * template variable for a visible in-body unsubscribe link (Resend's own `{{{RESEND_UNSUBSCRIBE_URL}}}`
+ * only populates for broadcasts/automations, not `emails.send`).
+ */
+export function buildUnsubscribeUrl(
   input: CreateTokenInput,
   secret: string,
   baseUrl: string,
   nowSeconds: number = Math.floor(Date.now() / 1000)
-): ListUnsubscribeHeaders {
+): string {
   if (!/^https:\/\//i.test(baseUrl)) {
     throw new Error(
       "[@catalystiq/envoy-sdk] unsubscribe baseUrl must be an absolute https URL (RFC 8058 one-click)."
@@ -215,7 +221,16 @@ export function buildListUnsubscribeHeaders(
   }
   const token = createUnsubscribeToken(input, secret, nowSeconds);
   const sep = baseUrl.includes("?") ? "&" : "?";
-  const url = `${baseUrl}${sep}token=${encodeURIComponent(token)}`;
+  return `${baseUrl}${sep}token=${encodeURIComponent(token)}`;
+}
+
+export function buildListUnsubscribeHeaders(
+  input: CreateTokenInput,
+  secret: string,
+  baseUrl: string,
+  nowSeconds: number = Math.floor(Date.now() / 1000)
+): ListUnsubscribeHeaders {
+  const url = buildUnsubscribeUrl(input, secret, baseUrl, nowSeconds);
   return {
     "List-Unsubscribe": `<${url}>`,
     "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",

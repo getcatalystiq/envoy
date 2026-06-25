@@ -4,7 +4,7 @@ import type { CreateEmailOptions } from "resend";
 
 import type { Envoy, EnvoyAgentConfig } from "../config.js";
 import type { ConsentMirror, Stream } from "../consent/mirror.js";
-import { buildListUnsubscribeHeaders } from "../consent/unsubscribe.js";
+import { buildUnsubscribeUrl } from "../consent/unsubscribe.js";
 import {
   generateOrHarvestBlock,
   sanitizeContactForAgent,
@@ -326,8 +326,11 @@ export async function runDripStep(
     return { sent: false, reason: "resend_disabled" };
   }
 
-  // 7. RFC 8058 one-click List-Unsubscribe (R33). Throws on a non-https base URL.
-  const unsubHeaders = buildListUnsubscribeHeaders(
+  // 7. RFC 8058 one-click List-Unsubscribe (R33) + the in-body UNSUBSCRIBE_URL variable — both derive
+  //    from ONE signed URL. The variable lets a drip template render a VISIBLE unsubscribe link;
+  //    Resend's `{{{RESEND_UNSUBSCRIBE_URL}}}` is broadcast-only and stays blank on `emails.send`.
+  //    Throws on a non-https base URL.
+  const unsubUrl = buildUnsubscribeUrl(
     { email: due.email, topicKey, stream },
     envoy.config.unsubscribeSecret,
     config.unsubscribeBaseUrl,
@@ -343,11 +346,11 @@ export async function runDripStep(
     from,
     template: {
       id: step.templateId,
-      ...(Object.keys(slots).length > 0 ? { variables: slots } : {}),
+      variables: { ...slots, UNSUBSCRIBE_URL: unsubUrl },
     },
     headers: {
-      "List-Unsubscribe": unsubHeaders["List-Unsubscribe"],
-      "List-Unsubscribe-Post": unsubHeaders["List-Unsubscribe-Post"],
+      "List-Unsubscribe": `<${unsubUrl}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
     },
   };
 

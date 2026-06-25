@@ -198,11 +198,12 @@ describe("sendTransactional — happy path (R46)", () => {
       Record<string, unknown> | undefined,
     ];
 
-    // template id + variables ride the body `template` arm (not inline html/text).
-    expect(payload.template).toEqual({
-      id: "tmpl_welcome",
-      variables: { FIRST_NAME: "Ada" },
-    });
+    // template id + variables ride the body `template` arm (not inline html/text). UNSUBSCRIBE_URL is
+    // injected (standard lane) so a template can render a visible in-body unsubscribe link.
+    const tmpl = payload.template as { id: string; variables: Record<string, string> };
+    expect(tmpl.id).toBe("tmpl_welcome");
+    expect(tmpl.variables.FIRST_NAME).toBe("Ada");
+    expect(tmpl.variables.UNSUBSCRIBE_URL).toMatch(/^https:\/\/app\.example\.com\/api\/envoy\/unsubscribe\?token=/);
     expect(payload.to).toBe("ada@example.com");
     expect(payload.from).toBe("hi@app.example.com");
 
@@ -253,7 +254,7 @@ describe("sendTransactional — happy path (R46)", () => {
     expect(payload.from).toBe("digest@app.example.com");
   });
 
-  it("omits template.variables when none are supplied", async () => {
+  it("injects only UNSUBSCRIBE_URL when no other variables are supplied (standard lane)", async () => {
     const { config, emailsSend, ...env } = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
     });
@@ -264,7 +265,10 @@ describe("sendTransactional — happy path (R46)", () => {
       config
     );
     const payload = emailsSend.mock.calls[0]![0] as Record<string, unknown>;
-    expect(payload.template).toEqual({ id: "tmpl_welcome" });
+    const tmpl = payload.template as { id: string; variables: Record<string, string> };
+    expect(tmpl.id).toBe("tmpl_welcome");
+    expect(Object.keys(tmpl.variables)).toEqual(["UNSUBSCRIBE_URL"]);
+    expect(tmpl.variables.UNSUBSCRIBE_URL).toMatch(/token=/);
   });
 
   it("omits the request options entirely when no idempotency key is supplied", async () => {

@@ -85,6 +85,7 @@ export {
 } from "./consent/mirror.js";
 export {
   buildListUnsubscribeHeaders,
+  buildUnsubscribeUrl,
   createUnsubscribeToken,
   verifyUnsubscribeToken,
   handleUnsubscribe,

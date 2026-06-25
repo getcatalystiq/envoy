@@ -256,7 +256,12 @@ describe("runDripStep — happy path (R14)", () => {
       Record<string, unknown>,
       Record<string, unknown>,
     ];
-    expect(payload.template).toEqual({ id: "tmpl_day0", variables: { GREETING: "Hi Ada" } });
+    const tmpl = payload.template as { id: string; variables: Record<string, string> };
+    expect(tmpl.id).toBe("tmpl_day0");
+    expect(tmpl.variables.GREETING).toBe("Hi Ada");
+    // The in-body unsubscribe link is injected as UNSUBSCRIBE_URL, matching the header URL (R33).
+    expect(tmpl.variables.UNSUBSCRIBE_URL).toMatch(/^https:\/\/.+token=/);
+    expect((payload.headers as Record<string, string>)["List-Unsubscribe"]).toBe(`<${tmpl.variables.UNSUBSCRIBE_URL}>`);
     expect(payload.to).toBe("ada@example.com");
     expect(payload.from).toBe("digest@app.example.com");
     // Idempotency key is the SECOND arg (the Idempotency-Key request header), NOT a body field.
@@ -366,7 +371,12 @@ describe("runDripStep — happy path (R14)", () => {
     const res = await runDripStep(env.envoy, seq, baseDue(), env.config);
     expect(res).toMatchObject({ sent: true });
     const payload = env.emailsSend.mock.calls[0]![0] as Record<string, unknown>;
-    expect(payload.template).toEqual({ id: "tmpl_static" }); // no variables key
+    {
+      const tmpl = payload.template as { id: string; variables: Record<string, string> };
+      expect(tmpl.id).toBe("tmpl_static");
+      // No AI slots, but the drip lane always injects the in-body unsubscribe link.
+      expect(Object.keys(tmpl.variables)).toEqual(["UNSUBSCRIBE_URL"]);
+    }
   });
 });
 
@@ -500,7 +510,12 @@ describe("runDripStep — crash-resume (R21)", () => {
     // No second billed session.
     expect(env.agent!.create).not.toHaveBeenCalled();
     const payload = env.emailsSend.mock.calls[0]![0] as Record<string, unknown>;
-    expect(payload.template).toEqual({ id: "tmpl_day0", variables: { GREETING: "harvested" } });
+    {
+      const tmpl = payload.template as { id: string; variables: Record<string, string> };
+      expect(tmpl.id).toBe("tmpl_day0");
+      expect(tmpl.variables.GREETING).toBe("harvested");
+      expect(tmpl.variables.UNSUBSCRIBE_URL).toMatch(/token=/);
+    }
   });
 
   it("persists the new session id as the inflight marker BEFORE sending (fresh path)", async () => {

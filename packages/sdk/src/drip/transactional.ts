@@ -38,7 +38,7 @@ import type { CreateEmailOptions } from "resend";
 
 import type { Envoy } from "../config.js";
 import type { ConsentMirror, Stream } from "../consent/mirror.js";
-import { buildListUnsubscribeHeaders } from "../consent/unsubscribe.js";
+import { buildUnsubscribeUrl } from "../consent/unsubscribe.js";
 
 /**
  * Merge variables injected into the Resend Template. resend@6.14.0's `template.variables` is typed
@@ -337,10 +337,12 @@ export async function sendTransactional(
   //    legitimate-interest transactional mail and carries NO unsubscribe (KTD7); injecting one would
   //    let a recipient suppress their own receipts. `buildListUnsubscribeHeaders` enforces the
   //    https + 60-day-TTL compliance floor and throws on a non-https base URL.
-  const unsubHeaders =
+  //    Build the signed URL ONCE — both the header and the in-body `UNSUBSCRIBE_URL` variable derive
+  //    from it (one token, one timestamp).
+  const unsubUrl =
     input.system === true
       ? null
-      : buildListUnsubscribeHeaders(
+      : buildUnsubscribeUrl(
           { email: input.email, topicKey: input.topicKey, stream: input.stream },
           envoy.config.unsubscribeSecret,
           config.unsubscribeBaseUrl
@@ -349,18 +351,23 @@ export async function sendTransactional(
   // 6. Send. `template` is the templated arm of CreateEmailOptions (from/subject optional there).
   //    The idempotency key is the SECOND arg (the `Idempotency-Key` request header), NOT a body
   //    field. Attachments (e.g. the booking .ics) ride the templated arm's `attachments`.
+  //    UNSUBSCRIBE_URL is injected as a reserved variable (standard lane only) so a template can render
+  //    a visible in-body unsubscribe link — `{{{RESEND_UNSUBSCRIBE_URL}}}` is broadcast-only and stays
+  //    blank on `emails.send`. The same signed URL rides the List-Unsubscribe header below.
+  const variables =
+    unsubUrl !== null ? { ...(input.variables ?? {}), UNSUBSCRIBE_URL: unsubUrl } : input.variables;
   const payload = {
     to: input.email,
     from,
     template: {
       id: input.templateId,
-      ...(input.variables ? { variables: input.variables } : {}),
+      ...(variables ? { variables } : {}),
     },
-    ...(unsubHeaders
+    ...(unsubUrl !== null
       ? {
           headers: {
-            "List-Unsubscribe": unsubHeaders["List-Unsubscribe"],
-            "List-Unsubscribe-Post": unsubHeaders["List-Unsubscribe-Post"],
+            "List-Unsubscribe": `<${unsubUrl}>`,
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
           },
         }
       : {}),
