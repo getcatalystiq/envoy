@@ -650,8 +650,12 @@ export async function tickDrip(
       items.push({ enrollmentId: row.id, email, sequenceKey, stepIndex, result });
     } catch (err) {
       // Per-contact fail-soft (R21): never let one enrollment abort the tick. Redact before
-      // surfacing — no recipient address or secret in the detail (R43).
-      const detail = err instanceof Error ? err.message : "unknown tick error";
+      // surfacing — no recipient address or secret in the detail (R43). Log it too: a thrown step
+      // (e.g. an agent-session error) otherwise vanished — counted as `failed` with no DB write and no
+      // trace, making the cron look silently broken.
+      const detail = envoy.redact(err instanceof Error ? err.message : "unknown tick error");
+      // eslint-disable-next-line no-console
+      console.error(`[@catalystiq/envoy-sdk] drip step threw (seq=${sequenceKey} step=${stepIndex}):`, detail);
       items.push({
         enrollmentId: row.id,
         email,

@@ -418,6 +418,13 @@ export interface CronTickResponse {
   skipped: number;
   /** How many failed (generation_failed / send_failed / tick_error) — left due for a later tick. */
   failed: number;
+  /**
+   * Per-failure breakdown for the items that failed — `reason` + a redacted `detail` (the error
+   * message), and the 0-based `stepIndex`. NO recipient address (R43). Present only when `failed > 0`.
+   * Lets an operator see WHY a tick is failing (e.g. an agent-session error) straight from the cron
+   * response instead of a silent `failed: N`.
+   */
+  failures?: { stepIndex: number; reason: string; detail?: string }[];
 }
 
 /**
@@ -438,12 +445,20 @@ export function createDripCronHandler(
   return async (_request: Request): Promise<Response> => {
     try {
       const result: DripTickResult = await tickDrip(envoy, registry, tick);
+      const FAILED_REASONS = new Set(["generation_failed", "send_failed", "tick_error"]);
+      // Redacted: reason + detail + stepIndex only. NEVER the email (R43). flatMap narrows the result union.
+      const failures = result.items.flatMap((i) =>
+        !i.result.sent && FAILED_REASONS.has(i.result.reason)
+          ? [{ stepIndex: i.stepIndex, reason: i.result.reason, detail: i.result.detail }]
+          : [],
+      );
       const body: CronTickResponse = {
         ok: true,
         claimed: result.claimed,
         sent: result.sent,
         skipped: result.skipped,
         failed: result.failed,
+        ...(failures.length > 0 ? { failures } : {}),
       };
       return jsonResponse(200, body);
     } catch (err) {
