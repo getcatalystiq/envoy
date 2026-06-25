@@ -453,12 +453,39 @@ export function buildBlockGoal(contract: BlockAgentContract): string {
  */
 export function extractBlockBody(output: string): string | null {
   const obj = tryParseObject(output);
-  if (!obj) return null;
-  const value = obj["body"];
-  if (value === undefined || value === null) return null;
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return null;
+  if (obj) {
+    const value = obj["body"];
+    if (typeof value === "string") return value;
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+    // A valid object that lacks `body` (e.g. tryParseObject matched some OTHER `{…}` in a chatty
+    // reply — dumped tool code, an example payload) → fall through to the tolerant slice.
+  }
+  return sliceBlockBody(output);
+}
+
+/**
+ * Last-resort recovery for a malformed `{"body": <html>}` reply. Agents (a) wrap the JSON in a chatty
+ * preamble — sometimes echoing tool code that itself contains `{…}` — and (b) emit INVALID JSON whose
+ * HTML attributes have unescaped double-quotes (`<img src="https://…">`), which `JSON.parse` rejects.
+ * The block contract has a single `body` field, so its value runs from after `"body":"` to the last `"`
+ * before the final `}`. Normalize the escapes the model applied inconsistently. Returns null if no
+ * `"body"` field is present at all.
+ */
+function sliceBlockBody(output: string): string | null {
+  const key = /"body"\s*:\s*"/.exec(output);
+  if (!key) return null;
+  const start = key.index + key[0].length;
+  const close = output.lastIndexOf("}");
+  const end = output.lastIndexOf('"', close > start ? close : output.length);
+  if (end <= start) return null;
+  const body = output
+    .slice(start, end)
+    .replace(/\\"/g, '"')
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\\\/g, "\\")
+    .trim();
+  return body || null;
 }
 
 /**

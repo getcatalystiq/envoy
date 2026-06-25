@@ -487,4 +487,24 @@ describe("extractBlockBody", () => {
   it("returns null for a non-scalar body", () => {
     expect(extractBlockBody('{"body":{"x":1}}')).toBeNull();
   });
+  it("recovers the body from a chatty preamble", () => {
+    expect(extractBlockBody('Here you go:\n\n{"body":"<p>Hi there</p>"}')).toBe("<p>Hi there</p>");
+  });
+  it("recovers the body from INVALID json (unescaped quotes in HTML attrs)", () => {
+    const malformed = '{"body":"<img src="https://x/img\\" style="width:100%;" alt=""/><p>Welcome!</p>"}';
+    const body = extractBlockBody(malformed);
+    expect(body).toContain("<img");
+    expect(body).toContain("<p>Welcome!</p>");
+    expect(body).not.toContain('\\"'); // escapes normalized
+  });
+  it("recovers the body even when the agent dumps tool code (with its own JSON) before the reply", () => {
+    const codeDump =
+      "python3 - <<'EOF'\n" +
+      'body = json.dumps({"contents": [{"parts": [{"text": "x"}]}]}).encode()\n' +
+      "EOF\n\nGiven the parameters:\nBlock type: Html\n" +
+      '{"body":"<img src="https://x/img" alt=""/><p>Welcome to EasyPassport!</p>"}';
+    const body = extractBlockBody(codeDump);
+    expect(body).toContain("Welcome to EasyPassport");
+    expect(body).not.toContain("json.dumps");
+  });
 })

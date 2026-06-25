@@ -199,6 +199,7 @@ export {
   sanitizeContactForAgent,
   buildSlotGoal,
   extractSlots,
+  extractBlockBody,
   getAgentClient,
   setAgentClient,
   AgentError,
