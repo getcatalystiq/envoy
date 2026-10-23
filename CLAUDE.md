@@ -55,7 +55,7 @@ Deployed via Vercel. Push to main triggers automatic deployment.
 - **Email**: AWS SES v2
 - **AI**: Claude Managed Agents (`@anthropic-ai/sdk`, `client.beta.sessions`)
 - **Auth**: OAuth 2.1 with PKCE, JWT via jose
-- **MCP**: `mcp-handler` for AI agent integration
+- **MCP**: `mcp-handler@2` + `@modelcontextprotocol/server@2` for AI agent integration
 
 ### Project Structure
 - **app/** - Next.js App Router (pages, API routes, cron jobs)
@@ -134,7 +134,7 @@ Both are resolved together via `getAgentConfig(orgId)`, which returns `null` (tr
 - **lib/ses.ts** - AWS SES v2 email delivery
 - **lib/sns-verify.ts** - SNS signature verification for webhook events
 - **lib/agent-session.ts** - Claude Managed Agents client (`@anthropic-ai/sdk`, `client.beta.sessions`). `runAgentSession`/`runAgentJson` create a session, open the SSE stream **before** sending the structured-goal `user.message`, accumulate `agent.message` text, and stop on `session.status_idle`. Output is content-seek extracted (newest message parsing to `{body}`/`{subject,body}`). `harvestAgentSession` resumes an inflight session (crash-resume); `onSessionCreated` persists the session id before the billed turn. Also `listAgentSessions` / `getAgentSessionEvents` (fail-closed IDOR via `session.agent.id`) / `getAgentInstructions` / `updateAgentInstructions` for the settings routes. `AgentError` carries `{ status, detail }`; upstream 401/403 → 502. The SDK's `maxRetries` covers 429/5xx.
-- **lib/mcp-tools.ts** - MCP tool definitions (15 tools). MCP tools resolve `getAgentConfig(orgId)` and pass `agentId` + `environmentId` to the agent client.
+- **lib/mcp-tools.ts** - MCP tool definitions (15 tools, `server.registerTool` with `z.object` input schemas). `getAuth(ctx)` reads the verified token from `ctx.http.authInfo` (tenant + scopes); `test/app/mcp/route.test.ts` pins that end to end. MCP tools resolve `getAgentConfig(orgId)` and pass `agentId` + `environmentId` to the agent client.
 - **lib/api.ts** - Client-side API client. `request()` reads `error.error → error.detail → error.message` in order. `formatApiError(err)` is the canonical client-side error formatter.
 
 **Email & Content:**
@@ -168,7 +168,7 @@ One module per resource: analytics, campaigns, content, design-templates, gradua
 
 A separate, detached in-repo package — **not** part of the app build. The app above is untouched and keeps using AWS SES / OAuth / its own builder.
 
-- **What it is**: a headless, bring-your-own-Postgres, host-owns-auth, single-tenant email SDK for Next.js (App Router), built on `resend@^6.14.0`. Published to npm as **`@catalystiq/envoy-sdk`** — the current version is `version` in `packages/sdk/package.json` (0.9.0 as of 2026-10); bump it on every SDK change you publish (install: `npm i @catalystiq/envoy-sdk resend`). Renamed from the old `@envoy/sdk` — that scope belongs to the CNCF Envoy proxy, so always use `@catalystiq/envoy-sdk`.
+- **What it is**: a headless, bring-your-own-Postgres, host-owns-auth, single-tenant email SDK for Next.js (App Router), built on `resend@^6.14.0`. Published to npm as **`@catalystiq/envoy-sdk`** — the current version is `version` in `packages/sdk/package.json` (0.9.1 as of 2026-10); bump it on every SDK change you publish (install: `npm i @catalystiq/envoy-sdk resend`). Renamed from the old `@envoy/sdk` — that scope belongs to the CNCF Envoy proxy, so always use `@catalystiq/envoy-sdk`.
 - **Location**: `packages/sdk/` — own `package.json`, lockfile, `tsconfig` (own `@sdk/*` path alias, **never** the app's `@/`), tsup build (server entry `.` + client entry `./client` with a `use client` banner), and Vitest.
 - **Isolation**: the only app-side change is excluding `packages/` from the app root `tsconfig.json`, `eslint.config.mjs`, and `vitest.config.ts`, so the app build / typecheck / lint / test never touch the SDK. App source is unchanged.
 
@@ -176,7 +176,7 @@ A separate, detached in-repo package — **not** part of the app build. The app 
 1. **DRIP** — AI-personalized multi-step sequences (`defineSequence` + `enroll()`). JIT Claude Managed Agents fill Resend Template slots, sent via `emails.send`.
 2. **BROADCAST** — Resend Topics/Segments, send-once external claim guard, per-topic consent reconcile, merge-vars only (no AI).
 
-Plus: a mountable route handler (per-sub-path auth — host authorize callback + `CRON_SECRET` + Svix webhook + signed unsubscribe + MCP credential), a dual-stream consent mirror gating every send, RFC 8058 one-click unsubscribe, GDPR contact deletion, read-only React hooks, and an MCP server (`src/route/mcp.ts`, built on `mcp-handler@2` + `@modelcontextprotocol/server@2` since 0.9.0 — the app's own `/mcp` route is separate and still on `mcp-handler@1` + `@modelcontextprotocol/sdk`).
+Plus: a mountable route handler (per-sub-path auth — host authorize callback + `CRON_SECRET` + Svix webhook + signed unsubscribe + MCP credential), a dual-stream consent mirror gating every send, RFC 8058 one-click unsubscribe, GDPR contact deletion, read-only React hooks, and an MCP server (`src/route/mcp.ts`, built on `mcp-handler@2` + `@modelcontextprotocol/server@2` since 0.9.0 — the app's own `/mcp` route is separate but on the same stack).
 
 ### Invariants
 - Imports **no** app code (reuses app patterns by reimplementation).

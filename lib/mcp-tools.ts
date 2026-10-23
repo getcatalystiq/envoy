@@ -1,6 +1,5 @@
 import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import { sql, withTransaction } from "@/lib/db";
 import * as agent from "@/lib/agent-session";
 import { AgentError } from "@/lib/agent-session";
@@ -8,7 +7,7 @@ import { formatTargetForPrompt } from "@/lib/agent-sanitize";
 import { getAgentConfig } from "@/lib/queries/organization";
 
  
-type Extra = RequestHandlerExtra<any, any>;
+type Extra = ServerContext;
 
 export const SERVER_INSTRUCTIONS = `You are Envoy, an AI sales and marketing agent. You help users manage leads, campaigns, sequences, and email outreach.
 
@@ -32,7 +31,7 @@ const LIFECYCLE_STAGES: Record<number, string> = {
 };
 
 function getAuth(extra: Extra, requiredScope?: "write" | "admin") {
-  const authInfo = extra.authInfo as Record<string, unknown> | undefined;
+  const authInfo = extra.http?.authInfo as Record<string, unknown> | undefined;
   const authExtra = authInfo?.extra as
     | { userId: string; tenantId: string }
     | undefined;
@@ -70,24 +69,26 @@ function errorResult(message: string) {
 
 export function registerTools(server: McpServer) {
   // --- search_targets ---
-  server.tool(
+  server.registerTool(
     "search_targets",
-    "Search for leads/targets. Filter by lifecycle stage, status, or search on name/email.",
     {
-      query: z.string().optional().describe("Search query for name or email"),
-      lifecycle_stage: z
-        .number()
-        .int()
-        .min(0)
-        .max(6)
-        .optional()
-        .describe(
-          "0=Unaware, 1=Aware, 2=Interested, 3=Considering, 4=Intent, 5=Converted, 6=Advocate",
-        ),
-      status: z
-        .enum(["active", "unsubscribed", "bounced"])
-        .optional(),
-      limit: z.number().int().max(100).default(20),
+      description: "Search for leads/targets. Filter by lifecycle stage, status, or search on name/email.",
+      inputSchema: z.object({
+        query: z.string().optional().describe("Search query for name or email"),
+        lifecycle_stage: z
+          .number()
+          .int()
+          .min(0)
+          .max(6)
+          .optional()
+          .describe(
+            "0=Unaware, 1=Aware, 2=Interested, 3=Considering, 4=Intent, 5=Converted, 6=Advocate",
+          ),
+        status: z
+          .enum(["active", "unsubscribed", "bounced"])
+          .optional(),
+        limit: z.number().int().max(100).default(20),
+      }),
     },
     async (args, extra) => {
       const { tenantId } = getAuth(extra);
@@ -146,15 +147,17 @@ export function registerTools(server: McpServer) {
   );
 
   // --- create_target ---
-  server.tool(
+  server.registerTool(
     "create_target",
-    "Create a new lead/target.",
     {
-      email: z.string().email().describe("Email address (required)"),
-      first_name: z.string().optional().describe("First name"),
-      last_name: z.string().optional().describe("Last name"),
-      company: z.string().optional().describe("Company name"),
-      lifecycle_stage: z.number().int().min(0).max(6).default(0),
+      description: "Create a new lead/target.",
+      inputSchema: z.object({
+        email: z.string().email().describe("Email address (required)"),
+        first_name: z.string().optional().describe("First name"),
+        last_name: z.string().optional().describe("Last name"),
+        company: z.string().optional().describe("Company name"),
+        lifecycle_stage: z.number().int().min(0).max(6).default(0),
+      }),
     },
     async (args, extra) => {
       const { tenantId } = getAuth(extra, "write");
@@ -194,11 +197,13 @@ export function registerTools(server: McpServer) {
   );
 
   // --- get_target ---
-  server.tool(
+  server.registerTool(
     "get_target",
-    "Get detailed information about a specific lead by ID.",
     {
-      target_id: z.string().uuid().describe("The target/lead ID"),
+      description: "Get detailed information about a specific lead by ID.",
+      inputSchema: z.object({
+        target_id: z.string().uuid().describe("The target/lead ID"),
+      }),
     },
     async (args, extra) => {
       const { tenantId } = getAuth(extra);
@@ -241,18 +246,20 @@ export function registerTools(server: McpServer) {
   );
 
   // --- generate_email_content ---
-  server.tool(
+  server.registerTool(
     "generate_email_content",
-    "Generate personalized AI email content for a specific lead.",
     {
-      target_id: z
-        .string()
-        .uuid()
-        .describe("The target/lead ID to generate content for"),
-      content_type: z
-        .enum(["educational", "case_study", "promotional"])
-        .default("educational")
-        .describe("Type of email content to generate"),
+      description: "Generate personalized AI email content for a specific lead.",
+      inputSchema: z.object({
+        target_id: z
+          .string()
+          .uuid()
+          .describe("The target/lead ID to generate content for"),
+        content_type: z
+          .enum(["educational", "case_study", "promotional"])
+          .default("educational")
+          .describe("Type of email content to generate"),
+      }),
     },
     async (args, extra) => {
       const { tenantId } = getAuth(extra, "write");
@@ -318,14 +325,16 @@ export function registerTools(server: McpServer) {
   );
 
   // --- list_campaigns ---
-  server.tool(
+  server.registerTool(
     "list_campaigns",
-    "List all email campaigns with their status and stats.",
     {
-      status: z
-        .enum(["draft", "scheduled", "active", "paused", "completed"])
-        .optional(),
-      limit: z.number().int().max(100).default(20),
+      description: "List all email campaigns with their status and stats.",
+      inputSchema: z.object({
+        status: z
+          .enum(["draft", "scheduled", "active", "paused", "completed"])
+          .optional(),
+        limit: z.number().int().max(100).default(20),
+      }),
     },
     async (args, extra) => {
       const { tenantId } = getAuth(extra);
@@ -378,11 +387,13 @@ export function registerTools(server: McpServer) {
   );
 
   // --- start_campaign ---
-  server.tool(
+  server.registerTool(
     "start_campaign",
-    "Start an email campaign. Only works for campaigns in draft, scheduled, or paused status.",
     {
-      campaign_id: z.string().uuid().describe("Campaign ID to start"),
+      description: "Start an email campaign. Only works for campaigns in draft, scheduled, or paused status.",
+      inputSchema: z.object({
+        campaign_id: z.string().uuid().describe("Campaign ID to start"),
+      }),
     },
     async (args, extra) => {
       const { tenantId } = getAuth(extra, "write");
@@ -423,22 +434,24 @@ export function registerTools(server: McpServer) {
   );
 
   // --- get_analytics ---
-  server.tool(
+  server.registerTool(
     "get_analytics",
-    "Get email engagement analytics including open rates, click rates, and delivery stats.",
     {
-      days: z
-        .number()
-        .int()
-        .min(1)
-        .max(365)
-        .default(30)
-        .describe("Number of days to analyze"),
-      campaign_id: z
-        .string()
-        .uuid()
-        .optional()
-        .describe("Filter by specific campaign"),
+      description: "Get email engagement analytics including open rates, click rates, and delivery stats.",
+      inputSchema: z.object({
+        days: z
+          .number()
+          .int()
+          .min(1)
+          .max(365)
+          .default(30)
+          .describe("Number of days to analyze"),
+        campaign_id: z
+          .string()
+          .uuid()
+          .optional()
+          .describe("Filter by specific campaign"),
+      }),
     },
     async (args, extra) => {
       const { tenantId } = getAuth(extra);
@@ -503,17 +516,19 @@ export function registerTools(server: McpServer) {
   );
 
   // --- get_dashboard ---
-  server.tool(
+  server.registerTool(
     "get_dashboard",
-    "Get dashboard with analytics charts showing email sends, deliveries, opens, and clicks over time.",
     {
-      days: z
-        .number()
-        .int()
-        .min(1)
-        .max(90)
-        .default(30)
-        .describe("Number of days to show"),
+      description: "Get dashboard with analytics charts showing email sends, deliveries, opens, and clicks over time.",
+      inputSchema: z.object({
+        days: z
+          .number()
+          .int()
+          .min(1)
+          .max(90)
+          .default(30)
+          .describe("Number of days to show"),
+      }),
     },
     async (args, extra) => {
       const { tenantId } = getAuth(extra);
@@ -567,14 +582,16 @@ export function registerTools(server: McpServer) {
   );
 
   // --- get_outbox ---
-  server.tool(
+  server.registerTool(
     "get_outbox",
-    "Get pending outbox items awaiting approval with full email details.",
     {
-      status: z
-        .enum(["pending", "approved", "rejected", "all"])
-        .default("pending"),
-      limit: z.number().int().max(100).default(20),
+      description: "Get pending outbox items awaiting approval with full email details.",
+      inputSchema: z.object({
+        status: z
+          .enum(["pending", "approved", "rejected", "all"])
+          .default("pending"),
+        limit: z.number().int().max(100).default(20),
+      }),
     },
     async (args, extra) => {
       const { tenantId } = getAuth(extra);
@@ -653,11 +670,13 @@ export function registerTools(server: McpServer) {
   );
 
   // --- approve_outbox_item ---
-  server.tool(
+  server.registerTool(
     "approve_outbox_item",
-    "Approve an outbox item for sending.",
     {
-      outbox_id: z.string().uuid().describe("Outbox item ID to approve"),
+      description: "Approve an outbox item for sending.",
+      inputSchema: z.object({
+        outbox_id: z.string().uuid().describe("Outbox item ID to approve"),
+      }),
     },
     async (args, extra) => {
       const { tenantId } = getAuth(extra, "write");
@@ -704,12 +723,14 @@ export function registerTools(server: McpServer) {
   );
 
   // --- reject_outbox_item ---
-  server.tool(
+  server.registerTool(
     "reject_outbox_item",
-    "Reject an outbox item.",
     {
-      outbox_id: z.string().uuid().describe("Outbox item ID to reject"),
-      reason: z.string().optional().describe("Rejection reason"),
+      description: "Reject an outbox item.",
+      inputSchema: z.object({
+        outbox_id: z.string().uuid().describe("Outbox item ID to reject"),
+        reason: z.string().optional().describe("Rejection reason"),
+      }),
     },
     async (args, extra) => {
       const { tenantId } = getAuth(extra, "write");
@@ -753,13 +774,15 @@ export function registerTools(server: McpServer) {
   );
 
   // --- get_sequences ---
-  server.tool(
+  server.registerTool(
     "get_sequences",
-    "Get all sequences with enrollment counts and status.",
     {
-      status: z
-        .enum(["active", "paused", "draft", "all"])
-        .default("all"),
+      description: "Get all sequences with enrollment counts and status.",
+      inputSchema: z.object({
+        status: z
+          .enum(["active", "paused", "draft", "all"])
+          .default("all"),
+      }),
     },
     async (args, extra) => {
       const { tenantId } = getAuth(extra);
@@ -825,11 +848,13 @@ export function registerTools(server: McpServer) {
   );
 
   // --- get_step_content ---
-  server.tool(
+  server.registerTool(
     "get_step_content",
-    "Get the content blocks for a sequence step, including personalization settings.",
     {
-      step_id: z.string().uuid().describe("The sequence step ID"),
+      description: "Get the content blocks for a sequence step, including personalization settings.",
+      inputSchema: z.object({
+        step_id: z.string().uuid().describe("The sequence step ID"),
+      }),
     },
     async (args, extra) => {
       const { tenantId } = getAuth(extra);
@@ -886,22 +911,24 @@ export function registerTools(server: McpServer) {
   );
 
   // --- set_block_personalization ---
-  server.tool(
+  server.registerTool(
     "set_block_personalization",
-    "Enable or disable AI personalization on a specific content block within a step.",
     {
-      step_id: z.string().uuid().describe("The sequence step ID"),
-      block_id: z
-        .string()
-        .describe("Block ID within builder_content"),
-      enabled: z
-        .boolean()
-        .describe("Whether personalization is enabled"),
-      prompt: z
-        .string()
-        .max(1000)
-        .optional()
-        .describe("Personalization instructions for AI"),
+      description: "Enable or disable AI personalization on a specific content block within a step.",
+      inputSchema: z.object({
+        step_id: z.string().uuid().describe("The sequence step ID"),
+        block_id: z
+          .string()
+          .describe("Block ID within builder_content"),
+        enabled: z
+          .boolean()
+          .describe("Whether personalization is enabled"),
+        prompt: z
+          .string()
+          .max(1000)
+          .optional()
+          .describe("Personalization instructions for AI"),
+      }),
     },
     async (args, extra) => {
       const { tenantId } = getAuth(extra, "write");
@@ -958,18 +985,20 @@ export function registerTools(server: McpServer) {
   );
 
   // --- preview_block_personalization ---
-  server.tool(
+  server.registerTool(
     "preview_block_personalization",
-    "Preview what AI would generate for a personalized block without scheduling.",
     {
-      step_id: z.string().uuid().describe("The sequence step ID"),
-      block_id: z
-        .string()
-        .describe("Block ID within builder_content"),
-      target_id: z
-        .string()
-        .uuid()
-        .describe("Target/lead ID to personalize for"),
+      description: "Preview what AI would generate for a personalized block without scheduling.",
+      inputSchema: z.object({
+        step_id: z.string().uuid().describe("The sequence step ID"),
+        block_id: z
+          .string()
+          .describe("Block ID within builder_content"),
+        target_id: z
+          .string()
+          .uuid()
+          .describe("Target/lead ID to personalize for"),
+      }),
     },
     async (args, extra) => {
       const { tenantId } = getAuth(extra, "write");
