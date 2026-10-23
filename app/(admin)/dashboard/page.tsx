@@ -15,10 +15,6 @@ export default function DashboardPage() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    loadAnalytics();
-  }, []);
-
   const loadAnalytics = async () => {
     try {
       const data = await api.get<Analytics>('/analytics');
@@ -29,6 +25,10 @@ export default function DashboardPage() {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadAnalytics();
+  }, []);
 
   const stats = analytics
     ? [

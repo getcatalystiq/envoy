@@ -56,18 +56,6 @@ export default function TargetsPage() {
     lifecycle_stage: 0,
   });
 
-  useEffect(() => {
-    loadTargets();
-    loadTargetTypes();
-    loadSegments();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    loadTargets();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize]);
-
   const loadTargets = async () => {
     setIsLoading(true);
     try {
@@ -101,6 +89,18 @@ export default function TargetsPage() {
       console.error('Failed to load segments:', error);
     }
   };
+
+  useEffect(() => {
+    loadTargets();
+    loadTargetTypes();
+    loadSegments();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    loadTargets();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize]);
 
   const resetFormData = () => {
     setFormData({

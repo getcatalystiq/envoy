@@ -51,12 +51,6 @@ export default function OutboxPage() {
   const [filter, setFilter] = useState<string>('pending');
   const [targetDataExpanded, setTargetDataExpanded] = useState(false);
 
-  useEffect(() => {
-    loadOutbox();
-    loadStats();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter]);
-
   const loadOutbox = async () => {
     try {
       setIsLoading(true);
@@ -80,6 +74,12 @@ export default function OutboxPage() {
       console.error('Failed to load stats:', error);
     }
   };
+
+  useEffect(() => {
+    loadOutbox();
+    loadStats();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter]);
 
   const handleApprove = async (id: string) => {
     try {

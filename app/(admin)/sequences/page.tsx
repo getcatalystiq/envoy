@@ -72,12 +72,6 @@ export default function SequencesPage() {
   });
   const [isCreating, setIsCreating] = useState(false);
 
-  useEffect(() => {
-    loadSequences();
-    loadTargetTypes();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter]);
-
   const loadSequences = async () => {
     try {
       setIsLoading(true);
@@ -103,6 +97,12 @@ export default function SequencesPage() {
       console.error('Failed to load target types:', err);
     }
   };
+
+  useEffect(() => {
+    loadSequences();
+    loadTargetTypes();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter]);
 
   const handleCreateSequence = async () => {
     if (!newSequence.name.trim()) return;

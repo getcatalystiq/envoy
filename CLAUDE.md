@@ -168,7 +168,7 @@ One module per resource: analytics, campaigns, content, design-templates, gradua
 
 A separate, detached in-repo package — **not** part of the app build. The app above is untouched and keeps using AWS SES / OAuth / its own builder.
 
-- **What it is**: a headless, bring-your-own-Postgres, host-owns-auth, single-tenant email SDK for Next.js (App Router), built on `resend@^6.14.0`. Published to npm as **`@catalystiq/envoy-sdk@0.1.0`** (install: `npm i @catalystiq/envoy-sdk resend`). Renamed from the old `@envoy/sdk` — that scope belongs to the CNCF Envoy proxy, so always use `@catalystiq/envoy-sdk`.
+- **What it is**: a headless, bring-your-own-Postgres, host-owns-auth, single-tenant email SDK for Next.js (App Router), built on `resend@^6.14.0`. Published to npm as **`@catalystiq/envoy-sdk`** — the current version is `version` in `packages/sdk/package.json` (0.9.0 as of 2026-10); bump it on every SDK change you publish (install: `npm i @catalystiq/envoy-sdk resend`). Renamed from the old `@envoy/sdk` — that scope belongs to the CNCF Envoy proxy, so always use `@catalystiq/envoy-sdk`.
 - **Location**: `packages/sdk/` — own `package.json`, lockfile, `tsconfig` (own `@sdk/*` path alias, **never** the app's `@/`), tsup build (server entry `.` + client entry `./client` with a `use client` banner), and Vitest.
 - **Isolation**: the only app-side change is excluding `packages/` from the app root `tsconfig.json`, `eslint.config.mjs`, and `vitest.config.ts`, so the app build / typecheck / lint / test never touch the SDK. App source is unchanged.
 
@@ -176,7 +176,7 @@ A separate, detached in-repo package — **not** part of the app build. The app 
 1. **DRIP** — AI-personalized multi-step sequences (`defineSequence` + `enroll()`). JIT Claude Managed Agents fill Resend Template slots, sent via `emails.send`.
 2. **BROADCAST** — Resend Topics/Segments, send-once external claim guard, per-topic consent reconcile, merge-vars only (no AI).
 
-Plus: a mountable route handler (per-sub-path auth — host authorize callback + `CRON_SECRET` + Svix webhook + signed unsubscribe + MCP credential), a dual-stream consent mirror gating every send, RFC 8058 one-click unsubscribe, GDPR contact deletion, read-only React hooks, and an MCP server.
+Plus: a mountable route handler (per-sub-path auth — host authorize callback + `CRON_SECRET` + Svix webhook + signed unsubscribe + MCP credential), a dual-stream consent mirror gating every send, RFC 8058 one-click unsubscribe, GDPR contact deletion, read-only React hooks, and an MCP server (`src/route/mcp.ts`, built on `mcp-handler@2` + `@modelcontextprotocol/server@2` since 0.9.0 — the app's own `/mcp` route is separate and still on `mcp-handler@1` + `@modelcontextprotocol/sdk`).
 
 ### Invariants
 - Imports **no** app code (reuses app patterns by reimplementation).
@@ -187,9 +187,9 @@ Plus: a mountable route handler (per-sub-path auth — host authorize callback +
 ```bash
 cd packages/sdk && npm run build      # tsup
 cd packages/sdk && npm run typecheck  # tsc --noEmit
-cd packages/sdk && npm test           # Vitest (517 tests)
+cd packages/sdk && npm test           # Vitest (578 tests)
 ```
-Toolchain: TypeScript 6.0.3, React 19.2.7, Next 16.2.9 (peer), zod.
+Toolchain: TypeScript 6.0.3, React 19.x, Next 16.4 (dev; peer `next >=14`, `react >=18`, both optional), zod 4. Requires Node >=20 (`engines`).
 
 ### Docs
 - Host integration guide: `packages/sdk/AGENTS.md` (ships in the package; read from `node_modules/@catalystiq/envoy-sdk/AGENTS.md`).
