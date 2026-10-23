@@ -2,12 +2,13 @@ import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { verifyAccessToken } from "@/lib/oauth";
 import { registerTools, SERVER_INSTRUCTIONS } from "@/lib/mcp-tools";
 
+export const maxDuration = 60;
+
 const handler = createMcpHandler(
   (server) => {
     registerTools(server);
   },
   { instructions: SERVER_INSTRUCTIONS },
-  { maxDuration: 60 },
 );
 
 const authHandler = withMcpAuth(
