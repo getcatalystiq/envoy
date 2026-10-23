@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { Client } from "@modelcontextprotocol/client";
 
 // The MCP tools delegate to the same server fns the host calls. We mock those modules so we can
 // assert the delegation (and the suppression-honoring behavior) without a real DB / Resend.
@@ -514,8 +513,8 @@ describe("createMcpRouteHandler", () => {
 
   it("rejects an unauthenticated call (no bearer token) — never open", async () => {
     const handler = createMcpRouteHandler({ envoy: makeEnvoy(), mcpSecret: MCP_SECRET });
-    // A mounted catch-all path that does NOT exact-match /mcp — the handler must still canonicalize
-    // it and the auth layer must reject the missing credential.
+    // A mounted catch-all path that does NOT exact-match /mcp — the auth layer must reject the
+    // missing credential.
     const res = await handler(
       new Request("https://app.example.com/api/envoy/mcp", {
         method: "POST",
@@ -524,6 +523,23 @@ describe("createMcpRouteHandler", () => {
       })
     );
     expect(res.status).toBe(401);
+  });
+
+  it("serves an authenticated call at a mounted catch-all path (not just /mcp)", async () => {
+    const handler = createMcpRouteHandler({ envoy: makeEnvoy(), mcpSecret: MCP_SECRET });
+    const res = await handler(
+      new Request("https://app.example.com/api/envoy/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          authorization: `Bearer ${MCP_SECRET}`,
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('"name":"enroll_contact"');
   });
 
   it("rejects a wrong bearer token", async () => {

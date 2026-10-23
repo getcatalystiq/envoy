@@ -1,6 +1,6 @@
 {
   "name": "@catalystiq/envoy-sdk",
-  "version": "0.8.6",
+  "version": "0.9.0",
   "description": "Headless Resend drip + broadcast email SDK for Next.js — bring-your-own-Postgres, host-owns-auth.",
   "type": "module",
   "license": "MIT",
@@ -38,27 +38,35 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
-    "@modelcontextprotocol/sdk": "^1.27.1",
-    "mcp-handler": "^1.0.7",
+    "@modelcontextprotocol/server": "^2.4.0",
+    "mcp-handler": "^2.3.0",
     "resend": "^6.14.0",
     "server-only": "^0.0.1",
     "svix": "^1.45.1",
     "zod": "^4.4.3"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "peerDependencies": {
     "next": ">=14",
     "react": ">=18"
   },
   "peerDependenciesMeta": {
-    "next": { "optional": true },
-    "react": { "optional": true }
+    "next": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2.4.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "next": "^16.2.9",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "next": "^16.2.9",
     "tsup": "^8.3.5",
     "typescript": "6.0.3",
     "vitest": "^4.1.7"

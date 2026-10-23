@@ -1,8 +1,7 @@
 import "server-only";
 
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import type { AuthInfo, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 import type { Envoy } from "../config.js";
@@ -115,7 +114,10 @@ export interface McpRouteConfig {
   /** Absolute https landing URL the drip List-Unsubscribe header points at — passed through for
    *  parity with the engine config; unused by the current read/enroll tools. */
   unsubscribeBaseUrl?: string;
-  /** Max MCP request duration (seconds). Mirrors the app's `{ maxDuration: 60 }`. */
+  /**
+   * @deprecated Ignored since 0.9.0 — `mcp-handler` 2 has no duration option. Set the limit on the
+   * host route instead (`export const maxDuration = 60` in the mounted `route.ts`).
+   */
   maxDuration?: number;
 }
 
@@ -195,7 +197,7 @@ export function registerEnvoyTools(server: McpServer, config: McpRouteConfig): v
       description:
         "Enroll a contact into a drip sequence (idempotent; a re-enroll of an active contact is a " +
         "no-op). A globally-suppressed contact is recorded but not re-synced and no email is sent.",
-      inputSchema: {
+      inputSchema: z.object({
         email: z.string().email().describe("Recipient email."),
         sequenceKey: z.string().min(1).describe("The sequence to enroll into."),
         data: z
@@ -210,7 +212,7 @@ export function registerEnvoyTools(server: McpServer, config: McpRouteConfig): v
           .min(1)
           .optional()
           .describe("Subject of the topic to provision + opt-in (paired with topicStream)."),
-      },
+      }),
     },
     async (args) => {
       try {
@@ -249,7 +251,7 @@ export function registerEnvoyTools(server: McpServer, config: McpRouteConfig): v
     {
       description:
         "List the drip sequence keys registered for this install (host `defineSequence` definitions).",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       const keys = listKeys(config.sequences);
@@ -268,7 +270,7 @@ export function registerEnvoyTools(server: McpServer, config: McpRouteConfig): v
     "get_sequence",
     {
       description: "Inspect one drip sequence's steps (template, wait, AI slots, brief) by key.",
-      inputSchema: { key: z.string().min(1) },
+      inputSchema: z.object({ key: z.string().min(1) }),
     },
     async (args) => {
       const sequence = resolveSequence(config.sequences, args.key);
@@ -294,7 +296,7 @@ export function registerEnvoyTools(server: McpServer, config: McpRouteConfig): v
     "list_programs",
     {
       description: "List the broadcast program keys registered for this install.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       const keys = listKeys(config.programs);
@@ -313,7 +315,7 @@ export function registerEnvoyTools(server: McpServer, config: McpRouteConfig): v
     "get_program",
     {
       description: "Inspect one broadcast program's config (segment, cadence, from) by key.",
-      inputSchema: { key: z.string().min(1) },
+      inputSchema: z.object({ key: z.string().min(1) }),
     },
     async (args) => {
       const program = resolveProgram(config.programs, args.key);
@@ -336,10 +338,10 @@ export function registerEnvoyTools(server: McpServer, config: McpRouteConfig): v
       description:
         "Read a broadcast program's cursor state for a subject (watermark, issue sequence, " +
         "lastFiredAt health signal, paused).",
-      inputSchema: {
+      inputSchema: z.object({
         programKey: z.string().min(1),
         subjectKey: z.string().min(1).default("default"),
-      },
+      }),
     },
     async (args) => {
       try {
@@ -371,10 +373,10 @@ export function registerEnvoyTools(server: McpServer, config: McpRouteConfig): v
       description:
         "Read the per-topic consent mirror row for a contact (the authoritative send gate). " +
         "Returns whether each stream may send.",
-      inputSchema: {
+      inputSchema: z.object({
         email: z.string().email(),
         topicKey: z.string().min(1),
-      },
+      }),
     },
     async (args) => {
       try {
@@ -405,14 +407,14 @@ export function registerEnvoyTools(server: McpServer, config: McpRouteConfig): v
       description:
         "Trigger one issue of a broadcast program for one subject (reconcile → claim → render → " +
         "send → advance). Per-subject fail-soft; the send-once claim prevents a double-send.",
-      inputSchema: {
+      inputSchema: z.object({
         programKey: z.string().min(1),
         subjectKey: z.string().min(1).default("default"),
         force: z
           .boolean()
           .optional()
           .describe("Bypass the cadence timer (the send-once claim still guards a double-send)."),
-      },
+      }),
     },
     async (args) => {
       const program = resolveProgram(config.programs, args.programKey);
@@ -453,7 +455,7 @@ export function registerEnvoyTools(server: McpServer, config: McpRouteConfig): v
       description:
         "Right-to-erasure: suppress the contact in the mirror FIRST, then best-effort delete the " +
         "Resend Contact + Segment/Topic membership (fail-soft).",
-      inputSchema: { email: z.string().email() },
+      inputSchema: z.object({ email: z.string().email() }),
     },
     async (args) => {
       try {
@@ -487,33 +489,6 @@ export const SERVER_INSTRUCTIONS =
 // Handler factory
 // ---------------------------------------------------------------------------------------------
 
-const MCP_ENDPOINT = "/mcp";
-
-/**
- * Rewrite an incoming request so its pathname is exactly `/mcp` (the endpoint `mcp-handler` matches
- * against). The route factory mounts the catch-all at an arbitrary base (`/api/envoy/mcp`, `/envoy/
- * mcp`, …), so the raw `request.url` pathname would NOT exact-match `mcp-handler`'s default endpoint
- * and would 404. We canonicalize the path here, preserving the query string, method, headers, body,
- * and abort signal. (We never know the mount base at config time — the factory is mount-agnostic —
- * so the rewrite must happen per request.)
- */
-function canonicalizeMcpRequest(request: Request): Request {
-  const url = new URL(request.url);
-  if (url.pathname === MCP_ENDPOINT) return request;
-  const canonical = new URL(MCP_ENDPOINT + url.search, url.origin);
-  const init: RequestInit = {
-    method: request.method,
-    headers: request.headers,
-    signal: request.signal,
-  };
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    // Stream the original body through. `duplex` is required by the Fetch spec when a body is set.
-    init.body = request.body;
-    (init as RequestInit & { duplex: "half" }).duplex = "half";
-  }
-  return new Request(canonical.toString(), init);
-}
-
 /**
  * Build the `/mcp` {@link SubHandler}. Constructs the MCP server with `createMcpHandler`, registers
  * the single-tenant lifecycle tools, and wraps it with `withMcpAuth({ required: true })` so the MCP
@@ -530,18 +505,17 @@ export function createMcpRouteHandler(config: McpRouteConfig): SubHandler {
     throw new TypeError("[@catalystiq/envoy-sdk] createMcpRouteHandler requires an `envoy` handle.");
   }
 
+  // mcp-handler 2 serves every request it receives (routing belongs to the host), so the mounted
+  // catch-all path (`/api/envoy/mcp`, `/envoy/mcp`, …) needs no rewrite to `/mcp`.
   const handler = createMcpHandler(
     (server) => {
       registerEnvoyTools(server, config);
     },
-    { instructions: SERVER_INSTRUCTIONS },
-    { maxDuration: config.maxDuration ?? 60 }
+    { instructions: SERVER_INSTRUCTIONS }
   );
 
   const verify = config.verifyToken ?? defaultVerifyMcpToken(config.mcpSecret);
-  const authedHandler = withMcpAuth(handler, verify, { required: true });
-
-  return (request: Request): Promise<Response> => authedHandler(canonicalizeMcpRequest(request));
+  return withMcpAuth(handler, verify, { required: true });
 }
 
 /** Alias matching the app's `createMcpHandler` naming, for hosts that build their own MCP server. */
