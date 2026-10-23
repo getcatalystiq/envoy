@@ -15,10 +15,6 @@ export default function AnalyticsPage() {
   const [analytics, setAnalytics] = useState<AnalyticsType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    loadAnalytics();
-  }, []);
-
   const loadAnalytics = async () => {
     try {
       const data = await api.get<AnalyticsType>('/analytics');
@@ -29,6 +25,10 @@ export default function AnalyticsPage() {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadAnalytics();
+  }, []);
 
   if (isLoading) {
     return (

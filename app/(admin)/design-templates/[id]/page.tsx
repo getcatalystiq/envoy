@@ -25,11 +25,6 @@ export default function DesignTemplateEditorPage() {
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
-  useEffect(() => {
-    if (id) loadTemplate();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
   async function loadTemplate() {
     setLoading(true);
     try {
@@ -46,6 +41,11 @@ export default function DesignTemplateEditorPage() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (id) loadTemplate();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   async function handleSave() {
     if (!template) return;

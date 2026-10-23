@@ -118,27 +118,6 @@ export default function SequenceBuilderPage() {
 
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
 
-  useEffect(() => {
-    if (id) {
-      loadSequence();
-      loadTargetTypes();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
-  useEffect(() => {
-    if (id && activeTab === 'enrollments') {
-      loadEnrollments();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, activeTab, enrollmentFilter]);
-
-  useEffect(() => {
-    if (steps.length > 0 && !selectedStepId) {
-      setSelectedStepId(steps[0].id);
-    }
-  }, [steps, selectedStepId]);
-
   const loadSequence = async () => {
     try {
       setIsLoading(true);
@@ -184,6 +163,27 @@ export default function SequenceBuilderPage() {
       console.error('Failed to load enrollments:', err);
     }
   };
+
+  useEffect(() => {
+    if (id) {
+      loadSequence();
+      loadTargetTypes();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  useEffect(() => {
+    if (id && activeTab === 'enrollments') {
+      loadEnrollments();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, activeTab, enrollmentFilter]);
+
+  useEffect(() => {
+    if (steps.length > 0 && !selectedStepId) {
+      setSelectedStepId(steps[0].id);
+    }
+  }, [steps, selectedStepId]);
 
   const handleActivate = async () => {
     try {

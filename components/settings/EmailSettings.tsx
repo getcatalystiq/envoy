@@ -50,17 +50,6 @@ export function EmailSettings() {
     );
   }, [settings, emailDomain, emailFromName]);
 
-  useEffect(() => {
-    loadSettings();
-  }, []);
-
-  useEffect(() => {
-    if (verifyCooldown > 0) {
-      const timer = setTimeout(() => setVerifyCooldown(verifyCooldown - 1), 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [verifyCooldown]);
-
   const loadSettings = async () => {
     try {
       const data = await getOrganization();
@@ -73,6 +62,17 @@ export function EmailSettings() {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  useEffect(() => {
+    if (verifyCooldown > 0) {
+      const timer = setTimeout(() => setVerifyCooldown(verifyCooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [verifyCooldown]);
 
   const handleSave = async () => {
     if (domainError) return;

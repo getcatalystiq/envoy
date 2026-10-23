@@ -50,10 +50,6 @@ export default function ContentPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadTemplates();
-  }, []);
-
   const loadTemplates = async () => {
     try {
       const data = await api.get<{ items: ContentTemplate[]; total: number }>('/content');
@@ -64,6 +60,10 @@ export default function ContentPage() {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadTemplates();
+  }, []);
 
   const openCreateModal = () => {
     setEditingTemplate(null);

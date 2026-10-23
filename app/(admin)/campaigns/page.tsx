@@ -10,10 +10,6 @@ export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    loadCampaigns();
-  }, []);
-
   const loadCampaigns = async () => {
     try {
       const data = await api.get<{ items: Campaign[]; total: number }>('/campaigns');
@@ -24,6 +20,10 @@ export default function CampaignsPage() {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadCampaigns();
+  }, []);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
