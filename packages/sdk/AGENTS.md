@@ -272,6 +272,8 @@ A broadcast already accepted for dispatch can't be recalled (§11). Data already
 
 The mounted route exposes an MCP endpoint so an AI agent can operate the lifecycle (enroll, define programs, send, inspect state). It is **independently authenticated** (R42) — treat it as an admin API. Don't expose it unauthenticated.
 
+Since 0.9.0 the endpoint is built on `mcp-handler@2` + `@modelcontextprotocol/server@2`; the SDK no longer depends on `@modelcontextprotocol/sdk`. If your `package.json` has an `overrides` entry forcing `@modelcontextprotocol/sdk` for this package's MCP helper, delete it after upgrading. `createMcpRouteHandler`'s `maxDuration` option is ignored in 0.9.0; set `export const maxDuration = 60` on the mounted `route.ts` instead. If you build your own MCP server and call `registerEnvoyTools(server, …)`, `server` must now be a v2 `McpServer` from `@modelcontextprotocol/server` (or the one `mcp-handler@2` passes you). Node 20+ is required.
+
 ---
 
 ## 11. Known compliance residuals — surface these to your counsel (R39)
