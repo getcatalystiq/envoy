@@ -38,6 +38,23 @@ export class AgentError extends Error {
   }
 }
 
+/**
+ * The agent's turn ended without completing (an idle stop whose reason is not `end_turn`: the model
+ * stopped on its own, a refusal, a token limit). Unlike an outage it is a verdict on THIS goal, so the
+ * drip engine counts it toward a step's attempt cap.
+ */
+export class AgentTurnIncompleteError extends AgentError {
+  constructor(message: string) {
+    super(message, 502);
+    // `name` stays "AgentError": hosts and tests match on it; `instanceof` tells the two apart.
+  }
+}
+
+/** Is this agent failure the call's (an outage, a rate limit, a timeout, a key), not the goal's? */
+function isTransientAgentError(err: unknown): boolean {
+  return !(err instanceof AgentTurnIncompleteError);
+}
+
 /** Per-call options. */
 export interface AgentCallOpts {
   /** Invocation timeout. Defaults to 10 minutes — matches the app's run timeout. */
@@ -221,9 +238,8 @@ export async function runAgentSession(
       }
     }
     if (idleReason && idleReason !== "end_turn") {
-      throw new AgentError(
+      throw new AgentTurnIncompleteError(
         `Agent ended without completing its turn (stop_reason=${idleReason})`,
-        502,
       );
     }
   } catch (err) {
@@ -540,8 +556,10 @@ export async function generateOrHarvestSlots(
       vaultId: input.vaultId,
     });
   } catch (err) {
-    // The call itself failed: `transient`, as in generateOrHarvestBlock.
-    if (err instanceof AgentError) return { kind: "failed", reason: err.message, transient: true };
+    // The call itself failed: `transient` (an incomplete turn excepted), as in generateOrHarvestBlock.
+    if (err instanceof AgentError) {
+      return { kind: "failed", reason: err.message, transient: isTransientAgentError(err) };
+    }
     return { kind: "failed", reason: "agent session failed", transient: true };
   }
 
@@ -597,8 +615,10 @@ export async function generateOrHarvestBlock(
     });
   } catch (err) {
     // The call itself failed (an outage, a rate limit, a timeout, a key): `transient`, never a verdict
-    // on this block.
-    if (err instanceof AgentError) return { kind: "failed", reason: err.message, transient: true };
+    // on this block. An incomplete turn (the model stopped without finishing) is the goal's: counted.
+    if (err instanceof AgentError) {
+      return { kind: "failed", reason: err.message, transient: isTransientAgentError(err) };
+    }
     return { kind: "failed", reason: "agent session failed", transient: true };
   }
 

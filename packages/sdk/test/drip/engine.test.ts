@@ -777,7 +777,7 @@ describe("runDripStep — AI block over Resend's per-value limit", () => {
     // The failure moves only an ACTIVE enrollment (an unenroll is never overwritten), and the stop
     // is decided once, in the step update, which the enrollment update reads.
     // The enrollment is locked FIRST (the order advance and erasure take), then the step.
-    expect(writes[0]!.text).toMatch(/WITH enr AS \([\s\S]*status = 'active'[\s\S]*FOR UPDATE/);
+    expect(writes[0]!.text).toMatch(/WITH enr AS \([\s\S]*status = 'active'[\s\S]*FOR NO KEY UPDATE/);
     expect(writes[0]!.text).toMatch(/EXISTS \(SELECT 1 FROM enr\)/);
     expect(writes[0]!.text).toMatch(/WHERE e\.namespace = \$1 AND e\.id = \$5 AND e\.status = 'active'/);
     expect(writes[0]!.text).toMatch(/status = 'failed' AS stop/);
@@ -981,6 +981,38 @@ describe("runDripStep — backoff and the attempt cap", () => {
     expect(failureWrite(output.calls)[0]!.params[7]).toBe(false);
   });
 
+  it("an agent turn that ends incomplete (not end_turn) is the goal's: PERMANENT", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+    });
+    env.agent!.stream.mockImplementationOnce(async () => ({
+      controller: new AbortController(),
+      async *[Symbol.asyncIterator]() {
+        yield { type: "session.status_idle", stop_reason: { type: "max_tokens" } };
+      },
+    }));
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(res).toMatchObject({ sent: false, reason: "generation_failed" });
+    expect(failureWrite(env.calls)[0]!.params[7]).toBe(false);
+  });
+
+  it("a failure whose recording met a Node errno (EPIPE, not a SQLSTATE) writes nothing more", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+      resend: { sendError: true },
+    });
+    const query = env.envoy.db.execWrite.bind(env.envoy.db);
+    vi.spyOn(env.envoy.db, "execWrite").mockImplementation(async (text, params) => {
+      if (/failed_attempts/.test(text)) throw Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+      return query(text, params);
+    });
+    await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(env.calls.find((c) => /INTERVAL '1 hour'/.test(c.text))).toBeUndefined();
+  });
+
   it("with no Resend key nothing is generated and nothing is recorded", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
@@ -1009,6 +1041,8 @@ describe("runDripStep — backoff and the attempt cap", () => {
     const fallback = env.calls.find((c) => /INTERVAL '1 hour'/.test(c.text));
     expect(fallback).toBeDefined();
     expect(fallback!.text).toMatch(/attempts = attempts \+ 1, last_error = \$3/);
+    // Like the main path: only an ACTIVE enrollment's step is touched, the enrollment locked first.
+    expect(fallback!.text).toMatch(/WITH enr AS \([\s\S]*FOR NO KEY UPDATE[\s\S]*EXISTS \(SELECT 1 FROM enr\)/);
   });
 
   it("the failure that reaches maxAttempts stops the enrollment, reported ONCE as `stopped`", async () => {

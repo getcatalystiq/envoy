@@ -349,7 +349,7 @@ async function recordFailure(
       `WITH enr AS (
          SELECT id FROM sdk_enrollments
           WHERE namespace = $1 AND id = $5 AND status = 'active'
-          FOR UPDATE
+          FOR NO KEY UPDATE
        ),
        step_fail AS (
          UPDATE sdk_steps
@@ -411,7 +411,7 @@ async function recordFailure(
     // a deadlock; a timeout), so nothing was written: keep the pre-0.10.0 bookkeeping (attempts,
     // last_error) and hold the step off for an hour, so it is not retried every tick. With no
     // SQLSTATE (a dropped connection) the statement may have committed, so nothing more is written.
-    if (/^[0-9A-Z]{5}$/.test(code)) await recordFailureWithoutMigration(envoy, due, reason, opts.now);
+    if (isSqlState(code)) await recordFailureWithoutMigration(envoy, due, reason, opts.now);
     return { stopped: false };
   }
 }
@@ -420,19 +420,29 @@ async function recordFailure(
 async function recordFailureWithoutMigration(envoy: Envoy, due: DueStep, reason: string, now: Date): Promise<void> {
   try {
     await envoy.db.execWrite(
-      `WITH step_fail AS (
+      `WITH enr AS (
+         SELECT id FROM sdk_enrollments
+          WHERE namespace = $1 AND id = $4 AND status = 'active'
+          FOR NO KEY UPDATE
+       ),
+       step_fail AS (
          UPDATE sdk_steps SET attempts = attempts + 1, last_error = $3, updated_at = NOW()
-          WHERE namespace = $1 AND id = $2
+          WHERE namespace = $1 AND id = $2 AND EXISTS (SELECT 1 FROM enr)
           RETURNING id
        )
        UPDATE sdk_enrollments
           SET next_run_at = GREATEST($5::timestamptz, NOW()) + INTERVAL '1 hour', updated_at = NOW()
-        WHERE namespace = $1 AND id = $4 AND status = 'active'`,
+        WHERE namespace = $1 AND id = $4 AND status = 'active' AND EXISTS (SELECT 1 FROM step_fail)`,
       [envoy.db.namespace, due.stepId, reason.slice(0, 500), due.enrollmentId, now.toISOString()],
     );
   } catch {
     /* bookkeeping only */
   }
+}
+
+/** A Postgres SQLSTATE (five digits or capitals), never a five-letter Node errno (EPIPE, EBADF). */
+function isSqlState(code: string): boolean {
+  return /^[0-9A-Z]{5}$/.test(code) && !/^E[A-Z]{4}$/.test(code);
 }
 
 /** A database error's SQLSTATE (never its message, which can echo row data), else its name. */
