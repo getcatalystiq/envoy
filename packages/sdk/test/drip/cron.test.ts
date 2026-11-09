@@ -78,6 +78,7 @@ interface StepRow {
   resend_email_id: string | null;
   attempts: number;
   failed_attempts: number;
+  permanent_failures: number;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -193,6 +194,7 @@ function fakePool(opts: {
           resend_email_id: null,
           attempts: 0,
           failed_attempts: 0,
+          permanent_failures: 0,
         };
         steps.push(row);
         // RETURNING id, agent_session_id from the freshly inserted row.
@@ -267,7 +269,8 @@ function fakePool(opts: {
         if (!step || !e || e.status !== "active") return { rows: [] as T[] };
         step.attempts += 1;
         step.failed_attempts += 1;
-        const stop = step.failed_attempts >= max && !transient;
+        if (!transient) step.permanent_failures += 1;
+        const stop = step.permanent_failures >= max && !transient;
         if (stop) {
           step.status = "failed";
           e.status = "stopped";
@@ -276,7 +279,7 @@ function fakePool(opts: {
           const delay = delays[Math.min(step.failed_attempts, delays.length) - 1]!;
           e.next_run_at = new Date(new Date(nowIso).getTime() + delay).toISOString();
         }
-        return { rows: [{ failed_attempts: step.failed_attempts, status: e.status }] as T[] };
+        return { rows: [{ permanent_failures: step.permanent_failures, status: e.status }] as T[] };
       }
 
       // 6.6. Close a permanently-suppressed contact's ACTIVE enrollment.
@@ -528,6 +531,31 @@ describe("tickDrip — claim + run (R20, R21)", () => {
     }
     expect(fp.enrollments.get(10)?.status).toBe("active");
     expect(fp.steps[0]!.failed_attempts).toBe(4);
+    expect(fp.steps[0]!.permanent_failures).toBe(0);
+  });
+
+  it("transient failures do not count toward the cap: one permanent failure after an outage does not stop", async () => {
+    const fp = fakePool({
+      enrollments: [{ id: 10, contact: "ada@example.com", sequenceKey: "welcome", currentStep: 0 }],
+      consent: [{ contact: "ada@example.com", topicKey: "welcome" }],
+    });
+    fakeAgent({ output: '{"body":"Hi"}' });
+    let status = 503;
+    const emailsSend = vi.fn(async () => ({ data: null, error: { message: "x", statusCode: status } }));
+    const handle = createResendClientHandle("re_live_key");
+    vi.spyOn(handle, "client").mockReturnValue({ emails: { send: emailsSend } } as never);
+    const envoy = makeEnvoy(fp.pool, handle);
+    let now = new Date("2026-11-09T12:00:00.000Z");
+    for (let i = 0; i < 5; i += 1) {
+      if (i === 4) status = 422;
+      fp.release();
+      await tickDrip(envoy, REGISTRY, tickConfig(envoy, { maxAttempts: 2 }), now);
+      now = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+    }
+    expect(fp.enrollments.get(10)?.status).toBe("active");
+    expect(fp.steps[0]!.permanent_failures).toBe(1);
+    // The backoff still counts every failure: past the doubling it waits the maximum, a day.
+    expect(fp.steps[0]!.failed_attempts).toBe(5);
   });
 
   it("at maxAttempts the step fails and the enrollment stops — reported once, never claimed again", async () => {
@@ -805,6 +833,7 @@ describe("tickDrip — claim + run (R20, R21)", () => {
       resend_email_id: null,
       attempts: 0,
       failed_attempts: 0,
+      permanent_failures: 0,
     });
 
     // The agent fake's `list` (harvest) path yields the prior session's output; `create` would mint a

@@ -105,7 +105,7 @@ function fakePool(
         const transient = (params ?? [])[7] === true;
         attempts += 1;
         return {
-          rows: [{ failed_attempts: attempts, status: attempts >= max && !transient ? "stopped" : "active" }] as T[],
+          rows: [{ permanent_failures: attempts, status: attempts >= max && !transient ? "stopped" : "active" }] as T[],
         };
       }
       // All other engine UPDATEs (steps + enrollments) — just record and ack.
@@ -731,6 +731,11 @@ describe("runDripStep — AI block over Resend's per-value limit", () => {
     expect(env.emailsSend).not.toHaveBeenCalled();
     // Generated twice (the first + the ONE regeneration), never a third time in the same run.
     expect(env.agent!.create).toHaveBeenCalledTimes(2);
+    // The regeneration's brief says why, with the length it must stay under (markup included).
+    const goals = env.agent!.send.mock.calls.map((c) => JSON.stringify(c));
+    expect(goals[0]).not.toContain("LENGTH LIMIT");
+    expect(goals[1]).toContain("LENGTH LIMIT");
+    expect(goals[1]).toContain("2001 characters");
     // Both over-long sessions are forgotten, so the next attempt starts fresh.
     expect(discards(env.calls)).toHaveLength(2);
     const writes = failureWrite(env.calls);
@@ -743,19 +748,37 @@ describe("runDripStep — AI block over Resend's per-value limit", () => {
       DEFAULT_DRIP_MAX_ATTEMPTS,
       10,
       now.toISOString(),
-      Array.from({ length: DEFAULT_DRIP_MAX_ATTEMPTS }, (_, i) => dripBackoffMs(i + 1)),
+      expect.any(Array),
       false,
     ]);
-    // The delays the SQL indexes ARE dripBackoffMs's (one formula, in TypeScript).
+    // The delays the SQL indexes ARE dripBackoffMs's (one formula, in TypeScript), up to the first
+    // that reaches the maximum (every later failure waits that), whatever maxAttempts is.
     expect(writes[0]!.params[6]).toEqual([
       DRIP_BACKOFF_BASE_MS, 2 * DRIP_BACKOFF_BASE_MS, 4 * DRIP_BACKOFF_BASE_MS, 8 * DRIP_BACKOFF_BASE_MS,
       16 * DRIP_BACKOFF_BASE_MS, 32 * DRIP_BACKOFF_BASE_MS, 64 * DRIP_BACKOFF_BASE_MS, DRIP_BACKOFF_MAX_MS,
     ]);
-    // Counted in failed_attempts, and anchored to the later of the tick's clock and the database's.
+    expect(writes[0]!.text).toMatch(/LEAST\(f\.failed_attempts, cardinality\(\$7::bigint\[\]\)\)/);
+    // Counted in the 005 counters, anchored to the later of the tick's clock and the database's.
     expect(writes[0]!.text).toMatch(/failed_attempts = failed_attempts \+ 1/);
+    expect(writes[0]!.text).toMatch(/permanent_failures = permanent_failures \+ CASE/);
     expect(writes[0]!.text).toMatch(/GREATEST\(\$6::timestamptz, NOW\(\)\)/);
     // The failure moves only an ACTIVE enrollment (an operator's unenroll is never overwritten).
     expect(writes[0]!.text).toMatch(/e\.status = 'active'/);
+  });
+
+  it("a discard that cannot be written does not throw: the failure is still recorded and backed off", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body(LONG) },
+    });
+    const query = env.envoy.db.execWrite.bind(env.envoy.db);
+    vi.spyOn(env.envoy.db, "execWrite").mockImplementation(async (text, params) => {
+      if (/block_sessions - \$3::text/.test(text)) throw new Error("db blip");
+      return query(text, params);
+    });
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(res).toMatchObject({ sent: false, reason: "generation_failed" });
+    expect(failureWrite(env.calls)).toHaveLength(1);
   });
 
   it("a regeneration that fails is a recorded generation failure; the long block is never sent", async () => {
@@ -785,6 +808,57 @@ describe("runDripStep — backoff and the attempt cap", () => {
     expect(dripBackoffMs(8)).toBe(DRIP_BACKOFF_MAX_MS);
     expect(dripBackoffMs(100)).toBe(DRIP_BACKOFF_MAX_MS);
     expect(dripBackoffMs(0)).toBe(DRIP_BACKOFF_BASE_MS);
+  });
+
+  it("a Resend 409 invalid_idempotent_request (an earlier attempt was accepted) marks the step sent", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+    });
+    env.emailsSend.mockResolvedValueOnce({
+      data: null,
+      error: { message: "used", statusCode: 409, name: "invalid_idempotent_request" },
+    } as never);
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(res).toEqual({ sent: true, emailId: null, advancedTo: 1, completed: false });
+    const adv = env.calls.find((c) => /UPDATE sdk_enrollments[\s\S]*current_step = \$4/i.test(c.text));
+    expect(adv?.params[2]).toBeNull();
+    expect(failureWrite(env.calls)).toHaveLength(0);
+  });
+
+  it("a Resend 409 concurrent_idempotent_requests is transient (backed off, never counted)", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+    });
+    env.emailsSend.mockResolvedValueOnce({
+      data: null,
+      error: { message: "busy", statusCode: 409, name: "concurrent_idempotent_requests" },
+    } as never);
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(res).toMatchObject({ sent: false, reason: "send_failed" });
+    expect(failureWrite(env.calls)[0]!.params[7]).toBe(true);
+  });
+
+  it("a failure that cannot be recorded is logged with its SQLSTATE only, and reads as not stopped", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+      resend: { sendError: true },
+    });
+    const query = env.envoy.db.execWrite.bind(env.envoy.db);
+    vi.spyOn(env.envoy.db, "execWrite").mockImplementation(async (text, params) => {
+      if (/WITH step_fail AS/.test(text)) {
+        throw Object.assign(new Error('column "failed_attempts" does not exist ada@example.com'), { code: "42703" });
+      }
+      return query(text, params);
+    });
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(res).toMatchObject({ sent: false, reason: "send_failed" });
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0]![1]).toBe("42703");
+    expect(JSON.stringify(error.mock.calls)).not.toContain("ada@example.com");
   });
 
   it("a send failure is recorded through the backoff write, not retried next tick", async () => {
@@ -819,6 +893,9 @@ describe("runDripStep — backoff and the attempt cap", () => {
     ["a transport error", { sendThrows: true }],
     ["a Resend 429", { sendError: true, sendStatus: 429 }],
     ["a Resend 503", { sendError: true, sendStatus: 503 }],
+    ["a Resend 401 (the account's key)", { sendError: true, sendStatus: 401 }],
+    ["a Resend 403 (the From domain)", { sendError: true, sendStatus: 403 }],
+    ["a Resend 404 (the template)", { sendError: true, sendStatus: 404 }],
     ["a Resend error with no status", { sendError: true, sendStatus: null }],
   ] as const)("%s at the cap is transient: backed off, never stopped", async (_label, resend) => {
     const env = setup({
