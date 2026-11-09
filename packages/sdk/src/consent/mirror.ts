@@ -140,6 +140,9 @@ export interface ConsentSetResult {
   push: "confirmed" | "skipped" | "dirty";
 }
 
+/** What {@link ConsentMirror.gateDecision} answers. */
+export type GateDecision = "allow" | "deny_permanent" | "deny_not_opted_in";
+
 /**
  * The consent mirror, bound to one install's namespaced DB + Resend handle. Build via `createConsentMirror`.
  */
@@ -188,21 +191,6 @@ export class ConsentMirror {
   }
 
   /**
-   * Is this contact suppressed on `topicKey` for GOOD — so a drip enrollment on it can be closed
-   * rather than re-claimed every tick? True for a global suppression (`sdk_contacts.unsubscribed`:
-   * bounce, complaint, GDPR delete, hosted-page unsubscribe) and for a consent row `unsubscribed` on
-   * either stream. Both only ever move toward more suppression (`set`'s monotonic merge; nothing
-   * clears the global flag). False for a contact merely not opted in — no consent row yet (an enroll
-   * that raced the mirror upsert) or `opt_out` (which an explicit re-opt-in can lift) — so those are
-   * left as they were.
-   */
-  async isPermanentlySuppressed(email: string, topicKey: string): Promise<boolean> {
-    if (await this.isGloballySuppressed(email)) return true;
-    const row = await this.read(email, topicKey);
-    return row !== null && (row.digest === "unsubscribed" || row.alert === "unsubscribed");
-  }
-
-  /**
    * Authoritative send gate (R26). Returns `true` only when this exact stream of this topic is
    * allowed to send to this contact. Denies when:
    *   - the contact is GLOBALLY suppressed (`sdk_contacts.unsubscribed = TRUE` — bounce, complaint,
@@ -215,18 +203,30 @@ export class ConsentMirror {
    * Reconcile (U14) is what keeps the mirror honest against Resend's hosted page.
    */
   async gate(email: string, topicKey: string, stream: Stream): Promise<boolean> {
+    return (await this.gateDecision(email, topicKey, stream)) === "allow";
+  }
+
+  /**
+   * {@link gate}, saying WHY it denies: `deny_permanent` for a contact that can never be mailed on
+   * this topic again — a global suppression, or an `unsubscribed` consent row on either stream (both
+   * only ever move toward more suppression: `set`'s monotonic merge, and nothing clears the global
+   * flag) — so a drip enrollment on it can be closed rather than re-claimed every tick;
+   * `deny_not_opted_in` for one merely not opted in: no consent row yet (an enroll that raced the
+   * mirror upsert) or `opt_out` (which an explicit re-opt-in can lift). Same two reads as before.
+   */
+  async gateDecision(email: string, topicKey: string, stream: Stream): Promise<GateDecision> {
     // Global suppression dominates everything (R22/R26). Checked FIRST so a bounced/complained/
     // erased contact is denied on BOTH lanes even when this topic has no consent row — the consent
     // row alone never sees a global suppression that fanned in via the contact flag.
-    if (await this.isGloballySuppressed(email)) return false;
+    if (await this.isGloballySuppressed(email)) return "deny_permanent";
 
     const row = await this.read(email, topicKey);
-    if (row === null) return false; // deny-by-default: no provisioned consent
+    if (row === null) return "deny_not_opted_in"; // deny-by-default: no provisioned consent
     // A global unsubscribe is recorded as `unsubscribed` on every stream (see `set`), so an
     // `unsubscribed` on the OTHER stream also denies here — suppress-all dominates.
-    if (row.digest === "unsubscribed" || row.alert === "unsubscribed") return false;
+    if (row.digest === "unsubscribed" || row.alert === "unsubscribed") return "deny_permanent";
     const current = stream === "digest" ? row.digest : row.alert;
-    return current === "opt_in";
+    return current === "opt_in" ? "allow" : "deny_not_opted_in";
   }
 
   /**

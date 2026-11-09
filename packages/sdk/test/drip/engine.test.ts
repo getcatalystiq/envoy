@@ -5,6 +5,7 @@ import {
   dripBackoffMs,
   RESEND_TEMPLATE_VARIABLE_MAX,
   DEFAULT_DRIP_MAX_ATTEMPTS,
+  MAX_DRIP_MAX_ATTEMPTS,
   DRIP_BACKOFF_BASE_MS,
   DRIP_BACKOFF_MAX_MS,
   type DueStep,
@@ -101,8 +102,11 @@ function fakePool(
       // The failure CTE (recordFailure): bump attempts; at the cap ($4) the enrollment is stopped.
       if (/WITH step_fail AS/i.test(t)) {
         const max = Number((params ?? [])[3]);
+        const transient = (params ?? [])[7] === true;
         attempts += 1;
-        return { rows: [{ attempts, status: attempts >= max ? "stopped" : "active" }] as T[] };
+        return {
+          rows: [{ failed_attempts: attempts, status: attempts >= max && !transient ? "stopped" : "active" }] as T[],
+        };
       }
       // All other engine UPDATEs (steps + enrollments) — just record and ack.
       return { rows: [] as T[] };
@@ -118,7 +122,8 @@ function fakePool(
 interface ResendOpts {
   enabled?: boolean;
   emailId?: string;
-  sendError?: boolean; // in-band { error }
+  sendError?: boolean; // in-band { error } (a 422 unless `sendStatus` says otherwise)
+  sendStatus?: number | null;
   sendThrows?: boolean; // transport throw
 }
 
@@ -126,7 +131,12 @@ function fakeResend(opts: ResendOpts = {}) {
   const enabled = opts.enabled ?? true;
   const emailsSend = vi.fn(async (..._args: unknown[]) => {
     if (opts.sendThrows) throw new Error("transport down");
-    if (opts.sendError) return { data: null, error: { message: "validation_error" } };
+    if (opts.sendError) {
+      return {
+        data: null,
+        error: { message: "validation_error", statusCode: opts.sendStatus === undefined ? 422 : opts.sendStatus },
+      };
+    }
     return { data: { id: opts.emailId ?? "email_1" }, error: null };
   });
   const handle = createResendClientHandle(enabled ? "re_live_key" : undefined);
@@ -725,7 +735,7 @@ describe("runDripStep — AI block over Resend's per-value limit", () => {
     expect(discards(env.calls)).toHaveLength(2);
     const writes = failureWrite(env.calls);
     expect(writes).toHaveLength(1);
-    // [namespace, stepId, reason, maxAttempts, enrollmentId, now, base, max]
+    // [namespace, stepId, reason, maxAttempts, enrollmentId, now, one delay per count, transient]
     expect(writes[0]!.params).toEqual([
       "prod",
       100,
@@ -733,9 +743,17 @@ describe("runDripStep — AI block over Resend's per-value limit", () => {
       DEFAULT_DRIP_MAX_ATTEMPTS,
       10,
       now.toISOString(),
-      DRIP_BACKOFF_BASE_MS,
-      DRIP_BACKOFF_MAX_MS,
+      Array.from({ length: DEFAULT_DRIP_MAX_ATTEMPTS }, (_, i) => dripBackoffMs(i + 1)),
+      false,
     ]);
+    // The delays the SQL indexes ARE dripBackoffMs's (one formula, in TypeScript).
+    expect(writes[0]!.params[6]).toEqual([
+      DRIP_BACKOFF_BASE_MS, 2 * DRIP_BACKOFF_BASE_MS, 4 * DRIP_BACKOFF_BASE_MS, 8 * DRIP_BACKOFF_BASE_MS,
+      16 * DRIP_BACKOFF_BASE_MS, 32 * DRIP_BACKOFF_BASE_MS, 64 * DRIP_BACKOFF_BASE_MS, DRIP_BACKOFF_MAX_MS,
+    ]);
+    // Counted in failed_attempts, and anchored to the later of the tick's clock and the database's.
+    expect(writes[0]!.text).toMatch(/failed_attempts = failed_attempts \+ 1/);
+    expect(writes[0]!.text).toMatch(/GREATEST\(\$6::timestamptz, NOW\(\)\)/);
     // The failure moves only an ACTIVE enrollment (an operator's unenroll is never overwritten).
     expect(writes[0]!.text).toMatch(/e\.status = 'active'/);
   });
@@ -790,21 +808,40 @@ describe("runDripStep — backoff and the attempt cap", () => {
     });
     const res = await runDripStep(env.envoy, SEQ, baseDue(), { ...env.config, maxAttempts: 3 });
     expect(res).toEqual({ sent: false, reason: "stopped", detail: "emails.send failed: validation_error" });
+    expect(failureWrite(env.calls)[0]!.params[7]).toBe(false);
     expect(failureWrite(env.calls)[0]!.params[3]).toBe(3);
     expect(error).toHaveBeenCalledTimes(1);
     // The line carries no recipient address (R43).
     expect(JSON.stringify(error.mock.calls)).not.toContain("ada@example.com");
   });
 
-  it("an invalid maxAttempts falls back to the default", async () => {
+  it.each([
+    ["a transport error", { sendThrows: true }],
+    ["a Resend 429", { sendError: true, sendStatus: 429 }],
+    ["a Resend 503", { sendError: true, sendStatus: 503 }],
+    ["a Resend error with no status", { sendError: true, sendStatus: null }],
+  ] as const)("%s at the cap is transient: backed off, never stopped", async (_label, resend) => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+      resend,
+      priorAttempts: 5,
+    });
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), { ...env.config, maxAttempts: 3 });
+    expect(res).toMatchObject({ sent: false, reason: "send_failed" });
+    expect(failureWrite(env.calls)[0]!.params[7]).toBe(true);
+  });
+
+  it.each([0, -1, 2.5, Infinity, MAX_DRIP_MAX_ATTEMPTS + 1])("maxAttempts %s falls back to the default", async (bad) => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
       agent: { output: body("Hi") },
       resend: { sendError: true },
     });
-    await runDripStep(env.envoy, SEQ, baseDue(), { ...env.config, maxAttempts: 0 });
+    await runDripStep(env.envoy, SEQ, baseDue(), { ...env.config, maxAttempts: bad });
     expect(failureWrite(env.calls)[0]!.params[3]).toBe(DEFAULT_DRIP_MAX_ATTEMPTS);
   });
+
 });
 
 // =============================================================================================

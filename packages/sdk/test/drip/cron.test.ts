@@ -77,6 +77,7 @@ interface StepRow {
   status: string;
   resend_email_id: string | null;
   attempts: number;
+  failed_attempts: number;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -191,6 +192,7 @@ function fakePool(opts: {
           status: "pending",
           resend_email_id: null,
           attempts: 0,
+          failed_attempts: 0,
         };
         steps.push(row);
         // RETURNING id, agent_session_id from the freshly inserted row.
@@ -255,25 +257,26 @@ function fakePool(opts: {
 
       // 6.5. Failure bookkeeping — ONE CTE (recordFailure): bump the step's attempts, then back the
       // ACTIVE enrollment off or, at the cap, mark the step failed and the enrollment stopped. Params:
-      //   [namespace, stepId, reason, maxAttempts, enrollmentId, nowIso, baseMs, maxMs]
+      //   [namespace, stepId, reason, maxAttempts, enrollmentId, nowIso, delays[], transient]
       if (/WITH step_fail AS/i.test(t)) {
-        const [, stepId, , max, enrollmentId, nowIso, baseMs, maxMs] = params as [
-          string, number, string, number, number, string, number, number,
+        const [, stepId, , max, enrollmentId, nowIso, delays, transient] = params as [
+          string, number, string, number, number, string, number[], boolean,
         ];
         const step = steps.find((x) => x.id === stepId);
-        if (!step) return { rows: [] as T[] };
-        step.attempts += 1;
-        if (step.attempts >= max) step.status = "failed";
         const e = enrollments.get(enrollmentId);
-        if (!e || e.status !== "active") return { rows: [] as T[] };
-        if (step.attempts >= max) {
+        if (!step || !e || e.status !== "active") return { rows: [] as T[] };
+        step.attempts += 1;
+        step.failed_attempts += 1;
+        const stop = step.failed_attempts >= max && !transient;
+        if (stop) {
+          step.status = "failed";
           e.status = "stopped";
           e.next_run_at = null;
         } else {
-          const delay = Math.min(baseMs * 2 ** Math.max(step.attempts - 1, 0), maxMs);
+          const delay = delays[Math.min(step.failed_attempts, delays.length) - 1]!;
           e.next_run_at = new Date(new Date(nowIso).getTime() + delay).toISOString();
         }
-        return { rows: [{ attempts: step.attempts, status: e.status }] as T[] };
+        return { rows: [{ failed_attempts: step.failed_attempts, status: e.status }] as T[] };
       }
 
       // 6.6. Close a permanently-suppressed contact's ACTIVE enrollment.
@@ -302,6 +305,8 @@ function fakePool(opts: {
 interface ResendOpts {
   enabled?: boolean;
   sendThrows?: boolean;
+  /** An in-band Resend refusal with this status (a 422 is permanent; 429/5xx are transient). */
+  sendStatus?: number;
 }
 
 function fakeResend(opts: ResendOpts = {}): {
@@ -312,6 +317,9 @@ function fakeResend(opts: ResendOpts = {}): {
   let n = 0;
   const emailsSend = vi.fn(async () => {
     if (opts.sendThrows) throw new Error("transport down");
+    if (opts.sendStatus !== undefined) {
+      return { data: null, error: { message: "refused", statusCode: opts.sendStatus } };
+    }
     n += 1;
     return { data: { id: `email_${n}` }, error: null };
   });
@@ -503,6 +511,25 @@ describe("tickDrip — claim + run (R20, R21)", () => {
     expect(emailsSend).toHaveBeenCalledTimes(2);
   });
 
+  it("transient failures past maxAttempts keep backing off a day at a time and never stop", async () => {
+    const fp = fakePool({
+      enrollments: [{ id: 10, contact: "ada@example.com", sequenceKey: "welcome", currentStep: 0 }],
+      consent: [{ contact: "ada@example.com", topicKey: "welcome" }],
+    });
+    fakeAgent({ output: '{"body":"Hi"}' });
+    const { handle } = fakeResend({ sendStatus: 503 });
+    const envoy = makeEnvoy(fp.pool, handle);
+    let now = new Date("2026-11-09T12:00:00.000Z");
+    for (let i = 0; i < 4; i += 1) {
+      fp.release();
+      const r = await tickDrip(envoy, REGISTRY, tickConfig(envoy, { maxAttempts: 2 }), now);
+      expect(r.items[0]!.result).toMatchObject({ sent: false, reason: "send_failed" });
+      now = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+    }
+    expect(fp.enrollments.get(10)?.status).toBe("active");
+    expect(fp.steps[0]!.failed_attempts).toBe(4);
+  });
+
   it("at maxAttempts the step fails and the enrollment stops — reported once, never claimed again", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const fp = fakePool({
@@ -510,7 +537,7 @@ describe("tickDrip — claim + run (R20, R21)", () => {
       consent: [{ contact: "ada@example.com", topicKey: "welcome" }],
     });
     fakeAgent({ output: '{"body":"Hi"}' });
-    const { handle } = fakeResend({ sendThrows: true });
+    const { handle } = fakeResend({ sendStatus: 422 });
     const envoy = makeEnvoy(fp.pool, handle);
     let now = new Date("2026-11-09T12:00:00.000Z");
     const reasons: string[] = [];
@@ -777,6 +804,7 @@ describe("tickDrip — claim + run (R20, R21)", () => {
       status: "pending",
       resend_email_id: null,
       attempts: 0,
+      failed_attempts: 0,
     });
 
     // The agent fake's `list` (harvest) path yields the prior session's output; `create` would mint a
@@ -901,7 +929,7 @@ describe("createDripCronHandler (R20)", () => {
       consent: [{ contact: "ada@example.com", topicKey: "welcome" }],
     });
     fakeAgent();
-    const { handle } = fakeResend({ sendThrows: true });
+    const { handle } = fakeResend({ sendStatus: 422 });
     const envoy = makeEnvoy(fp.pool, handle);
 
     const cronHandler = createDripCronHandler({
