@@ -551,13 +551,13 @@ export async function generateOrHarvestSlots(
     return { kind: "failed", reason: "agent session failed", transient: true };
   }
 
+  // As in generateOrHarvestBlock: an unended turn is transient, whatever it left.
+  if (!result.ended) {
+    return { kind: "failed", reason: "agent turn did not end (the event stream closed early)", transient: true };
+  }
   const slots = extractSlots(result.output, input.aiSlots);
   if (!slots) {
-    return {
-      kind: "failed",
-      reason: "agent output missing one or more declared slots",
-      transient: !result.ended,
-    };
+    return { kind: "failed", reason: "agent output missing one or more declared slots" };
   }
   return { kind: "generated", slots, sessionId: result.sessionId };
 }
@@ -612,12 +612,14 @@ export async function generateOrHarvestBlock(
     return { kind: "failed", reason: "agent session failed", transient: true };
   }
 
-  const body = extractBlockBody(result.output);
-  // A turn that never ENDED (the stream closed before its idle event) is the call's failure
-  // (transient); a finished turn with no body is the agent's answer (counted).
-  if (body === null) {
-    return { kind: "failed", reason: "agent output missing body", transient: !result.ended };
+  // A turn that never ENDED (the stream closed before its idle event) is the call's failure,
+  // transient, whatever it left: a body in it may be a draft. The session's marker is kept, so the
+  // next attempt harvests the finished turn. A finished turn with no body is the agent's answer.
+  if (!result.ended) {
+    return { kind: "failed", reason: "agent turn did not end (the event stream closed early)", transient: true };
   }
+  const body = extractBlockBody(result.output);
+  if (body === null) return { kind: "failed", reason: "agent output missing body" };
   return { kind: "generated", body, sessionId: result.sessionId };
 }
 

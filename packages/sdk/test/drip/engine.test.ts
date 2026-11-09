@@ -1059,6 +1059,23 @@ describe("runDripStep — backoff and the attempt cap", () => {
     expect(failureWrite(env.calls)[0]!.params[7]).toBe(true);
   });
 
+  it("a turn that never ended is never sent, even when it left a body (it may be a draft)", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+    });
+    env.agent!.stream.mockImplementationOnce(async () => ({
+      controller: new AbortController(),
+      async *[Symbol.asyncIterator]() {
+        yield { type: "agent.message", content: [{ type: "text", text: body("<p>Hi Dana, half a dr") }] };
+      },
+    }));
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(res).toMatchObject({ sent: false, reason: "generation_failed" });
+    expect(env.emailsSend).not.toHaveBeenCalled();
+    expect(failureWrite(env.calls)[0]!.params[7]).toBe(true);
+  });
+
   it("a stream that closed before its idle event, after a preamble, is transient (the turn never ended)", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
