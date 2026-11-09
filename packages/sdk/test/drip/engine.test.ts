@@ -100,13 +100,17 @@ function fakePool(
         return { rows: (row ? [row] : []) as T[] };
       }
       // The failure CTE (recordFailure): bump attempts; at the cap ($4) the enrollment is stopped.
-      if (/WITH step_fail AS/i.test(t)) {
+      if (/step_fail AS \(/i.test(t)) {
         const max = Number((params ?? [])[3]);
         const transient = (params ?? [])[7] === true;
         attempts += 1;
         return {
           rows: [{ permanent_failures: attempts, status: attempts >= max && !transient ? "stopped" : "active" }] as T[],
         };
+      }
+      // Closing a permanently suppressed enrollment: one active row moved (RETURNING id).
+      if (/status = 'suppressed'[\s\S]*RETURNING id/i.test(t)) {
+        return { rows: [{ id: (params ?? [])[1] }] as T[] };
       }
       // All other engine UPDATEs (steps + enrollments) — just record and ack.
       return { rows: [] as T[] };
@@ -680,7 +684,7 @@ describe("runDripStep — gating", () => {
 const LONG = "x".repeat(RESEND_TEMPLATE_VARIABLE_MAX + 1);
 const AT_LIMIT = "y".repeat(RESEND_TEMPLATE_VARIABLE_MAX);
 const body = (text: string) => JSON.stringify({ body: text });
-const failureWrite = (calls: RecordedCall[]) => calls.filter((c) => /WITH step_fail AS/i.test(c.text));
+const failureWrite = (calls: RecordedCall[]) => calls.filter((c) => /step_fail AS \(/i.test(c.text));
 const discards = (calls: RecordedCall[]) =>
   calls.filter((c) => /block_sessions = block_sessions - \$3::text/i.test(c.text));
 
@@ -711,9 +715,10 @@ describe("runDripStep — AI block over Resend's per-value limit", () => {
     // The stored session was harvested first, then ONE fresh session was made.
     expect(env.agent!.list).toHaveBeenCalledTimes(1);
     expect(env.agent!.create).toHaveBeenCalledTimes(1);
-    // The over-long block's marker was dropped before regenerating.
-    expect(discards(env.calls)).toHaveLength(1);
-    expect(discards(env.calls)[0]!.params).toEqual(["prod", 100, "GREETING"]);
+    // The regeneration's own marker replaces the slot's (no separate discard on success).
+    expect(discards(env.calls)).toHaveLength(0);
+    const markers = env.calls.filter((c) => /block_sessions = block_sessions \|\|/i.test(c.text));
+    expect(markers.map((c) => c.params[2])).toEqual(["GREETING"]);
     const [payload] = env.emailsSend.mock.calls[0]! as unknown as [{ template: { variables: Record<string, string> } }];
     expect(payload.template.variables.GREETING).toBe("Short and sweet");
     expect(failureWrite(env.calls)).toHaveLength(0);
@@ -736,8 +741,9 @@ describe("runDripStep — AI block over Resend's per-value limit", () => {
     expect(goals[0]).not.toContain("LENGTH LIMIT");
     expect(goals[1]).toContain("LENGTH LIMIT");
     expect(goals[1]).toContain("2001 characters");
-    // Both over-long sessions are forgotten, so the next attempt starts fresh.
-    expect(discards(env.calls)).toHaveLength(2);
+    // The over-long session is forgotten, so the next attempt (after the backoff) starts fresh.
+    expect(discards(env.calls)).toHaveLength(1);
+    expect(discards(env.calls)[0]!.params).toEqual(["prod", 100, "GREETING"]);
     const writes = failureWrite(env.calls);
     expect(writes).toHaveLength(1);
     // [namespace, stepId, reason, maxAttempts, enrollmentId, now, one delay per count, transient]
@@ -755,15 +761,16 @@ describe("runDripStep — AI block over Resend's per-value limit", () => {
     // that reaches the maximum (every later failure waits that), whatever maxAttempts is.
     expect(writes[0]!.params[6]).toEqual([
       DRIP_BACKOFF_BASE_MS, 2 * DRIP_BACKOFF_BASE_MS, 4 * DRIP_BACKOFF_BASE_MS, 8 * DRIP_BACKOFF_BASE_MS,
-      16 * DRIP_BACKOFF_BASE_MS, 32 * DRIP_BACKOFF_BASE_MS, 64 * DRIP_BACKOFF_BASE_MS, DRIP_BACKOFF_MAX_MS,
+      16 * DRIP_BACKOFF_BASE_MS, 32 * DRIP_BACKOFF_BASE_MS, DRIP_BACKOFF_MAX_MS,
     ]);
     expect(writes[0]!.text).toMatch(/LEAST\(f\.failed_attempts, cardinality\(\$7::bigint\[\]\)\)/);
     // Counted in the 005 counters, anchored to the later of the tick's clock and the database's.
     expect(writes[0]!.text).toMatch(/failed_attempts = failed_attempts \+ 1/);
     expect(writes[0]!.text).toMatch(/permanent_failures = permanent_failures \+ CASE/);
     expect(writes[0]!.text).toMatch(/GREATEST\(\$6::timestamptz, NOW\(\)\)/);
-    // The failure moves only an ACTIVE enrollment (an operator's unenroll is never overwritten).
-    expect(writes[0]!.text).toMatch(/e\.status = 'active'/);
+    // The failure moves only an ACTIVE enrollment, locked first (an unenroll is never overwritten).
+    expect(writes[0]!.text).toMatch(/WITH enr AS \([\s\S]*status = 'active'[\s\S]*FOR UPDATE/);
+    expect(writes[0]!.text).toMatch(/EXISTS \(SELECT 1 FROM enr\)/);
   });
 
   it("a discard that cannot be written does not throw: the failure is still recorded and backed off", async () => {
@@ -800,12 +807,14 @@ describe("runDripStep — AI block over Resend's per-value limit", () => {
 });
 
 describe("runDripStep — backoff and the attempt cap", () => {
-  it("dripBackoffMs doubles from 15 minutes and stops at a day", () => {
+  it("dripBackoffMs doubles from 15 minutes and stops at 12 hours", () => {
     expect(dripBackoffMs(1)).toBe(15 * 60 * 1000);
     expect(dripBackoffMs(2)).toBe(30 * 60 * 1000);
     expect(dripBackoffMs(3)).toBe(60 * 60 * 1000);
-    expect(dripBackoffMs(7)).toBe(16 * 60 * 60 * 1000);
-    expect(dripBackoffMs(8)).toBe(DRIP_BACKOFF_MAX_MS);
+    expect(dripBackoffMs(6)).toBe(8 * 60 * 60 * 1000);
+    expect(dripBackoffMs(7)).toBe(DRIP_BACKOFF_MAX_MS);
+    // Under Resend's 24-hour idempotency-key lifetime, so a lost-answer retry meets the 409.
+    expect(DRIP_BACKOFF_MAX_MS).toBe(12 * 60 * 60 * 1000);
     expect(dripBackoffMs(100)).toBe(DRIP_BACKOFF_MAX_MS);
     expect(dripBackoffMs(0)).toBe(DRIP_BACKOFF_BASE_MS);
   });
@@ -849,7 +858,7 @@ describe("runDripStep — backoff and the attempt cap", () => {
     });
     const query = env.envoy.db.execWrite.bind(env.envoy.db);
     vi.spyOn(env.envoy.db, "execWrite").mockImplementation(async (text, params) => {
-      if (/WITH step_fail AS/.test(text)) {
+      if (/step_fail AS \(/.test(text)) {
         throw Object.assign(new Error('column "failed_attempts" does not exist ada@example.com'), { code: "42703" });
       }
       return query(text, params);
@@ -861,7 +870,7 @@ describe("runDripStep — backoff and the attempt cap", () => {
     expect(JSON.stringify(error.mock.calls)).not.toContain("ada@example.com");
   });
 
-  it("a send failure is recorded through the backoff write, not retried next tick", async () => {
+  it("a send failure is recorded through the backoff write (transient), not retried next tick", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
       agent: { output: body("Hi") },
@@ -870,18 +879,65 @@ describe("runDripStep — backoff and the attempt cap", () => {
     const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
     expect(res).toMatchObject({ sent: false, reason: "send_failed" });
     expect(failureWrite(env.calls)).toHaveLength(1);
+    // Even a 422: no Resend refusal is a verdict on the block (its length is checked before).
+    expect(failureWrite(env.calls)[0]!.params[7]).toBe(true);
+  });
+
+  it("an agent CALL failure (session error) is transient; unusable OUTPUT is permanent", async () => {
+    const call = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { errorEvent: true },
+    });
+    await runDripStep(call.envoy, SEQ, baseDue(), call.config);
+    expect(failureWrite(call.calls)[0]!.params[7]).toBe(true);
+    setAgentClient(null);
+    const output = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: '{"WRONG":"x"}' },
+    });
+    await runDripStep(output.envoy, SEQ, baseDue(), output.config);
+    expect(failureWrite(output.calls)[0]!.params[7]).toBe(false);
+  });
+
+  it("with no Resend key nothing is generated and nothing is recorded", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body(LONG) },
+      resend: { enabled: false },
+    });
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(res).toEqual({ sent: false, reason: "resend_disabled" });
+    expect(env.agent!.create).not.toHaveBeenCalled();
+    expect(failureWrite(env.calls)).toHaveLength(0);
+  });
+
+  it("a failure written without migration 005 (42703) falls back to the old bookkeeping plus an hour's wait", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+      resend: { sendError: true },
+    });
+    const query = env.envoy.db.execWrite.bind(env.envoy.db);
+    vi.spyOn(env.envoy.db, "execWrite").mockImplementation(async (text, params) => {
+      if (/failed_attempts/.test(text)) throw Object.assign(new Error("no column"), { code: "42703" });
+      return query(text, params);
+    });
+    await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    const fallback = env.calls.find((c) => /INTERVAL '1 hour'/.test(c.text));
+    expect(fallback).toBeDefined();
+    expect(fallback!.text).toMatch(/attempts = attempts \+ 1, last_error = \$3/);
   });
 
   it("the failure that reaches maxAttempts stops the enrollment, reported ONCE as `stopped`", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
-      agent: { output: body("Hi") },
-      resend: { sendError: true },
+      agent: { output: '{"WRONG":"x"}' },
       priorAttempts: 2,
     });
     const res = await runDripStep(env.envoy, SEQ, baseDue(), { ...env.config, maxAttempts: 3 });
-    expect(res).toEqual({ sent: false, reason: "stopped", detail: "emails.send failed: validation_error" });
+    expect(res).toEqual({ sent: false, reason: "stopped", detail: "agent output missing body" });
     expect(failureWrite(env.calls)[0]!.params[7]).toBe(false);
     expect(failureWrite(env.calls)[0]!.params[3]).toBe(3);
     expect(error).toHaveBeenCalledTimes(1);
@@ -909,14 +965,21 @@ describe("runDripStep — backoff and the attempt cap", () => {
     expect(failureWrite(env.calls)[0]!.params[7]).toBe(true);
   });
 
-  it.each([0, -1, 2.5, Infinity, MAX_DRIP_MAX_ATTEMPTS + 1])("maxAttempts %s falls back to the default", async (bad) => {
+  it.each([
+    [0, 1],
+    [-1, 1],
+    [2.5, 2],
+    [Infinity, MAX_DRIP_MAX_ATTEMPTS],
+    [MAX_DRIP_MAX_ATTEMPTS + 1, MAX_DRIP_MAX_ATTEMPTS],
+    [Number.NaN, DEFAULT_DRIP_MAX_ATTEMPTS],
+  ])("maxAttempts %s is clamped to %s", async (given, used) => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
       agent: { output: body("Hi") },
       resend: { sendError: true },
     });
-    await runDripStep(env.envoy, SEQ, baseDue(), { ...env.config, maxAttempts: bad });
-    expect(failureWrite(env.calls)[0]!.params[3]).toBe(DEFAULT_DRIP_MAX_ATTEMPTS);
+    await runDripStep(env.envoy, SEQ, baseDue(), { ...env.config, maxAttempts: given });
+    expect(failureWrite(env.calls)[0]!.params[3]).toBe(used);
   });
 
 });

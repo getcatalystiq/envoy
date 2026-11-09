@@ -418,7 +418,8 @@ export type BlockAgentResult =
   | { kind: "generated"; body: string; sessionId: string }
   | { kind: "harvested"; body: string }
   | { kind: "deferred" }
-  | { kind: "failed"; reason: string };
+  /** `transient`: the agent CALL failed (outage, rate limit, timeout, key), not this block's output. */
+  | { kind: "failed"; reason: string; transient?: boolean };
 
 /** The constant `mode` sent on every block (the agent does not branch on it — see contract). */
 export const BLOCK_AGENT_MODE = "generate";
@@ -593,8 +594,10 @@ export async function generateOrHarvestBlock(
       vaultId: input.vaultId,
     });
   } catch (err) {
-    if (err instanceof AgentError) return { kind: "failed", reason: err.message };
-    return { kind: "failed", reason: "agent session failed" };
+    // The call itself failed (an outage, a rate limit, a timeout, a key): `transient`, never a verdict
+    // on this block.
+    if (err instanceof AgentError) return { kind: "failed", reason: err.message, transient: true };
+    return { kind: "failed", reason: "agent session failed", transient: true };
   }
 
   const body = extractBlockBody(result.output);

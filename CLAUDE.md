@@ -187,7 +187,7 @@ Plus: a mountable route handler (per-sub-path auth — host authorize callback +
 ```bash
 cd packages/sdk && npm run build      # tsup
 cd packages/sdk && npm run typecheck  # tsc --noEmit
-cd packages/sdk && npm test           # Vitest (608 tests)
+cd packages/sdk && npm test           # Vitest (612 tests)
 ```
 Toolchain: TypeScript 6.0.3, React 19.x, Next 16.4 (dev; peer `next >=14`, `react >=18`, both optional), zod 4. Requires Node >=20 (`engines`).
 

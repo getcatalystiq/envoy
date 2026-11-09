@@ -260,7 +260,7 @@ function fakePool(opts: {
       // 6.5. Failure bookkeeping — ONE CTE (recordFailure): bump the step's attempts, then back the
       // ACTIVE enrollment off or, at the cap, mark the step failed and the enrollment stopped. Params:
       //   [namespace, stepId, reason, maxAttempts, enrollmentId, nowIso, delays[], transient]
-      if (/WITH step_fail AS/i.test(t)) {
+      if (/step_fail AS \(/i.test(t)) {
         const [, stepId, , max, enrollmentId, nowIso, delays, transient] = params as [
           string, number, string, number, number, string, number[], boolean,
         ];
@@ -289,6 +289,7 @@ function fakePool(opts: {
         if (e && e.status === "active") {
           e.status = "suppressed";
           e.next_run_at = null;
+          return { rows: [{ id: e.id }] as T[] };
         }
         return { rows: [] as T[] };
       }
@@ -540,14 +541,11 @@ describe("tickDrip — claim + run (R20, R21)", () => {
       consent: [{ contact: "ada@example.com", topicKey: "welcome" }],
     });
     fakeAgent({ output: '{"body":"Hi"}' });
-    let status = 503;
-    const emailsSend = vi.fn(async () => ({ data: null, error: { message: "x", statusCode: status } }));
-    const handle = createResendClientHandle("re_live_key");
-    vi.spyOn(handle, "client").mockReturnValue({ emails: { send: emailsSend } } as never);
+    const { handle } = fakeResend({ sendStatus: 503 });
     const envoy = makeEnvoy(fp.pool, handle);
     let now = new Date("2026-11-09T12:00:00.000Z");
     for (let i = 0; i < 5; i += 1) {
-      if (i === 4) status = 422;
+      if (i === 4) fakeAgent({ output: '{"WRONG":"x"}' }); // one PERMANENT failure after the outage
       fp.release();
       await tickDrip(envoy, REGISTRY, tickConfig(envoy, { maxAttempts: 2 }), now);
       now = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
@@ -564,8 +562,8 @@ describe("tickDrip — claim + run (R20, R21)", () => {
       enrollments: [{ id: 10, contact: "ada@example.com", sequenceKey: "welcome", currentStep: 0 }],
       consent: [{ contact: "ada@example.com", topicKey: "welcome" }],
     });
-    fakeAgent({ output: '{"body":"Hi"}' });
-    const { handle } = fakeResend({ sendStatus: 422 });
+    fakeAgent({ output: '{"WRONG":"x"}' }); // unusable output: a PERMANENT failure
+    const { handle } = fakeResend();
     const envoy = makeEnvoy(fp.pool, handle);
     let now = new Date("2026-11-09T12:00:00.000Z");
     const reasons: string[] = [];
@@ -575,7 +573,7 @@ describe("tickDrip — claim + run (R20, R21)", () => {
       for (const item of r.items) reasons.push(item.result.sent ? "sent" : item.result.reason);
       now = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
     }
-    expect(reasons).toEqual(["send_failed", "send_failed", "stopped"]);
+    expect(reasons).toEqual(["generation_failed", "generation_failed", "stopped"]);
     expect(fp.enrollments.get(10)?.status).toBe("stopped");
     expect(fp.enrollments.get(10)?.next_run_at).toBeNull();
     expect(fp.steps.find((x) => x.enrollment_id === 10)?.status).toBe("failed");
@@ -957,8 +955,8 @@ describe("createDripCronHandler (R20)", () => {
       enrollments: [{ id: 10, contact: "ada@example.com", sequenceKey: "welcome", currentStep: 0 }],
       consent: [{ contact: "ada@example.com", topicKey: "welcome" }],
     });
-    fakeAgent();
-    const { handle } = fakeResend({ sendStatus: 422 });
+    fakeAgent({ output: '{"WRONG":"x"}' });
+    const { handle } = fakeResend();
     const envoy = makeEnvoy(fp.pool, handle);
 
     const cronHandler = createDripCronHandler({
