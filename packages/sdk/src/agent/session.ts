@@ -424,7 +424,8 @@ export type BlockAgentResult =
   | { kind: "generated"; body: string; sessionId: string }
   | { kind: "harvested"; body: string }
   | { kind: "deferred" }
-  /** `transient`: the agent CALL failed (outage, rate limit, timeout, key), not this block's output. */
+  /** `transient`: the CALL failed (outage, rate limit, timeout, key) or the turn never ended (its
+   *  stream closed early, whatever it left) — not a verdict on this block. */
   | { kind: "failed"; reason: string; transient?: boolean };
 
 /** The constant `mode` sent on every block (the agent does not branch on it — see contract). */
@@ -510,7 +511,8 @@ export type SlotGenerationResult =
   | { kind: "generated"; slots: GeneratedSlots; sessionId: string }
   | { kind: "harvested"; slots: GeneratedSlots }
   | { kind: "deferred" }
-  /** `transient`: the agent CALL failed (outage, rate limit, timeout, key), not this output. */
+  /** `transient`: the CALL failed (outage, rate limit, timeout, key) or the turn never ended (its
+   *  stream closed early, whatever it left) — not a verdict on this output. */
   | { kind: "failed"; reason: string; transient?: boolean };
 
 export interface GenerateOrHarvestInput extends GenerateSlotsInput {

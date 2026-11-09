@@ -37,7 +37,8 @@ import { type Sequence, type SequenceStep, blockTypeForSlot } from "./sequence.j
 // Before 0.10.0 a failing step was retried every tick forever (one enrollment was re-sent 10,754
 // times). A disabled Resend key or a deferred session leaves the step due with no backoff. A contact PERMANENTLY suppressed (global unsubscribe / bounce / complaint / erasure, or an
 // `unsubscribed` topic row) closes its enrollment (`suppressed`); an `opt_out` holds it a day before
-// the next check; no consent row yet (an enroll racing the mirror) leaves it due, as before.
+// the next check; so does no consent row on an enrollment made more than a day ago, while a fresher
+// one (usually an enroll racing the mirror) is left due, as before.
 //
 // AI BLOCK LENGTH: Resend refuses a template variable longer than 2,000 characters
 // (`RESEND_TEMPLATE_VARIABLE_MAX`), and the refusal is not a transport failure: re-sending the same
@@ -473,7 +474,8 @@ function sqlStateOf(err: unknown): string {
 
 /**
  * The non-sent result of a recorded failure: `stopped` once the cap is reached, else `reason`.
- * `transient` (a transport error, a Resend 429 or 5xx) backs off but never stops the enrollment.
+ * `transient` (any Resend refusal or transport error, a failed agent call, a turn that never ended)
+ * backs off but never counts toward the cap, so it never stops the enrollment.
  */
 async function failStep(
   envoy: Envoy,
@@ -563,7 +565,8 @@ async function closeSuppressed(envoy: Envoy, due: DueStep): Promise<boolean> {
  *   1. Resolve the current step from the sequence; an out-of-range index ⇒ complete the enrollment.
  *   2. Honor the wait (R15) — a not-yet-eligible step is skipped (`not_due`), nothing touched.
  *   3. GATE against the mirror (R26) — a suppressed contact is never sent (`suppressed`); one that
- *      is PERMANENTLY suppressed also has its enrollment closed (`status = 'suppressed'`).
+ *      is PERMANENTLY suppressed also has its enrollment closed (`status = 'suppressed'`); an opt-out,
+ *      or no consent row on an enrollment over a day old, holds it a day before the next check.
  *   4. Resolve From — fail loud (caller's fail-soft wraps this) if neither default is configured.
  *   5. Generate-or-harvest the declared slots (R14/R23). A re-claim with a `running` prior session
  *      DEFERS (no second billed session); a `completed` one is harvested. A value over Resend's
