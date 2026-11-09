@@ -262,7 +262,8 @@ async function advance(
 
   // The step was sent, so `current_step` always moves past it (a later re-activation must not send it
   // again); but only an `active` enrollment has its status and next run changed: one a host ended
-  // (an unenroll) mid-send stays ended.
+  // (an unenroll) mid-send stays ended. Pinned on `current_step` still being this step, so a stale
+  // overlapping attempt can never move an enrollment that has gone on BACK.
   // Mark the step sent AND advance the enrollment in ONE statement so a crash can never leave the
   // step `sent` while the enrollment is still due (which would re-attempt / re-send next tick).
   // The injected pool exposes only `.query` — no transaction surface — so atomicity comes from a
@@ -281,7 +282,7 @@ async function advance(
             status = CASE WHEN status = 'active' THEN $5 ELSE status END,
             next_run_at = CASE WHEN status = 'active' THEN $6::timestamptz ELSE next_run_at END,
             updated_at = NOW()
-      WHERE namespace = $1 AND id = $7`,
+      WHERE namespace = $1 AND id = $7 AND current_step = $8::int`,
     [
       envoy.db.namespace,
       due.stepId,
@@ -290,6 +291,7 @@ async function advance(
       completed ? "completed" : "active",
       nextRunAt ? nextRunAt.toISOString() : null,
       due.enrollmentId,
+      due.stepIndex,
     ],
   );
 
@@ -325,7 +327,8 @@ type FailureOutcome = { stopped: boolean };
  * and `last_error`; then either push the enrollment's `next_run_at` out by the backoff or, once
  * `permanent_failures` reaches `maxAttempts`, mark the step `failed` and the enrollment `stopped`
  * (`next_run_at` cleared, so it is never claimed again). Nothing moves unless the enrollment is still
- * `active`, so an operator's unenroll is never overwritten and its step never marked. The enrollment
+ * `active` and still on this step (a stale overlapping attempt never marks a step the enrollment has
+ * left), so an operator's unenroll is never overwritten and its step never marked. The enrollment
  * row is locked FIRST (`enr`, which the step update reads, so it runs first): the same order as
  * `advance` and contact erasure take (measured on Postgres 18), so the three cannot deadlock.
  *
@@ -348,7 +351,7 @@ async function recordFailure(
     const { rows } = await envoy.db.execWrite<{ permanent_failures: number; status: string }>(
       `WITH enr AS (
          SELECT id FROM sdk_enrollments
-          WHERE namespace = $1 AND id = $5 AND status = 'active'
+          WHERE namespace = $1 AND id = $5 AND status = 'active' AND current_step = $9::int
           FOR NO KEY UPDATE
        ),
        step_fail AS (
@@ -362,7 +365,8 @@ async function recordFailure(
                 END,
                 updated_at = NOW()
           WHERE namespace = $1 AND id = $2 AND EXISTS (SELECT 1 FROM enr)
-          RETURNING failed_attempts, permanent_failures, status = 'failed' AS stop
+          RETURNING failed_attempts, permanent_failures,
+                    (NOT $8::boolean AND permanent_failures >= $4::int) AS stop
        )
        UPDATE sdk_enrollments e
           SET status = CASE WHEN f.stop THEN 'stopped' ELSE e.status END,
@@ -385,6 +389,7 @@ async function recordFailure(
         opts.now.toISOString(),
         DRIP_BACKOFF_DELAYS_MS,
         opts.transient,
+        due.stepIndex,
       ],
     );
     const row = rows[0];
@@ -422,7 +427,7 @@ async function recordFailureWithoutMigration(envoy: Envoy, due: DueStep, reason:
     await envoy.db.execWrite(
       `WITH enr AS (
          SELECT id FROM sdk_enrollments
-          WHERE namespace = $1 AND id = $4 AND status = 'active'
+          WHERE namespace = $1 AND id = $4 AND status = 'active' AND current_step = $6::int
           FOR NO KEY UPDATE
        ),
        step_fail AS (
@@ -433,7 +438,7 @@ async function recordFailureWithoutMigration(envoy: Envoy, due: DueStep, reason:
        UPDATE sdk_enrollments
           SET next_run_at = GREATEST($5::timestamptz, NOW()) + INTERVAL '1 hour', updated_at = NOW()
         WHERE namespace = $1 AND id = $4 AND status = 'active' AND EXISTS (SELECT 1 FROM step_fail)`,
-      [envoy.db.namespace, due.stepId, reason.slice(0, 500), due.enrollmentId, now.toISOString()],
+      [envoy.db.namespace, due.stepId, reason.slice(0, 500), due.enrollmentId, now.toISOString(), due.stepIndex],
     );
   } catch {
     /* bookkeeping only */

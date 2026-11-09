@@ -752,7 +752,7 @@ describe("runDripStep — AI block over Resend's per-value limit", () => {
     expect(discards(env.calls)).toHaveLength(0);
     const writes = failureWrite(env.calls);
     expect(writes).toHaveLength(1);
-    // [namespace, stepId, reason, maxAttempts, enrollmentId, now, one delay per count, transient]
+    // [namespace, stepId, reason, maxAttempts, enrollmentId, now, delays, transient, stepIndex]
     expect(writes[0]!.params).toEqual([
       "prod",
       100,
@@ -762,6 +762,7 @@ describe("runDripStep — AI block over Resend's per-value limit", () => {
       now.toISOString(),
       expect.any(Array),
       false,
+      0,
     ]);
     // The delays the SQL indexes ARE dripBackoffMs's (one formula, in TypeScript), up to the first
     // that reaches the maximum (every later failure waits that), whatever maxAttempts is.
@@ -780,7 +781,7 @@ describe("runDripStep — AI block over Resend's per-value limit", () => {
     expect(writes[0]!.text).toMatch(/WITH enr AS \([\s\S]*status = 'active'[\s\S]*FOR NO KEY UPDATE/);
     expect(writes[0]!.text).toMatch(/EXISTS \(SELECT 1 FROM enr\)/);
     expect(writes[0]!.text).toMatch(/WHERE e\.namespace = \$1 AND e\.id = \$5 AND e\.status = 'active'/);
-    expect(writes[0]!.text).toMatch(/status = 'failed' AS stop/);
+    expect(writes[0]!.text).toMatch(/AS stop/);
   });
 
   it("the next attempt harvests the kept over-long block and regenerates ONCE, with the note", async () => {
@@ -910,6 +911,9 @@ describe("runDripStep — backoff and the attempt cap", () => {
     await runDripStep(env.envoy, SEQ, baseDue(), env.config);
     const adv = env.calls.find((c) => /UPDATE sdk_enrollments[\s\S]*current_step = \$4/i.test(c.text));
     expect(adv!.text).toMatch(/status = CASE WHEN status = 'active' THEN \$5 ELSE status END/);
+    // Pinned on the step it sent, so a stale overlapping attempt never moves the enrollment back.
+    expect(adv!.text).toMatch(/AND current_step = \$8::int/);
+    expect(adv!.params[7]).toBe(0);
     expect(adv!.text).toMatch(/next_run_at = CASE WHEN status = 'active' THEN \$6::timestamptz ELSE next_run_at END/);
   });
 
@@ -981,7 +985,7 @@ describe("runDripStep — backoff and the attempt cap", () => {
     expect(failureWrite(output.calls)[0]!.params[7]).toBe(false);
   });
 
-  it("an agent turn that ends incomplete (not end_turn) is the goal's: PERMANENT", async () => {
+  it("an agent turn that ends incomplete (requires_action: the agent's configuration) is transient", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
       agent: { output: body("Hi") },
@@ -989,12 +993,39 @@ describe("runDripStep — backoff and the attempt cap", () => {
     env.agent!.stream.mockImplementationOnce(async () => ({
       controller: new AbortController(),
       async *[Symbol.asyncIterator]() {
-        yield { type: "session.status_idle", stop_reason: { type: "max_tokens" } };
+        yield { type: "session.status_idle", stop_reason: { type: "requires_action" } };
       },
     }));
     const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
     expect(res).toMatchObject({ sent: false, reason: "generation_failed" });
-    expect(failureWrite(env.calls)[0]!.params[7]).toBe(false);
+    expect(failureWrite(env.calls)[0]!.params[7]).toBe(true);
+  });
+
+  it("a stream that ended with NO output is transient; text with no block is permanent", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+    });
+    env.agent!.stream.mockImplementationOnce(async () => ({
+      controller: new AbortController(),
+      async *[Symbol.asyncIterator]() {
+        // ends with no agent.message and no idle event
+      },
+    }));
+    await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(failureWrite(env.calls)[0]!.params[7]).toBe(true);
+  });
+
+  it("the failure write is pinned on the step the enrollment is still on, and decides stop from THIS failure", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: '{"WRONG":"x"}' },
+    });
+    await runDripStep(env.envoy, SEQ, baseDue({ stepIndex: 1, nextRunAt: new Date(0) }), env.config);
+    const w = failureWrite(env.calls)[0]!;
+    expect(w.text).toMatch(/AND current_step = \$9::int/);
+    expect(w.params[8]).toBe(1);
+    expect(w.text).toMatch(/\(NOT \$8::boolean AND permanent_failures >= \$4::int\) AS stop/);
   });
 
   it("a failure whose recording met a Node errno (EPIPE, not a SQLSTATE) writes nothing more", async () => {

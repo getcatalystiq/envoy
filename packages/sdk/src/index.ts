@@ -215,7 +215,6 @@ export {
   getAgentClient,
   setAgentClient,
   AgentError,
-  AgentTurnIncompleteError,
   type AgentCallOpts,
   type AgentSessionResult,
   type HarvestResult,

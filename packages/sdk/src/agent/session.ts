@@ -38,23 +38,6 @@ export class AgentError extends Error {
   }
 }
 
-/**
- * The agent's turn ended without completing (an idle stop whose reason is not `end_turn`: the model
- * stopped on its own, a refusal, a token limit). Unlike an outage it is a verdict on THIS goal, so the
- * drip engine counts it toward a step's attempt cap.
- */
-export class AgentTurnIncompleteError extends AgentError {
-  constructor(message: string) {
-    super(message, 502);
-    // `name` stays "AgentError": hosts and tests match on it; `instanceof` tells the two apart.
-  }
-}
-
-/** Is this agent failure the call's (an outage, a rate limit, a timeout, a key), not the goal's? */
-function isTransientAgentError(err: unknown): boolean {
-  return !(err instanceof AgentTurnIncompleteError);
-}
-
 /** Per-call options. */
 export interface AgentCallOpts {
   /** Invocation timeout. Defaults to 10 minutes — matches the app's run timeout. */
@@ -238,8 +221,9 @@ export async function runAgentSession(
       }
     }
     if (idleReason && idleReason !== "end_turn") {
-      throw new AgentTurnIncompleteError(
+      throw new AgentError(
         `Agent ended without completing its turn (stop_reason=${idleReason})`,
+        502,
       );
     }
   } catch (err) {
@@ -556,16 +540,18 @@ export async function generateOrHarvestSlots(
       vaultId: input.vaultId,
     });
   } catch (err) {
-    // The call itself failed: `transient` (an incomplete turn excepted), as in generateOrHarvestBlock.
-    if (err instanceof AgentError) {
-      return { kind: "failed", reason: err.message, transient: isTransientAgentError(err) };
-    }
+    // The call itself failed: `transient`, as in generateOrHarvestBlock.
+    if (err instanceof AgentError) return { kind: "failed", reason: err.message, transient: true };
     return { kind: "failed", reason: "agent session failed", transient: true };
   }
 
   const slots = extractSlots(result.output, input.aiSlots);
   if (!slots) {
-    return { kind: "failed", reason: "agent output missing one or more declared slots" };
+    return {
+      kind: "failed",
+      reason: "agent output missing one or more declared slots",
+      transient: result.output.trim() === "",
+    };
   }
   return { kind: "generated", slots, sessionId: result.sessionId };
 }
@@ -614,16 +600,17 @@ export async function generateOrHarvestBlock(
       vaultId: input.vaultId,
     });
   } catch (err) {
-    // The call itself failed (an outage, a rate limit, a timeout, a key): `transient`, never a verdict
-    // on this block. An incomplete turn (the model stopped without finishing) is the goal's: counted.
-    if (err instanceof AgentError) {
-      return { kind: "failed", reason: err.message, transient: isTransientAgentError(err) };
-    }
+    // The call itself failed (an outage, a rate limit, a timeout, a key, a turn that ended on
+    // `requires_action` or `retries_exhausted`): `transient`, never a verdict on this block.
+    if (err instanceof AgentError) return { kind: "failed", reason: err.message, transient: true };
     return { kind: "failed", reason: "agent session failed", transient: true };
   }
 
   const body = extractBlockBody(result.output);
-  if (body === null) return { kind: "failed", reason: "agent output missing body" };
+  // No output at all is a stream that ended early (transient); output with no body is the agent's.
+  if (body === null) {
+    return { kind: "failed", reason: "agent output missing body", transient: result.output.trim() === "" };
+  }
   return { kind: "generated", body, sessionId: result.sessionId };
 }
 
