@@ -27,8 +27,8 @@ import { type Sequence, type SequenceStep, blockTypeForSlot } from "./sequence.j
 // the step sent. A generation that produces no usable slots, an agent error, or a Resend send error
 // is RECORDED (`recordFailure`; migration 005's `sdk_steps.failed_attempts` and
 // `permanent_failures`) and retried with an exponential backoff on `next_run_at` (15 min, doubling,
-// at most 12 hours, counted over every recorded failure). After `maxAttempts` PERMANENT failures — an
-// agent answer with no usable block, or a block still over Resend's limit after its regeneration —
+// at most 12 hours, counted over every recorded failure). After `maxAttempts` PERMANENT failures — a
+// turn that ended with no usable block, or a block still over Resend's limit after its regeneration —
 // the step is marked `failed` and the enrollment `stopped` (reported once, as `stopped`, and never
 // claimed again). Every other failure is TRANSIENT and backs off without counting toward the cap: a
 // failed agent CALL (outage, rate limit, timeout, key) and every Resend refusal or transport error
@@ -141,7 +141,7 @@ export interface DripEngineConfig {
   /** Per-call agent timeout override. */
   agentTimeoutMs?: number;
   /**
-   * PERMANENT failures of one step (an agent answer with no usable block, or a block still over
+   * PERMANENT failures of one step (a turn that ended with no usable block, or a block still over
    * Resend's limit after its regeneration) before the step is marked `failed` and the enrollment
    * `stopped`. Clamped to 1..{@link MAX_DRIP_MAX_ATTEMPTS}; unset or not a number is
    * {@link DEFAULT_DRIP_MAX_ATTEMPTS}. Between attempts `next_run_at` backs off exponentially from

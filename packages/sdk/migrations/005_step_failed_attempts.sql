@@ -4,7 +4,7 @@
 -- `maxAttempts` PERMANENT failures, marks the step `failed` and the enrollment `stopped`, instead of
 -- retrying it every tick forever. Two counters:
 --   failed_attempts    every recorded failure; drives the backoff.
---   permanent_failures an agent answer with no usable block, or a block still over Resend's 2,000-
+--   permanent_failures a turn that ended with no usable block, or a block still over Resend's 2,000-
 --                      character limit after its regeneration; drives the cap. A failed agent call
 --                      and every Resend refusal or transport error are transient: never counted.
 -- Neither is `sdk_steps.attempts`: it also counts the send itself and every failure recorded before
