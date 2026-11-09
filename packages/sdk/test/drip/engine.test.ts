@@ -54,7 +54,7 @@ interface RecordedCall {
 
 function fakePool(
   seed: ConsentSeed[] = [],
-  opts: { priorAttempts?: number } = {},
+  opts: { priorAttempts?: number; staleAdvance?: boolean } = {},
 ): {
   pool: SdkPool;
   calls: RecordedCall[];
@@ -109,9 +109,10 @@ function fakePool(
           rows: [{ permanent_failures: attempts, status: attempts >= max && !transient ? "stopped" : "active" }] as T[],
         };
       }
-      // Closing a permanently suppressed enrollment, or holding an opted-out one: one active row
-      // moved (RETURNING id).
-      if (/(status = 'suppressed'|\$4::bigint \* INTERVAL)[\s\S]*RETURNING id/i.test(t)) {
+      // Closing a permanently suppressed enrollment, holding an opted-out one, or the advance after
+      // a send: one row moved (RETURNING id), unless the test says another attempt got there first.
+      if (/(status = 'suppressed'|\$4::bigint \* INTERVAL|current_step = \$8::int)[\s\S]*RETURNING id/i.test(t)) {
+        if (opts.staleAdvance && /current_step = \$8::int/.test(t)) return { rows: [] as T[] };
         return { rows: [{ id: (params ?? [])[1] }] as T[] };
       }
       // All other engine UPDATEs (steps + enrollments) — just record and ack.
@@ -236,11 +237,12 @@ function makeEnvoy(
 function setup(opts: {
   seed?: ConsentSeed[];
   priorAttempts?: number;
+  staleAdvance?: boolean;
   resend?: ResendOpts;
   agent?: AgentOpts;
   configOverrides?: Partial<ResolvedEnvoyConfig>;
 }) {
-  const fp = fakePool(opts.seed, { priorAttempts: opts.priorAttempts });
+  const fp = fakePool(opts.seed, { priorAttempts: opts.priorAttempts, staleAdvance: opts.staleAdvance });
   const { handle, emailsSend } = fakeResend(opts.resend);
   const envoy = makeEnvoy(fp.pool, handle, opts.configOverrides);
   const mirror = createConsentMirror(envoy.db, envoy.resend);
@@ -635,7 +637,8 @@ describe("runDripStep — gating", () => {
     const close = env.calls.find((c) => /status = 'suppressed'/i.test(c.text));
     expect(close).toBeDefined();
     expect(close!.text).toMatch(/AND status = 'active'/);
-    expect(close!.params).toEqual(["prod", 10]);
+    expect(close!.params).toEqual(["prod", 10, 0]);
+    expect(close!.text).toMatch(/AND current_step = \$3::int/);
   });
 
   it("Edge: an opt_out (not permanent) is NOT closed, but held a day before its next check", async () => {
@@ -648,8 +651,8 @@ describe("runDripStep — gating", () => {
     expect(res).toEqual({ sent: false, reason: "suppressed", detail: "opted out: next check in a day" });
     expect(env.calls.find((c) => /status = 'suppressed'/i.test(c.text))).toBeUndefined();
     const hold = env.calls.find((c) => /SET next_run_at = GREATEST\(\$3::timestamptz, NOW\(\)\) \+ \$4::bigint/.test(c.text));
-    expect(hold?.params).toEqual(["prod", 10, now.toISOString(), DRIP_OPTED_OUT_RECHECK_MS]);
-    expect(hold!.text).toMatch(/AND status = 'active'/);
+    expect(hold?.params).toEqual(["prod", 10, now.toISOString(), DRIP_OPTED_OUT_RECHECK_MS, 0]);
+    expect(hold!.text).toMatch(/AND status = 'active' AND current_step = \$5::int/);
   });
 
   it("Edge: no consent row yet (an enroll that raced the mirror) is denied but NOT closed or held", async () => {
@@ -915,6 +918,35 @@ describe("runDripStep — backoff and the attempt cap", () => {
     expect(adv!.text).toMatch(/AND current_step = \$8::int/);
     expect(adv!.params[7]).toBe(0);
     expect(adv!.text).toMatch(/next_run_at = CASE WHEN status = 'active' THEN \$6::timestamptz ELSE next_run_at END/);
+  });
+
+  it("a stale attempt whose advance finds the enrollment moved on is `deferred`, not counted sent", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+      staleAdvance: true,
+    });
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(res).toEqual({ sent: false, reason: "deferred", detail: "another attempt already advanced this step" });
+    const adv = env.calls.find((c) => /current_step = \$8::int/.test(c.text));
+    // A step another attempt already recorded sent keeps its Resend id and sent time.
+    expect(adv!.text).toMatch(/AND status <> 'sent'/);
+  });
+
+  it.each(["08006", "57P01", "EPIPE"])("a recording error %s (outcome unknown) writes nothing more", async (code) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+      resend: { sendError: true },
+    });
+    const query = env.envoy.db.execWrite.bind(env.envoy.db);
+    vi.spyOn(env.envoy.db, "execWrite").mockImplementation(async (text, params) => {
+      if (/failed_attempts/.test(text)) throw Object.assign(new Error("x"), { code });
+      return query(text, params);
+    });
+    await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(env.calls.find((c) => /INTERVAL '1 hour'/.test(c.text))).toBeUndefined();
   });
 
   it("an old enrollment with no consent row is held a day; a fresh one (an enroll racing the mirror) is not", async () => {

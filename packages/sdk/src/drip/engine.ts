@@ -171,6 +171,13 @@ function resolveFrom(envoy: Envoy, stream: Stream): string {
 /** Convert `waitDays` against the cron clock into an eligibility check. `0` ⇒ eligible immediately. */
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+/** A row timestamp (a `Date`, or the driver's string) as epoch milliseconds; null or unparseable is null. */
+function toEpochMs(value: Date | string | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const t = (value instanceof Date ? value : new Date(value)).getTime();
+  return Number.isFinite(t) ? t : null;
+}
+
 function isWaitElapsed(
   step: SequenceStep,
   nextRunAt: Date | string | null,
@@ -183,9 +190,9 @@ function isWaitElapsed(
     // (without this, a non-zero step-0 wait would deadlock — claimed every tick, never due). Fall back
     // to the 0-wait check only when enrolled_at is unavailable.
     if (step.waitDays <= 0) return true;
-    if (enrolledAt === null || enrolledAt === undefined) return false;
-    const anchor = enrolledAt instanceof Date ? enrolledAt : new Date(enrolledAt);
-    return anchor.getTime() + step.waitDays * MS_PER_DAY <= now.getTime();
+    const anchor = toEpochMs(enrolledAt);
+    if (anchor === null) return false;
+    return anchor + step.waitDays * MS_PER_DAY <= now.getTime();
   }
   const due = nextRunAt instanceof Date ? nextRunAt : new Date(nextRunAt);
   return due.getTime() <= now.getTime();
@@ -255,7 +262,7 @@ async function advance(
   sequence: Sequence,
   emailId: string | null,
   now: Date,
-): Promise<{ advancedTo: number; completed: boolean }> {
+): Promise<{ advancedTo: number; completed: boolean; moved: boolean }> {
   const nextIndex = due.stepIndex + 1;
   const completed = nextIndex >= sequence.steps.length;
   const nextRunAt = completed ? null : nextRunAtFor(sequence.steps[nextIndex], now);
@@ -269,12 +276,13 @@ async function advance(
   // The injected pool exposes only `.query` — no transaction surface — so atomicity comes from a
   // single data-modifying CTE: the step UPDATE runs in the WITH clause, the enrollment UPDATE is
   // the outer statement, and Postgres commits them together or not at all.
-  await envoy.db.execWrite(
+  // A step another attempt already recorded `sent` is left as it is (its Resend id, its sent time).
+  const { rows } = await envoy.db.execWrite<{ id: number | string }>(
     `WITH step_done AS (
        UPDATE sdk_steps
           SET status = 'sent', resend_email_id = $3, sent_at = NOW(),
               attempts = attempts + 1, last_error = NULL, updated_at = NOW()
-        WHERE namespace = $1 AND id = $2
+        WHERE namespace = $1 AND id = $2 AND status <> 'sent'
         RETURNING id
      )
      UPDATE sdk_enrollments
@@ -282,7 +290,8 @@ async function advance(
             status = CASE WHEN status = 'active' THEN $5 ELSE status END,
             next_run_at = CASE WHEN status = 'active' THEN $6::timestamptz ELSE next_run_at END,
             updated_at = NOW()
-      WHERE namespace = $1 AND id = $7 AND current_step = $8::int`,
+      WHERE namespace = $1 AND id = $7 AND current_step = $8::int
+      RETURNING id`,
     [
       envoy.db.namespace,
       due.stepId,
@@ -295,7 +304,18 @@ async function advance(
     ],
   );
 
-  return { advancedTo: nextIndex, completed };
+  return { advancedTo: nextIndex, completed, moved: rows.length > 0 };
+}
+
+/** The result of a send: `sent`, or, when another attempt already advanced the step, `deferred`. */
+function sentResult(
+  emailId: string | null,
+  advanced: { advancedTo: number; completed: boolean; moved: boolean },
+): DripStepResult {
+  if (!advanced.moved) {
+    return { sent: false, reason: "deferred", detail: "another attempt already advanced this step" };
+  }
+  return { sent: true, emailId, advancedTo: advanced.advancedTo, completed: advanced.completed };
 }
 
 /** The backoff before the next attempt after the `attempts`-th recorded failure (1-based). */
@@ -445,9 +465,13 @@ async function recordFailureWithoutMigration(envoy: Envoy, due: DueStep, reason:
   }
 }
 
-/** A Postgres SQLSTATE (five digits or capitals), never a five-letter Node errno (EPIPE, EBADF). */
+/**
+ * Did the database ANSWER that it wrote nothing? A Postgres SQLSTATE (five digits or capitals) other
+ * than the connection classes (08: connection exception; 57P0x: the server shut the session), which
+ * can arrive after the statement ran — and never a five-letter Node errno (EPIPE, EBADF).
+ */
 function isSqlState(code: string): boolean {
-  return /^[0-9A-Z]{5}$/.test(code) && !/^E[A-Z]{4}$/.test(code);
+  return /^[0-9A-Z]{5}$/.test(code) && !/^E[A-Z]{4}$/.test(code) && !/^(08|57P0)/.test(code);
 }
 
 /** A database error's SQLSTATE (never its message, which can echo row data), else its name. */
@@ -494,9 +518,8 @@ function overLimitLength(gen: BlockAgentResult): number | null {
 
 /** Was the enrollment made before `cutoffMs`? Unknown (null, unparseable) is not. */
 function enrolledBefore(enrolledAt: Date | string | null, cutoffMs: number): boolean {
-  if (enrolledAt === null || enrolledAt === undefined) return false;
-  const t = (enrolledAt instanceof Date ? enrolledAt : new Date(enrolledAt)).getTime();
-  return Number.isFinite(t) && t < cutoffMs;
+  const t = toEpochMs(enrolledAt);
+  return t !== null && t < cutoffMs;
 }
 
 /** How long an opted-out contact's enrollment waits before its consent is read again. */
@@ -515,9 +538,9 @@ async function holdOptedOut(envoy: Envoy, due: DueStep, now: Date): Promise<bool
       `UPDATE sdk_enrollments
           SET next_run_at = GREATEST($3::timestamptz, NOW()) + $4::bigint * INTERVAL '1 millisecond',
               updated_at = NOW()
-        WHERE namespace = $1 AND id = $2 AND status = 'active'
+        WHERE namespace = $1 AND id = $2 AND status = 'active' AND current_step = $5::int
         RETURNING id`,
-      [envoy.db.namespace, due.enrollmentId, now.toISOString(), DRIP_OPTED_OUT_RECHECK_MS],
+      [envoy.db.namespace, due.enrollmentId, now.toISOString(), DRIP_OPTED_OUT_RECHECK_MS, due.stepIndex],
     );
     return rows.length > 0;
   } catch {
@@ -535,9 +558,9 @@ async function closeSuppressed(envoy: Envoy, due: DueStep): Promise<boolean> {
     const { rows } = await envoy.db.execWrite<{ id: number | string }>(
       `UPDATE sdk_enrollments
           SET status = 'suppressed', next_run_at = NULL, updated_at = NOW()
-        WHERE namespace = $1 AND id = $2 AND status = 'active'
+        WHERE namespace = $1 AND id = $2 AND status = 'active' AND current_step = $3::int
         RETURNING id`,
-      [envoy.db.namespace, due.enrollmentId],
+      [envoy.db.namespace, due.enrollmentId, due.stepIndex],
     );
     return rows.length > 0;
   } catch {
@@ -751,8 +774,7 @@ export async function runDripStep(
         `(seq=${due.sequenceKey} step=${due.stepIndex} enrollment=${String(due.enrollmentId)}): ` +
         `an earlier attempt under key ${idempotencyKey} was accepted; resend_email_id is left NULL.`,
     );
-    const { advancedTo, completed } = await advance(envoy, due, sequence, null, now);
-    return { sent: true, emailId: null, advancedTo, completed };
+    return sentResult(null, await advance(envoy, due, sequence, null, now));
   }
   if (error || !data) {
     const reason = `emails.send failed: ${error?.message ?? "unknown error"}`;
@@ -762,8 +784,7 @@ export async function runDripStep(
   }
 
   // 8. Confirmed send — mark sent + advance (R16). This is the ONLY place state moves forward.
-  const { advancedTo, completed } = await advance(envoy, due, sequence, data.id, now);
-  return { sent: true, emailId: data.id, advancedTo, completed };
+  return sentResult(data.id, await advance(envoy, due, sequence, data.id, now));
 }
 
 /** `maxAttempts` clamped to 1..{@link MAX_DRIP_MAX_ATTEMPTS}; unset or NaN is the default. */
