@@ -33,19 +33,21 @@ import { type Sequence, type SequenceStep, blockTypeForSlot } from "./sequence.j
 // claimed again). Every other failure is TRANSIENT and backs off without counting toward the cap: a
 // failed agent CALL (outage, rate limit, timeout, key) and every Resend refusal or transport error
 // (a 401/403/404 or a 422 such as an invalid From address can be the account's or the template's,
-// hitting every enrollment at once), so an outage or a misconfiguration never stops enrollments. Before 0.10.0 a failing
-// step was retried every tick forever (one enrollment was re-sent 10,754 times). A Resend 409
-// `invalid_idempotent_request` means an earlier attempt of this step was ACCEPTED (Resend stores no
-// key for a request it refuses) and its answer lost: the step is marked sent and advanced. A disabled Resend key
-// or a deferred session leaves the step due with no backoff. A contact PERMANENTLY suppressed (global
-// unsubscribe / bounce / complaint / erasure, or an `unsubscribed` topic row) closes its enrollment
-// (`suppressed`); one merely not opted in (no consent row yet, `opt_out`) is left due, as before.
+// hitting every enrollment at once), so an outage or a misconfiguration never stops enrollments.
+// Before 0.10.0 a failing step was retried every tick forever (one enrollment was re-sent 10,754
+// times). A Resend 409 `invalid_idempotent_request` means an earlier attempt of this step was
+// ACCEPTED (Resend stores no key for a request it refuses) and its answer lost: the step is marked
+// sent and advanced. A disabled Resend key or a deferred session leaves the step due with no
+// backoff. A contact PERMANENTLY suppressed (global unsubscribe / bounce / complaint / erasure, or an
+// `unsubscribed` topic row) closes its enrollment (`suppressed`); an `opt_out` holds it a day before
+// the next check; no consent row yet (an enroll racing the mirror) leaves it due, as before.
 //
 // AI BLOCK LENGTH: Resend refuses a template variable longer than 2,000 characters
 // (`RESEND_TEMPLATE_VARIABLE_MAX`), and the refusal is not a transport failure: re-sending the same
 // stored block fails the same way. So every AI-written value is checked BEFORE `emails.send`; an
-// over-long one counts as a failed generation: its stored session is discarded and the slot is
-// regenerated ONCE in the same run; still over-long, the failure is recorded (and backed off).
+// over-long one counts as a failed generation: the slot is regenerated ONCE in the same run, told the
+// limit and the previous length (`overLimitNote`); still over-long, the failure is recorded (and
+// backed off), its session kept so the next attempt harvests it free and regenerates once again.
 
 /** A claimed due step the engine acts on (the cron tick joins enrollment + step and passes this). */
 export interface DueStep {
@@ -258,6 +260,8 @@ async function advance(
   const completed = nextIndex >= sequence.steps.length;
   const nextRunAt = completed ? null : nextRunAtFor(sequence.steps[nextIndex], now);
 
+  // Only an `active` enrollment advances: one a host ended (an unenroll) mid-send stays ended, its
+  // step marked sent (it was).
   // Mark the step sent AND advance the enrollment in ONE statement so a crash can never leave the
   // step `sent` while the enrollment is still due (which would re-attempt / re-send next tick).
   // The injected pool exposes only `.query` — no transaction surface — so atomicity comes from a
@@ -273,7 +277,7 @@ async function advance(
      )
      UPDATE sdk_enrollments
         SET current_step = $4, status = $5, next_run_at = $6, updated_at = NOW()
-      WHERE namespace = $1 AND id = $7`,
+      WHERE namespace = $1 AND id = $7 AND status = 'active'`,
     [
       envoy.db.namespace,
       due.stepId,
@@ -394,19 +398,19 @@ async function recordFailure(
     const code = sqlStateOf(err);
     // eslint-disable-next-line no-console
     console.error(
-      `[@catalystiq/envoy-sdk] drip failure could not be recorded (seq=${due.sequenceKey} step=${due.stepIndex}); ` +
-        "is migration 005_step_failed_attempts.sql applied?",
+      `[@catalystiq/envoy-sdk] drip failure could not be recorded (seq=${due.sequenceKey} step=${due.stepIndex})` +
+        (code === "42703" ? "; is migration 005_step_failed_attempts.sql applied?" : ":"),
       code,
     );
-    // 42703 (undefined column): the host has not applied migration 005. Keep the pre-0.10.0
-    // bookkeeping (attempts, last_error) and still hold the step off for an hour, so the step is not
-    // retried every tick while the migration is missing.
-    if (code === "42703") await recordFailureWithoutMigration(envoy, due, reason, opts.now);
+    // Whatever failed (42703: the host has not applied migration 005; or a deadlock, a timeout, a
+    // dropped connection), keep the pre-0.10.0 bookkeeping (attempts, last_error) and still hold the
+    // step off for an hour, so it is not retried every tick. Best-effort again.
+    await recordFailureWithoutMigration(envoy, due, reason, opts.now);
     return { stopped: false };
   }
 }
 
-/** {@link recordFailure} for a database without migration 005: no counters, a flat hour's wait. */
+/** {@link recordFailure}'s fallback (no migration 005, or the statement failed): a flat hour's wait. */
 async function recordFailureWithoutMigration(envoy: Envoy, due: DueStep, reason: string, now: Date): Promise<void> {
   try {
     await envoy.db.execWrite(
@@ -467,26 +471,29 @@ function overLimitLength(gen: BlockAgentResult): number | null {
   return gen.body.length > RESEND_TEMPLATE_VARIABLE_MAX ? gen.body.length : null;
 }
 
+/** How long an opted-out contact's enrollment waits before its consent is read again. */
+export const DRIP_OPTED_OUT_RECHECK_MS = 24 * 60 * 60 * 1000;
+
 /**
- * Forget ONE slot's stored session (`block_sessions - slot`), so the next generation of that slot
- * starts fresh instead of harvesting the same output again. Used when a harvested block cannot be
- * sent (over Resend's per-value limit).
+ * Hold an opted-out contact's enrollment for {@link DRIP_OPTED_OUT_RECHECK_MS}: an `opt_out` can be
+ * lifted by an explicit re-opt-in, so the enrollment stays `active`, but it is no longer claimed on
+ * every tick (old opted-out rows would otherwise fill the claim's `ORDER BY enrolled_at LIMIT` and
+ * starve newer due enrollments). A contact with NO consent row yet is not held: that is usually an
+ * enroll racing the mirror's upsert, and a day's wait would delay its first email.
  */
-async function discardBlockSession(
-  envoy: Envoy,
-  stepId: DueStep["stepId"],
-  slotName: string,
-): Promise<void> {
+async function holdOptedOut(envoy: Envoy, due: DueStep, now: Date): Promise<boolean> {
   try {
-    await envoy.db.execWrite(
-      `UPDATE sdk_steps
-          SET block_sessions = block_sessions - $3::text, updated_at = NOW()
-        WHERE namespace = $1 AND id = $2`,
-      [envoy.db.namespace, stepId, slotName],
+    const { rows } = await envoy.db.execWrite<{ id: number | string }>(
+      `UPDATE sdk_enrollments
+          SET next_run_at = GREATEST($3::timestamptz, NOW()) + $4::bigint * INTERVAL '1 millisecond',
+              updated_at = NOW()
+        WHERE namespace = $1 AND id = $2 AND status = 'active'
+        RETURNING id`,
+      [envoy.db.namespace, due.enrollmentId, now.toISOString(), DRIP_OPTED_OUT_RECHECK_MS],
     );
+    return rows.length > 0;
   } catch {
-    // Best-effort: a marker left in place only makes the next attempt harvest (and discard) the same
-    // block again. Throwing here would skip the failure's backoff and re-bill every tick.
+    return false; // best-effort: the contact is still not mailed
   }
 }
 
@@ -520,7 +527,7 @@ async function closeSuppressed(envoy: Envoy, due: DueStep): Promise<boolean> {
  *   4. Resolve From — fail loud (caller's fail-soft wraps this) if neither default is configured.
  *   5. Generate-or-harvest the declared slots (R14/R23). A re-claim with a `running` prior session
  *      DEFERS (no second billed session); a `completed` one is harvested. A value over Resend's
- *      per-variable limit is discarded and regenerated once. A failure is recorded and backed off
+ *      per-variable limit is regenerated once, told the limit. A failure is recorded and backed off
  *      (`generation_failed`, or `stopped` at the cap) — NOTHING is sent.
  *   6. No Resend key ⇒ silent no-op (`resend_disabled`, R43) — the step stays due. Answered before
  *      step 5, so nothing is generated or recorded for a step that cannot be sent.
@@ -545,7 +552,7 @@ export async function runDripStep(
   if (!step) {
     await envoy.db.execWrite(
       `UPDATE sdk_enrollments SET status = 'completed', next_run_at = NULL, updated_at = NOW()
-       WHERE namespace = $1 AND id = $2`,
+       WHERE namespace = $1 AND id = $2 AND status = 'active'`,
       [envoy.db.namespace, due.enrollmentId],
     );
     return { sent: false, reason: "generation_failed", detail: "step index out of range" };
@@ -562,6 +569,9 @@ export async function runDripStep(
   if (decision !== "allow") {
     if (decision === "deny_permanent" && (await closeSuppressed(envoy, due))) {
       return { sent: false, reason: "suppressed", detail: "enrollment closed" };
+    }
+    if (decision === "deny_opted_out" && (await holdOptedOut(envoy, due, now))) {
+      return { sent: false, reason: "suppressed", detail: "opted out: next check in a day" };
     }
     return { sent: false, reason: "suppressed" };
   }
@@ -619,8 +629,8 @@ export async function runDripStep(
         gen = await generate(undefined, overLimitNote(firstLength));
         const length = overLimitLength(gen);
         if (length !== null) {
-          // Discard this one too, so the next attempt (after the backoff) starts fresh again.
-          await discardBlockSession(envoy, due.stepId, slotName);
+          // Its marker is kept: the next attempt (after the backoff) harvests it for free, finds it
+          // over the limit, and regenerates once WITH the note: one billed session per attempt.
           return failStep(
             envoy,
             due,
@@ -696,6 +706,12 @@ export async function runDripStep(
     // This step's key was already used by a request Resend ACCEPTED (a refused request stores no
     // key) whose answer was lost — the email went out. Retrying could only meet this 409 again until
     // the key expires (24 h), then send it twice. Mark it sent and advance; Resend's id is unknown.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[@catalystiq/envoy-sdk] drip step marked sent on Resend's 409 invalid_idempotent_request ` +
+        `(seq=${due.sequenceKey} step=${due.stepIndex} enrollment=${String(due.enrollmentId)}): ` +
+        `an earlier attempt under key ${idempotencyKey} was accepted; resend_email_id is left NULL.`,
+    );
     const { advancedTo, completed } = await advance(envoy, due, sequence, null, now);
     return { sent: true, emailId: null, advancedTo, completed };
   }
