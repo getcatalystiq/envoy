@@ -35,10 +35,7 @@ import { type Sequence, type SequenceStep, blockTypeForSlot } from "./sequence.j
 // (a 401/403/404 or a 422 such as an invalid From address can be the account's or the template's,
 // hitting every enrollment at once), so an outage or a misconfiguration never stops enrollments.
 // Before 0.10.0 a failing step was retried every tick forever (one enrollment was re-sent 10,754
-// times). A Resend 409 `invalid_idempotent_request` means an earlier attempt of this step was
-// ACCEPTED (Resend stores no key for a request it refuses) and its answer lost: the step is marked
-// sent and advanced. A disabled Resend key or a deferred session leaves the step due with no
-// backoff. A contact PERMANENTLY suppressed (global unsubscribe / bounce / complaint / erasure, or an
+// times). A disabled Resend key or a deferred session leaves the step due with no backoff. A contact PERMANENTLY suppressed (global unsubscribe / bounce / complaint / erasure, or an
 // `unsubscribed` topic row) closes its enrollment (`suppressed`); an `opt_out` holds it a day before
 // the next check; no consent row yet (an enroll racing the mirror) leaves it due, as before.
 //
@@ -109,9 +106,8 @@ export const MAX_DRIP_MAX_ATTEMPTS = 1000;
 /** First backoff after a recorded failure; it doubles per failure. */
 export const DRIP_BACKOFF_BASE_MS = 15 * 60 * 1000;
 /**
- * The longest backoff between two attempts of one step. Kept well under Resend's 24-hour
- * idempotency-key lifetime, so a send whose answer was lost is retried while its key still answers
- * 409 `invalid_idempotent_request` (read as sent), never after it expired (which would send twice).
+ * The longest backoff between two attempts of one step: a step backed off this far is still tried
+ * twice a day.
  */
 export const DRIP_BACKOFF_MAX_MS = 12 * 60 * 60 * 1000;
 
@@ -128,9 +124,7 @@ export type DripTickReason = DripSkipReason | "unknown_sequence" | "tick_error";
 
 /** Outcome of {@link runDripStep}. */
 export type DripStepResult =
-  /** `emailId` is null when the send was confirmed by Resend's idempotency answer (a 409
-   *  `invalid_idempotent_request`: an earlier attempt was accepted and its answer lost). */
-  | { sent: true; emailId: string | null; advancedTo: number; completed: boolean }
+  | { sent: true; emailId: string; advancedTo: number; completed: boolean }
   | { sent: false; reason: DripSkipReason; detail?: string };
 
 /** Config the engine needs beyond the Envoy handle. */
@@ -260,9 +254,9 @@ async function advance(
   envoy: Envoy,
   due: DueStep,
   sequence: Sequence,
-  emailId: string | null,
+  emailId: string,
   now: Date,
-): Promise<{ advancedTo: number; completed: boolean; moved: boolean }> {
+): Promise<{ advancedTo: number; completed: boolean }> {
   const nextIndex = due.stepIndex + 1;
   const completed = nextIndex >= sequence.steps.length;
   const nextRunAt = completed ? null : nextRunAtFor(sequence.steps[nextIndex], now);
@@ -277,7 +271,7 @@ async function advance(
   // single data-modifying CTE: the step UPDATE runs in the WITH clause, the enrollment UPDATE is
   // the outer statement, and Postgres commits them together or not at all.
   // A step another attempt already recorded `sent` is left as it is (its Resend id, its sent time).
-  const { rows } = await envoy.db.execWrite<{ id: number | string }>(
+  await envoy.db.execWrite(
     `WITH step_done AS (
        UPDATE sdk_steps
           SET status = 'sent', resend_email_id = $3, sent_at = NOW(),
@@ -290,8 +284,7 @@ async function advance(
             status = CASE WHEN status = 'active' THEN $5 ELSE status END,
             next_run_at = CASE WHEN status = 'active' THEN $6::timestamptz ELSE next_run_at END,
             updated_at = NOW()
-      WHERE namespace = $1 AND id = $7 AND current_step = $8::int
-      RETURNING id`,
+      WHERE namespace = $1 AND id = $7 AND current_step = $8::int`,
     [
       envoy.db.namespace,
       due.stepId,
@@ -304,18 +297,7 @@ async function advance(
     ],
   );
 
-  return { advancedTo: nextIndex, completed, moved: rows.length > 0 };
-}
-
-/** The result of a send: `sent`, or, when another attempt already advanced the step, `deferred`. */
-function sentResult(
-  emailId: string | null,
-  advanced: { advancedTo: number; completed: boolean; moved: boolean },
-): DripStepResult {
-  if (!advanced.moved) {
-    return { sent: false, reason: "deferred", detail: "another attempt already advanced this step" };
-  }
-  return { sent: true, emailId, advancedTo: advanced.advancedTo, completed: advanced.completed };
+  return { advancedTo: nextIndex, completed };
 }
 
 /** The backoff before the next attempt after the `attempts`-th recorded failure (1-based). */
@@ -366,6 +348,7 @@ async function recordFailure(
   due: DueStep,
   reason: string,
   opts: { maxAttempts: number; transient: boolean; now: Date },
+  retried = false,
 ): Promise<FailureOutcome> {
   try {
     const { rows } = await envoy.db.execWrite<{ permanent_failures: number; status: string }>(
@@ -426,6 +409,12 @@ async function recordFailure(
     return { stopped };
   } catch (err) {
     const code = sqlStateOf(err);
+    // A deadlock, a serialization failure or a timeout wrote nothing: ask once more, so the failure is
+    // still COUNTED (the fallback below keeps no counters, so a permanent failure would never reach
+    // the cap). 42703 (no migration 005) cannot succeed on a retry.
+    if (!retried && isSqlState(code) && code !== "42703") {
+      return recordFailure(envoy, due, reason, opts, true);
+    }
     // eslint-disable-next-line no-console
     console.error(
       `[@catalystiq/envoy-sdk] drip failure could not be recorded (seq=${due.sequenceKey} step=${due.stepIndex})` +
@@ -764,27 +753,20 @@ export async function runDripStep(
   }
 
   const { data, error } = response;
-  if (error?.name === "invalid_idempotent_request") {
-    // This step's key was already used by a request Resend ACCEPTED (a refused request stores no
-    // key) whose answer was lost — the email went out. Retrying could only meet this 409 again until
-    // the key expires (24 h), then send it twice. Mark it sent and advance; Resend's id is unknown.
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[@catalystiq/envoy-sdk] drip step marked sent on Resend's 409 invalid_idempotent_request ` +
-        `(seq=${due.sequenceKey} step=${due.stepIndex} enrollment=${String(due.enrollmentId)}): ` +
-        `an earlier attempt under key ${idempotencyKey} was accepted; resend_email_id is left NULL.`,
-    );
-    return sentResult(null, await advance(envoy, due, sequence, null, now));
-  }
   if (error || !data) {
     const reason = `emails.send failed: ${error?.message ?? "unknown error"}`;
     // Every Resend refusal is transient: none is a verdict on the generated block (the length is
     // checked above), and many are the account's or the template's (key, domain, From, variables).
+    // That includes a 409 `invalid_idempotent_request`: it can mean an earlier attempt of this step
+    // was accepted and its answer lost, but the key (`drip:<ns>:<enrollment>:<step>`) can also
+    // collide with another database's enrollment on a shared Resend account, so it is not proof
+    // the email went out; the step is retried, as before 0.10.0, and goes out once the key expires.
     return failStep(envoy, due, "send_failed", reason, { maxAttempts, now, transient: true });
   }
 
   // 8. Confirmed send — mark sent + advance (R16). This is the ONLY place state moves forward.
-  return sentResult(data.id, await advance(envoy, due, sequence, data.id, now));
+  const { advancedTo, completed } = await advance(envoy, due, sequence, data.id, now);
+  return { sent: true, emailId: data.id, advancedTo, completed };
 }
 
 /** `maxAttempts` clamped to 1..{@link MAX_DRIP_MAX_ATTEMPTS}; unset or NaN is the default. */

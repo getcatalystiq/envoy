@@ -253,7 +253,6 @@ function fakePool(opts: {
           e.current_step = nextStep;
           e.status = status;
           e.next_run_at = nextRunAt;
-          return { rows: [{ id: e.id }] as T[] };
         }
         return { rows: [] as T[] };
       }

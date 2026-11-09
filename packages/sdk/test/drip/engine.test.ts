@@ -54,7 +54,7 @@ interface RecordedCall {
 
 function fakePool(
   seed: ConsentSeed[] = [],
-  opts: { priorAttempts?: number; staleAdvance?: boolean } = {},
+  opts: { priorAttempts?: number } = {},
 ): {
   pool: SdkPool;
   calls: RecordedCall[];
@@ -111,8 +111,7 @@ function fakePool(
       }
       // Closing a permanently suppressed enrollment, holding an opted-out one, or the advance after
       // a send: one row moved (RETURNING id), unless the test says another attempt got there first.
-      if (/(status = 'suppressed'|\$4::bigint \* INTERVAL|current_step = \$8::int)[\s\S]*RETURNING id/i.test(t)) {
-        if (opts.staleAdvance && /current_step = \$8::int/.test(t)) return { rows: [] as T[] };
+      if (/(status = 'suppressed'|\$4::bigint \* INTERVAL)[\s\S]*RETURNING id/i.test(t)) {
         return { rows: [{ id: (params ?? [])[1] }] as T[] };
       }
       // All other engine UPDATEs (steps + enrollments) — just record and ack.
@@ -237,12 +236,11 @@ function makeEnvoy(
 function setup(opts: {
   seed?: ConsentSeed[];
   priorAttempts?: number;
-  staleAdvance?: boolean;
   resend?: ResendOpts;
   agent?: AgentOpts;
   configOverrides?: Partial<ResolvedEnvoyConfig>;
 }) {
-  const fp = fakePool(opts.seed, { priorAttempts: opts.priorAttempts, staleAdvance: opts.staleAdvance });
+  const fp = fakePool(opts.seed, { priorAttempts: opts.priorAttempts });
   const { handle, emailsSend } = fakeResend(opts.resend);
   const envoy = makeEnvoy(fp.pool, handle, opts.configOverrides);
   const mirror = createConsentMirror(envoy.db, envoy.resend);
@@ -829,8 +827,7 @@ describe("runDripStep — backoff and the attempt cap", () => {
     expect(dripBackoffMs(0)).toBe(DRIP_BACKOFF_BASE_MS);
   });
 
-  it("a Resend 409 invalid_idempotent_request (an earlier attempt was accepted) marks the step sent", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("a Resend 409 invalid_idempotent_request is NOT proof the email went out: transient, retried", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
       agent: { output: body("Hi") },
@@ -840,14 +837,9 @@ describe("runDripStep — backoff and the attempt cap", () => {
       error: { message: "used", statusCode: 409, name: "invalid_idempotent_request" },
     } as never);
     const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
-    expect(res).toEqual({ sent: true, emailId: null, advancedTo: 1, completed: false });
-    const adv = env.calls.find((c) => /UPDATE sdk_enrollments[\s\S]*current_step = \$4/i.test(c.text));
-    expect(adv?.params[2]).toBeNull();
-    // Logged, so a skipped send can be found (no recipient in the line).
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]![0])).toContain("drip:prod:10:0");
-    expect(JSON.stringify(warn.mock.calls)).not.toContain("ada@example.com");
-    expect(failureWrite(env.calls)).toHaveLength(0);
+    expect(res).toMatchObject({ sent: false, reason: "send_failed" });
+    expect(env.calls.find((c) => /current_step = \$8::int/.test(c.text))).toBeUndefined();
+    expect(failureWrite(env.calls)[0]!.params[7]).toBe(true);
   });
 
   it("a Resend 409 concurrent_idempotent_requests is transient (backed off, never counted)", async () => {
@@ -896,11 +888,12 @@ describe("runDripStep — backoff and the attempt cap", () => {
     const query = env.envoy.db.execWrite.bind(env.envoy.db);
     vi.spyOn(env.envoy.db, "execWrite").mockImplementation(async (text, params) => {
       if (/step_fail AS \(/.test(text) && /failed_attempts/.test(text)) {
-        throw Object.assign(new Error("deadlock"), { code: "40P01" });
+        throw Object.assign(new Error("deadlock"), { code: "40P01" }); // the retry deadlocks too
       }
       return query(text, params);
     });
     await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(error).toHaveBeenCalledTimes(1);
     expect(error.mock.calls[0]![1]).toBe("40P01");
     expect(String(error.mock.calls[0]![0])).not.toContain("migration");
     expect(env.calls.find((c) => /INTERVAL '1 hour'/.test(c.text))).toBeDefined();
@@ -920,17 +913,35 @@ describe("runDripStep — backoff and the attempt cap", () => {
     expect(adv!.text).toMatch(/next_run_at = CASE WHEN status = 'active' THEN \$6::timestamptz ELSE next_run_at END/);
   });
 
-  it("a stale attempt whose advance finds the enrollment moved on is `deferred`, not counted sent", async () => {
+  it("the advance leaves a step another attempt already recorded sent alone", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
       agent: { output: body("Hi") },
-      staleAdvance: true,
     });
-    const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
-    expect(res).toEqual({ sent: false, reason: "deferred", detail: "another attempt already advanced this step" });
+    await runDripStep(env.envoy, SEQ, baseDue(), env.config);
     const adv = env.calls.find((c) => /current_step = \$8::int/.test(c.text));
-    // A step another attempt already recorded sent keeps its Resend id and sent time.
     expect(adv!.text).toMatch(/AND status <> 'sent'/);
+  });
+
+  it("a deadlock recording a failure is retried once, so the failure is still counted", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+      resend: { sendError: true },
+    });
+    const query = env.envoy.db.execWrite.bind(env.envoy.db);
+    let thrown = 0;
+    vi.spyOn(env.envoy.db, "execWrite").mockImplementation(async (text, params) => {
+      if (/failed_attempts/.test(text) && thrown === 0) {
+        thrown += 1;
+        throw Object.assign(new Error("deadlock"), { code: "40P01" });
+      }
+      return query(text, params);
+    });
+    await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(failureWrite(env.calls)).toHaveLength(1); // the retry landed (the fake records it)
+    expect(env.calls.find((c) => /INTERVAL '1 hour'/.test(c.text))).toBeUndefined();
   });
 
   it.each(["08006", "57P01", "EPIPE"])("a recording error %s (outcome unknown) writes nothing more", async (code) => {
