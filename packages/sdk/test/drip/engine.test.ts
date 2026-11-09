@@ -776,10 +776,11 @@ describe("runDripStep — AI block over Resend's per-value limit", () => {
     expect(writes[0]!.text).toMatch(/GREATEST\(\$6::timestamptz, NOW\(\)\)/);
     // The failure moves only an ACTIVE enrollment (an unenroll is never overwritten), and the stop
     // is decided once, in the step update, which the enrollment update reads.
-    expect(writes[0]!.text).toMatch(/EXISTS \(SELECT 1 FROM sdk_enrollments[\s\S]*status = 'active'\)/);
+    // The enrollment is locked FIRST (the order advance and erasure take), then the step.
+    expect(writes[0]!.text).toMatch(/WITH enr AS \([\s\S]*status = 'active'[\s\S]*FOR UPDATE/);
+    expect(writes[0]!.text).toMatch(/EXISTS \(SELECT 1 FROM enr\)/);
     expect(writes[0]!.text).toMatch(/WHERE e\.namespace = \$1 AND e\.id = \$5 AND e\.status = 'active'/);
     expect(writes[0]!.text).toMatch(/status = 'failed' AS stop/);
-    expect(writes[0]!.text).not.toMatch(/FOR UPDATE/);
   });
 
   it("the next attempt harvests the kept over-long block and regenerates ONCE, with the note", async () => {

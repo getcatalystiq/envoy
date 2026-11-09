@@ -325,9 +325,9 @@ type FailureOutcome = { stopped: boolean };
  * and `last_error`; then either push the enrollment's `next_run_at` out by the backoff or, once
  * `permanent_failures` reaches `maxAttempts`, mark the step `failed` and the enrollment `stopped`
  * (`next_run_at` cleared, so it is never claimed again). Nothing moves unless the enrollment is still
- * `active`, so an operator's unenroll is never overwritten. (Rows are locked step first, then
- * enrollment, as `advance` and contact erasure do, so they cannot deadlock; an unenroll committing
- * between the two can leave the step's counters bumped on the ended enrollment, which is harmless.)
+ * `active`, so an operator's unenroll is never overwritten and its step never marked. The enrollment
+ * row is locked FIRST (`enr`, which the step update reads, so it runs first): the same order as
+ * `advance` and contact erasure take (measured on Postgres 18), so the three cannot deadlock.
  *
  * The backoff is anchored to the later of the tick's clock and the database's, so a failure recorded
  * late in a long tick is still backed off from when it happened. The counters are migration 005's,
@@ -346,7 +346,12 @@ async function recordFailure(
 ): Promise<FailureOutcome> {
   try {
     const { rows } = await envoy.db.execWrite<{ permanent_failures: number; status: string }>(
-      `WITH step_fail AS (
+      `WITH enr AS (
+         SELECT id FROM sdk_enrollments
+          WHERE namespace = $1 AND id = $5 AND status = 'active'
+          FOR UPDATE
+       ),
+       step_fail AS (
          UPDATE sdk_steps
             SET attempts = attempts + 1,
                 failed_attempts = failed_attempts + 1,
@@ -356,9 +361,7 @@ async function recordFailure(
                   WHEN NOT $8::boolean AND permanent_failures + 1 >= $4::int THEN 'failed' ELSE status
                 END,
                 updated_at = NOW()
-          WHERE namespace = $1 AND id = $2
-            AND EXISTS (SELECT 1 FROM sdk_enrollments
-                         WHERE namespace = $1 AND id = $5 AND status = 'active')
+          WHERE namespace = $1 AND id = $2 AND EXISTS (SELECT 1 FROM enr)
           RETURNING failed_attempts, permanent_failures, status = 'failed' AS stop
        )
        UPDATE sdk_enrollments e
