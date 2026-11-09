@@ -774,9 +774,12 @@ describe("runDripStep — AI block over Resend's per-value limit", () => {
     expect(writes[0]!.text).toMatch(/failed_attempts = failed_attempts \+ 1/);
     expect(writes[0]!.text).toMatch(/permanent_failures = permanent_failures \+ CASE/);
     expect(writes[0]!.text).toMatch(/GREATEST\(\$6::timestamptz, NOW\(\)\)/);
-    // The failure moves only an ACTIVE enrollment, locked first (an unenroll is never overwritten).
-    expect(writes[0]!.text).toMatch(/WITH enr AS \([\s\S]*status = 'active'[\s\S]*FOR UPDATE/);
-    expect(writes[0]!.text).toMatch(/EXISTS \(SELECT 1 FROM enr\)/);
+    // The failure moves only an ACTIVE enrollment (an unenroll is never overwritten), and the stop
+    // is decided once, in the step update, which the enrollment update reads.
+    expect(writes[0]!.text).toMatch(/EXISTS \(SELECT 1 FROM sdk_enrollments[\s\S]*status = 'active'\)/);
+    expect(writes[0]!.text).toMatch(/WHERE e\.namespace = \$1 AND e\.id = \$5 AND e\.status = 'active'/);
+    expect(writes[0]!.text).toMatch(/status = 'failed' AS stop/);
+    expect(writes[0]!.text).not.toMatch(/FOR UPDATE/);
   });
 
   it("the next attempt harvests the kept over-long block and regenerates ONCE, with the note", async () => {
@@ -898,14 +901,54 @@ describe("runDripStep — backoff and the attempt cap", () => {
     expect(env.calls.find((c) => /INTERVAL '1 hour'/.test(c.text))).toBeDefined();
   });
 
-  it("the advance after a send moves only an ACTIVE enrollment (an unenroll mid-send stays ended)", async () => {
+  it("the advance after a send always moves current_step, but status and next run only of an ACTIVE enrollment", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
       agent: { output: body("Hi") },
     });
     await runDripStep(env.envoy, SEQ, baseDue(), env.config);
     const adv = env.calls.find((c) => /UPDATE sdk_enrollments[\s\S]*current_step = \$4/i.test(c.text));
-    expect(adv!.text).toMatch(/WHERE namespace = \$1 AND id = \$7 AND status = 'active'/);
+    expect(adv!.text).toMatch(/status = CASE WHEN status = 'active' THEN \$5 ELSE status END/);
+    expect(adv!.text).toMatch(/next_run_at = CASE WHEN status = 'active' THEN \$6::timestamptz ELSE next_run_at END/);
+  });
+
+  it("an old enrollment with no consent row is held a day; a fresh one (an enroll racing the mirror) is not", async () => {
+    const now = new Date("2026-11-09T12:00:00.000Z");
+    const old = setup({ seed: [], agent: { output: body("Hi") } });
+    const res = await runDripStep(old.envoy, SEQ, baseDue({ enrolledAt: new Date(now.getTime() - 2 * 86_400_000) }), old.config, now);
+    expect(res).toEqual({ sent: false, reason: "suppressed", detail: "no consent: next check in a day" });
+    const fresh = setup({ seed: [], agent: { output: body("Hi") } });
+    const res2 = await runDripStep(fresh.envoy, SEQ, baseDue({ enrolledAt: new Date(now.getTime() - 60_000) }), fresh.config, now);
+    expect(res2).toEqual({ sent: false, reason: "suppressed" });
+    expect(fresh.calls.find((c) => /UPDATE sdk_enrollments/i.test(c.text))).toBeUndefined();
+  });
+
+  it("an AI step with no agent fails loud even with no Resend key", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      resend: { enabled: false },
+    });
+    const noAgentSeq = defineSequence({
+      key: "welcome",
+      steps: [{ templateId: "tmpl_day0", waitDays: 0, aiSlots: ["GREETING"], brief: "x" }],
+    });
+    await expect(runDripStep(env.envoy, noAgentSeq, baseDue(), env.config)).rejects.toThrow(/no per-sequence `agent`/);
+  });
+
+  it("a failure whose statement lost its answer (no SQLSTATE) writes nothing more: it may have committed", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+      resend: { sendError: true },
+    });
+    const query = env.envoy.db.execWrite.bind(env.envoy.db);
+    vi.spyOn(env.envoy.db, "execWrite").mockImplementation(async (text, params) => {
+      if (/failed_attempts/.test(text)) throw new Error("Connection terminated unexpectedly");
+      return query(text, params);
+    });
+    await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(env.calls.find((c) => /INTERVAL '1 hour'/.test(c.text))).toBeUndefined();
   });
 
   it("a send failure is recorded through the backoff write (transient), not retried next tick", async () => {

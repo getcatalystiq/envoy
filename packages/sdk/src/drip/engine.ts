@@ -260,8 +260,9 @@ async function advance(
   const completed = nextIndex >= sequence.steps.length;
   const nextRunAt = completed ? null : nextRunAtFor(sequence.steps[nextIndex], now);
 
-  // Only an `active` enrollment advances: one a host ended (an unenroll) mid-send stays ended, its
-  // step marked sent (it was).
+  // The step was sent, so `current_step` always moves past it (a later re-activation must not send it
+  // again); but only an `active` enrollment has its status and next run changed: one a host ended
+  // (an unenroll) mid-send stays ended.
   // Mark the step sent AND advance the enrollment in ONE statement so a crash can never leave the
   // step `sent` while the enrollment is still due (which would re-attempt / re-send next tick).
   // The injected pool exposes only `.query` — no transaction surface — so atomicity comes from a
@@ -276,8 +277,11 @@ async function advance(
         RETURNING id
      )
      UPDATE sdk_enrollments
-        SET current_step = $4, status = $5, next_run_at = $6, updated_at = NOW()
-      WHERE namespace = $1 AND id = $7 AND status = 'active'`,
+        SET current_step = $4,
+            status = CASE WHEN status = 'active' THEN $5 ELSE status END,
+            next_run_at = CASE WHEN status = 'active' THEN $6::timestamptz ELSE next_run_at END,
+            updated_at = NOW()
+      WHERE namespace = $1 AND id = $7`,
     [
       envoy.db.namespace,
       due.stepId,
@@ -321,8 +325,9 @@ type FailureOutcome = { stopped: boolean };
  * and `last_error`; then either push the enrollment's `next_run_at` out by the backoff or, once
  * `permanent_failures` reaches `maxAttempts`, mark the step `failed` and the enrollment `stopped`
  * (`next_run_at` cleared, so it is never claimed again). Nothing moves unless the enrollment is still
- * `active` — the enrollment row is locked FIRST, so an operator's concurrent unenroll is never
- * overwritten and its step never marked.
+ * `active`, so an operator's unenroll is never overwritten. (Rows are locked step first, then
+ * enrollment, as `advance` and contact erasure do, so they cannot deadlock; an unenroll committing
+ * between the two can leave the step's counters bumped on the ended enrollment, which is harmless.)
  *
  * The backoff is anchored to the later of the tick's clock and the database's, so a failure recorded
  * late in a long tick is still backed off from when it happened. The counters are migration 005's,
@@ -341,12 +346,7 @@ async function recordFailure(
 ): Promise<FailureOutcome> {
   try {
     const { rows } = await envoy.db.execWrite<{ permanent_failures: number; status: string }>(
-      `WITH enr AS (
-         SELECT id FROM sdk_enrollments
-          WHERE namespace = $1 AND id = $5 AND status = 'active'
-          FOR UPDATE
-       ),
-       step_fail AS (
+      `WITH step_fail AS (
          UPDATE sdk_steps
             SET attempts = attempts + 1,
                 failed_attempts = failed_attempts + 1,
@@ -356,13 +356,15 @@ async function recordFailure(
                   WHEN NOT $8::boolean AND permanent_failures + 1 >= $4::int THEN 'failed' ELSE status
                 END,
                 updated_at = NOW()
-          WHERE namespace = $1 AND id = $2 AND EXISTS (SELECT 1 FROM enr)
-          RETURNING failed_attempts, permanent_failures
+          WHERE namespace = $1 AND id = $2
+            AND EXISTS (SELECT 1 FROM sdk_enrollments
+                         WHERE namespace = $1 AND id = $5 AND status = 'active')
+          RETURNING failed_attempts, permanent_failures, status = 'failed' AS stop
        )
        UPDATE sdk_enrollments e
-          SET status = CASE WHEN f.permanent_failures >= $4::int AND NOT $8::boolean THEN 'stopped' ELSE e.status END,
+          SET status = CASE WHEN f.stop THEN 'stopped' ELSE e.status END,
               next_run_at = CASE
-                WHEN f.permanent_failures >= $4::int AND NOT $8::boolean THEN NULL
+                WHEN f.stop THEN NULL
                 ELSE GREATEST($6::timestamptz, NOW())
                      + ($7::bigint[])[LEAST(f.failed_attempts, cardinality($7::bigint[]))]
                        * INTERVAL '1 millisecond'
@@ -402,10 +404,11 @@ async function recordFailure(
         (code === "42703" ? "; is migration 005_step_failed_attempts.sql applied?" : ":"),
       code,
     );
-    // Whatever failed (42703: the host has not applied migration 005; or a deadlock, a timeout, a
-    // dropped connection), keep the pre-0.10.0 bookkeeping (attempts, last_error) and still hold the
-    // step off for an hour, so it is not retried every tick. Best-effort again.
-    await recordFailureWithoutMigration(envoy, due, reason, opts.now);
+    // The database ANSWERED with an error (a SQLSTATE: 42703, the host has not applied migration 005;
+    // a deadlock; a timeout), so nothing was written: keep the pre-0.10.0 bookkeeping (attempts,
+    // last_error) and hold the step off for an hour, so it is not retried every tick. With no
+    // SQLSTATE (a dropped connection) the statement may have committed, so nothing more is written.
+    if (/^[0-9A-Z]{5}$/.test(code)) await recordFailureWithoutMigration(envoy, due, reason, opts.now);
     return { stopped: false };
   }
 }
@@ -471,6 +474,13 @@ function overLimitLength(gen: BlockAgentResult): number | null {
   return gen.body.length > RESEND_TEMPLATE_VARIABLE_MAX ? gen.body.length : null;
 }
 
+/** Was the enrollment made before `cutoffMs`? Unknown (null, unparseable) is not. */
+function enrolledBefore(enrolledAt: Date | string | null, cutoffMs: number): boolean {
+  if (enrolledAt === null || enrolledAt === undefined) return false;
+  const t = (enrolledAt instanceof Date ? enrolledAt : new Date(enrolledAt)).getTime();
+  return Number.isFinite(t) && t < cutoffMs;
+}
+
 /** How long an opted-out contact's enrollment waits before its consent is read again. */
 export const DRIP_OPTED_OUT_RECHECK_MS = 24 * 60 * 60 * 1000;
 
@@ -478,8 +488,8 @@ export const DRIP_OPTED_OUT_RECHECK_MS = 24 * 60 * 60 * 1000;
  * Hold an opted-out contact's enrollment for {@link DRIP_OPTED_OUT_RECHECK_MS}: an `opt_out` can be
  * lifted by an explicit re-opt-in, so the enrollment stays `active`, but it is no longer claimed on
  * every tick (old opted-out rows would otherwise fill the claim's `ORDER BY enrolled_at LIMIT` and
- * starve newer due enrollments). A contact with NO consent row yet is not held: that is usually an
- * enroll racing the mirror's upsert, and a day's wait would delay its first email.
+ * starve newer due enrollments). A contact with NO consent row is held the same way only when it was
+ * enrolled more than a day ago: a fresh one is usually an enroll racing the mirror's upsert.
  */
 async function holdOptedOut(envoy: Envoy, due: DueStep, now: Date): Promise<boolean> {
   try {
@@ -573,11 +583,23 @@ export async function runDripStep(
     if (decision === "deny_opted_out" && (await holdOptedOut(envoy, due, now))) {
       return { sent: false, reason: "suppressed", detail: "opted out: next check in a day" };
     }
+    // No consent row: usually an enroll racing the mirror's upsert, so a fresh enrollment stays due.
+    // One enrolled more than a day ago is not a race: hold it like an opt-out.
+    if (
+      decision === "deny_no_consent" &&
+      enrolledBefore(due.enrolledAt, now.getTime() - DRIP_OPTED_OUT_RECHECK_MS) &&
+      (await holdOptedOut(envoy, due, now))
+    ) {
+      return { sent: false, reason: "suppressed", detail: "no consent: next check in a day" };
+    }
     return { sent: false, reason: "suppressed" };
   }
 
   // 4. Resolve From (fail loud — the cron tick's per-contact try/catch turns this into fail-soft).
   const from = resolveFrom(envoy, stream);
+
+  // 4a. An AI step on a sequence with no agent fails loud (R45/R9), Resend key or not.
+  const agent = step.aiSlots.length > 0 ? requireAgent(sequence) : undefined;
 
   // 4b. No Resend key ⇒ silent no-op; the step stays due (R43). Checked BEFORE generation (since
   //     0.10.0): a step that cannot be sent bills no agent session, and a generation that fails or
@@ -595,8 +617,7 @@ export async function runDripStep(
   //    and harvested free next tick); any slot fails ⇒ fail (no partial send); all resolve ⇒ send.
   //    Each slot's marker is persisted to `block_sessions` BEFORE that slot's billed turn.
   const slots: GeneratedSlots = {};
-  if (step.aiSlots.length > 0) {
-    const agent = requireAgent(sequence);
+  if (agent) {
     const safe = sanitizeContactForAgent(due.data, envoy.config.aiFieldAllowList);
     const target = shapeAgentTarget(safe);
     const fallbackByKey = await originalContentFallbacks(envoy, step.templateId);

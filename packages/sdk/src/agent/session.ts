@@ -504,7 +504,8 @@ export type SlotGenerationResult =
   | { kind: "generated"; slots: GeneratedSlots; sessionId: string }
   | { kind: "harvested"; slots: GeneratedSlots }
   | { kind: "deferred" }
-  | { kind: "failed"; reason: string };
+  /** `transient`: the agent CALL failed (outage, rate limit, timeout, key), not this output. */
+  | { kind: "failed"; reason: string; transient?: boolean };
 
 export interface GenerateOrHarvestInput extends GenerateSlotsInput {
   /** A non-null inflight marker means re-claim — harvest the prior session instead of forking. */
@@ -539,8 +540,9 @@ export async function generateOrHarvestSlots(
       vaultId: input.vaultId,
     });
   } catch (err) {
-    if (err instanceof AgentError) return { kind: "failed", reason: err.message };
-    return { kind: "failed", reason: "agent session failed" };
+    // The call itself failed: `transient`, as in generateOrHarvestBlock.
+    if (err instanceof AgentError) return { kind: "failed", reason: err.message, transient: true };
+    return { kind: "failed", reason: "agent session failed", transient: true };
   }
 
   const slots = extractSlots(result.output, input.aiSlots);
