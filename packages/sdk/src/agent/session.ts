@@ -61,6 +61,12 @@ export interface AgentSessionResult {
   output: string;
   /** The session id (already persisted via `onSessionCreated` if supplied). */
   sessionId: string;
+  /**
+   * Did the turn END (a `session.status_idle` with `end_turn`)? False when the event stream closed
+   * before any idle event: the output may be partial, and a missing block is then the call's failure,
+   * not the agent's answer.
+   */
+  ended: boolean;
 }
 
 // Matches the app's 10-minute run timeout. The cron re-claim window can equal this, which is
@@ -187,6 +193,7 @@ export async function runAgentSession(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const messages: string[] = [];
+  let idleReason: string | undefined;
 
   try {
     // Open the stream FIRST — only events emitted after the stream opens are delivered — then send
@@ -198,7 +205,6 @@ export async function runAgentSession(
       events: [{ type: "user.message", content: [{ type: "text", text: userMessage }] }],
     });
 
-    let idleReason: string | undefined;
     for await (const event of stream as AsyncIterable<AnyEvent>) {
       if (event.type === "agent.message") {
         messages.push(messageText(event));
@@ -236,7 +242,7 @@ export async function runAgentSession(
     clearTimeout(timer);
   }
 
-  return { output: pickOutput(messages), sessionId };
+  return { output: pickOutput(messages), sessionId, ended: idleReason === "end_turn" };
 }
 
 /**
@@ -550,7 +556,7 @@ export async function generateOrHarvestSlots(
     return {
       kind: "failed",
       reason: "agent output missing one or more declared slots",
-      transient: result.output.trim() === "",
+      transient: !result.ended,
     };
   }
   return { kind: "generated", slots, sessionId: result.sessionId };
@@ -607,9 +613,10 @@ export async function generateOrHarvestBlock(
   }
 
   const body = extractBlockBody(result.output);
-  // No output at all is a stream that ended early (transient); output with no body is the agent's.
+  // A turn that never ENDED (the stream closed before its idle event) is the call's failure
+  // (transient); a finished turn with no body is the agent's answer (counted).
   if (body === null) {
-    return { kind: "failed", reason: "agent output missing body", transient: result.output.trim() === "" };
+    return { kind: "failed", reason: "agent output missing body", transient: !result.ended };
   }
   return { kind: "generated", body, sessionId: result.sessionId };
 }

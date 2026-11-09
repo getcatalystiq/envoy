@@ -1059,6 +1059,21 @@ describe("runDripStep — backoff and the attempt cap", () => {
     expect(failureWrite(env.calls)[0]!.params[7]).toBe(true);
   });
 
+  it("a stream that closed before its idle event, after a preamble, is transient (the turn never ended)", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+    });
+    env.agent!.stream.mockImplementationOnce(async () => ({
+      controller: new AbortController(),
+      async *[Symbol.asyncIterator]() {
+        yield { type: "agent.message", content: [{ type: "text", text: "Let me draft that for you." }] };
+      },
+    }));
+    await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(failureWrite(env.calls)[0]!.params[7]).toBe(true);
+  });
+
   it("the failure write is pinned on the step the enrollment is still on, and decides stop from THIS failure", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
