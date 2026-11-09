@@ -418,8 +418,8 @@ export interface CronTickResponse {
   /** How many were skipped (not_due / suppressed / deferred / unknown_sequence / resend_disabled). */
   skipped: number;
   /**
-   * How many failed: generation_failed / send_failed / tick_error (backed off for a later tick) and
-   * `stopped` (the step reached its attempt cap; the enrollment is never claimed again).
+   * How many failed: generation_failed / send_failed (backed off for a later tick), tick_error (left
+   * due, retried next tick) and `stopped` (the step reached its attempt cap; never claimed again).
    */
   failed: number;
   /**
