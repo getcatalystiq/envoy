@@ -155,6 +155,13 @@ envoy.defineSequence({
 
 The SDK finds due steps, generates the AI subject/body **just-in-time** (R14), injects into the Template via `emails.send`, and advances state. Generation/send failure is retried, never sent empty (R16).
 
+**Failures, the length limit and suppression (since 0.10.0).**
+
+- **Every AI-written value is checked against Resend's limit before the send**: 2,000 characters per template variable (`RESEND_TEMPLATE_VARIABLE_MAX`). An over-long value counts as a failed generation: its stored session is discarded and the slot is regenerated once, fresh, in the same run. If it is still too long, nothing is sent and the failure is recorded. Write your step briefs so a block stays well under the limit, markup included (put fixed buttons and links in the Template, not in the AI block).
+- **A recorded failure** (a failed or over-long generation, a Resend refusal or transport error) bumps `sdk_steps.attempts` and backs the enrollment off: `next_run_at` moves out 15 minutes, doubling per failure, at most a day (`dripBackoffMs`). At `maxAttempts` (tick config, default 8, `DEFAULT_DRIP_MAX_ATTEMPTS`) the step is marked `failed` and the enrollment `stopped`, so it is never claimed again. The tick reports that once, as a `failed` item with reason `stopped` (it is in the cron response's `failures`). Before 0.10.0 a failing step was retried every tick, indefinitely. A deferred session, a disabled Resend key and a step not yet due are not failures and are not backed off.
+- **A permanently suppressed contact's enrollment is closed** (`status = 'suppressed'`, `next_run_at` cleared): a global suppression (`sdk_contacts.unsubscribed`: bounce, complaint, GDPR delete, hosted-page unsubscribe) or an `unsubscribed` consent row on the sequence's topic (`ConsentMirror.isPermanentlySuppressed`). A contact with no consent row yet, or an `opt_out`, is skipped and left `active`, as before.
+- **Enrollment statuses** the SDK writes: `active`, `completed`, `stopped`, `suppressed`. A host that ends an enrollment itself (an unenroll) should use another word (`cancelled`) and clear `next_run_at`; the engine only ever moves an `active` enrollment.
+
 ### 5d. One-shot transactional send (welcome / receipt / confirmation — non-AI, R46)
 
 For a single templated email that is **not** an AI sequence (e.g. the welcome email on follow), use the transactional primitive — don't model it as a one-step sequence and don't call `resend.emails.send` directly:

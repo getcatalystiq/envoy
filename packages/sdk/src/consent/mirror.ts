@@ -188,6 +188,21 @@ export class ConsentMirror {
   }
 
   /**
+   * Is this contact suppressed on `topicKey` for GOOD — so a drip enrollment on it can be closed
+   * rather than re-claimed every tick? True for a global suppression (`sdk_contacts.unsubscribed`:
+   * bounce, complaint, GDPR delete, hosted-page unsubscribe) and for a consent row `unsubscribed` on
+   * either stream. Both only ever move toward more suppression (`set`'s monotonic merge; nothing
+   * clears the global flag). False for a contact merely not opted in — no consent row yet (an enroll
+   * that raced the mirror upsert) or `opt_out` (which an explicit re-opt-in can lift) — so those are
+   * left as they were.
+   */
+  async isPermanentlySuppressed(email: string, topicKey: string): Promise<boolean> {
+    if (await this.isGloballySuppressed(email)) return true;
+    const row = await this.read(email, topicKey);
+    return row !== null && (row.digest === "unsubscribed" || row.alert === "unsubscribed");
+  }
+
+  /**
    * Authoritative send gate (R26). Returns `true` only when this exact stream of this topic is
    * allowed to send to this contact. Denies when:
    *   - the contact is GLOBALLY suppressed (`sdk_contacts.unsubscribed = TRUE` — bounce, complaint,

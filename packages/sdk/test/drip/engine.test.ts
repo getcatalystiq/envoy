@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { runDripStep, type DueStep, type DripEngineConfig } from "@sdk/drip/engine.js";
+import {
+  runDripStep,
+  dripBackoffMs,
+  RESEND_TEMPLATE_VARIABLE_MAX,
+  DEFAULT_DRIP_MAX_ATTEMPTS,
+  DRIP_BACKOFF_BASE_MS,
+  DRIP_BACKOFF_MAX_MS,
+  type DueStep,
+  type DripEngineConfig,
+} from "@sdk/drip/engine.js";
 import { defineSequence, type Sequence } from "@sdk/drip/sequence.js";
 import { createDb, type SdkPool, type SdkQueryResult } from "@sdk/db/pool.js";
 import { createConsentMirror } from "@sdk/consent/mirror.js";
@@ -41,10 +50,15 @@ interface RecordedCall {
   params: ReadonlyArray<unknown>;
 }
 
-function fakePool(seed: ConsentSeed[] = []): {
+function fakePool(
+  seed: ConsentSeed[] = [],
+  opts: { priorAttempts?: number } = {},
+): {
   pool: SdkPool;
   calls: RecordedCall[];
 } {
+  // The step's recorded failures so far (`sdk_steps.attempts`), bumped by the failure CTE.
+  let attempts = opts.priorAttempts ?? 0;
   // Key on the NAMESPACED contact (matches the `$2` the mirror's gate SELECT passes).
   const rows = new Map<string, Record<string, unknown>>();
   // GLOBAL suppression flag store, keyed on the lower-cased bare email (matches the
@@ -84,7 +98,13 @@ function fakePool(seed: ConsentSeed[] = []): {
         const row = rows.get(`${String(contact)}|${String(topicKey)}`);
         return { rows: (row ? [row] : []) as T[] };
       }
-      // All engine UPDATEs (steps + enrollments) — just record and ack.
+      // The failure CTE (recordFailure): bump attempts; at the cap ($4) the enrollment is stopped.
+      if (/WITH step_fail AS/i.test(t)) {
+        const max = Number((params ?? [])[3]);
+        attempts += 1;
+        return { rows: [{ attempts, status: attempts >= max ? "stopped" : "active" }] as T[] };
+      }
+      // All other engine UPDATEs (steps + enrollments) — just record and ack.
       return { rows: [] as T[] };
     },
   };
@@ -199,11 +219,12 @@ function makeEnvoy(
 
 function setup(opts: {
   seed?: ConsentSeed[];
+  priorAttempts?: number;
   resend?: ResendOpts;
   agent?: AgentOpts;
   configOverrides?: Partial<ResolvedEnvoyConfig>;
 }) {
-  const fp = fakePool(opts.seed);
+  const fp = fakePool(opts.seed, { priorAttempts: opts.priorAttempts });
   const { handle, emailsSend } = fakeResend(opts.resend);
   const envoy = makeEnvoy(fp.pool, handle, opts.configOverrides);
   const mirror = createConsentMirror(envoy.db, envoy.resend);
@@ -588,13 +609,33 @@ describe("runDripStep — gating", () => {
     expect(env.agent!.create).not.toHaveBeenCalled();
   });
 
-  it("Edge: an unsubscribed contact (global) is denied", async () => {
+  it("Edge: an unsubscribed contact (global) is denied, and its enrollment is closed", async () => {
     const env = setup({
       seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "unsubscribed" }],
       agent: { output: '{"body":"Hi"}' },
     });
     const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(res).toEqual({ sent: false, reason: "suppressed", detail: "enrollment closed" });
+    const close = env.calls.find((c) => /status = 'suppressed'/i.test(c.text));
+    expect(close).toBeDefined();
+    expect(close!.text).toMatch(/AND status = 'active'/);
+    expect(close!.params).toEqual(["prod", 10]);
+  });
+
+  it("Edge: an opt_out (not permanent) is denied but its enrollment is NOT closed", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_out" }],
+      agent: { output: '{"body":"Hi"}' },
+    });
+    await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(env.calls.find((c) => /status = 'suppressed'/i.test(c.text))).toBeUndefined();
+  });
+
+  it("Edge: no consent row yet (an enroll that raced the mirror) is denied but NOT closed", async () => {
+    const env = setup({ seed: [], agent: { output: '{"body":"Hi"}' } });
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
     expect(res).toEqual({ sent: false, reason: "suppressed" });
+    expect(env.calls.find((c) => /status = 'suppressed'/i.test(c.text))).toBeUndefined();
   });
 
   it("Edge: a GLOBALLY-suppressed contact is denied even with a stale opt_in topic row (R22/R26)", async () => {
@@ -614,10 +655,155 @@ describe("runDripStep — gating", () => {
       agent: { output: '{"body":"Hi"}' },
     });
     const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
-    expect(res).toEqual({ sent: false, reason: "suppressed" });
+    expect(res).toEqual({ sent: false, reason: "suppressed", detail: "enrollment closed" });
     expect(env.emailsSend).not.toHaveBeenCalled();
     // Gate is first — the agent is never even consulted.
     expect(env.agent!.create).not.toHaveBeenCalled();
+    expect(env.calls.find((c) => /status = 'suppressed'/i.test(c.text))).toBeDefined();
+  });
+});
+
+// =============================================================================================
+// AI block length (Resend refuses a template variable over 2,000 characters) + backoff + the cap.
+// =============================================================================================
+
+const LONG = "x".repeat(RESEND_TEMPLATE_VARIABLE_MAX + 1);
+const AT_LIMIT = "y".repeat(RESEND_TEMPLATE_VARIABLE_MAX);
+const body = (text: string) => JSON.stringify({ body: text });
+const failureWrite = (calls: RecordedCall[]) => calls.filter((c) => /WITH step_fail AS/i.test(c.text));
+const discards = (calls: RecordedCall[]) =>
+  calls.filter((c) => /block_sessions = block_sessions - \$3::text/i.test(c.text));
+
+describe("runDripStep — AI block over Resend's per-value limit", () => {
+  it("a value of exactly the limit is sent as is (nothing regenerated)", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body(AT_LIMIT) },
+    });
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(res).toMatchObject({ sent: true });
+    expect(env.agent!.create).toHaveBeenCalledTimes(1);
+    expect(discards(env.calls)).toHaveLength(0);
+  });
+
+  it("an over-long HARVESTED block is discarded and regenerated once, fresh, then sent", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { retrieveStatus: "idle", listOutput: body(LONG), output: body("Short and sweet") },
+    });
+    const res = await runDripStep(
+      env.envoy,
+      SEQ,
+      baseDue({ blockSessions: { GREETING: "sess_old" } }),
+      env.config,
+    );
+    expect(res).toMatchObject({ sent: true });
+    // The stored session was harvested first, then ONE fresh session was made.
+    expect(env.agent!.list).toHaveBeenCalledTimes(1);
+    expect(env.agent!.create).toHaveBeenCalledTimes(1);
+    // The over-long block's marker was dropped before regenerating.
+    expect(discards(env.calls)).toHaveLength(1);
+    expect(discards(env.calls)[0]!.params).toEqual(["prod", 100, "GREETING"]);
+    const [payload] = env.emailsSend.mock.calls[0]! as unknown as [{ template: { variables: Record<string, string> } }];
+    expect(payload.template.variables.GREETING).toBe("Short and sweet");
+    expect(failureWrite(env.calls)).toHaveLength(0);
+  });
+
+  it("still over-long after the one regeneration: nothing is sent, the failure is recorded and backed off", async () => {
+    const now = new Date("2026-11-09T12:00:00.000Z");
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body(LONG) },
+    });
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config, now);
+    expect(res).toMatchObject({ sent: false, reason: "generation_failed" });
+    expect((res as { detail?: string }).detail).toMatch(/GREETING is 2001 characters, over Resend's 2000-character limit/);
+    expect(env.emailsSend).not.toHaveBeenCalled();
+    // Generated twice (the first + the ONE regeneration), never a third time in the same run.
+    expect(env.agent!.create).toHaveBeenCalledTimes(2);
+    // Both over-long sessions are forgotten, so the next attempt starts fresh.
+    expect(discards(env.calls)).toHaveLength(2);
+    const writes = failureWrite(env.calls);
+    expect(writes).toHaveLength(1);
+    // [namespace, stepId, reason, maxAttempts, enrollmentId, now, base, max]
+    expect(writes[0]!.params).toEqual([
+      "prod",
+      100,
+      expect.stringContaining("over Resend's 2000-character limit"),
+      DEFAULT_DRIP_MAX_ATTEMPTS,
+      10,
+      now.toISOString(),
+      DRIP_BACKOFF_BASE_MS,
+      DRIP_BACKOFF_MAX_MS,
+    ]);
+    // The failure moves only an ACTIVE enrollment (an operator's unenroll is never overwritten).
+    expect(writes[0]!.text).toMatch(/e\.status = 'active'/);
+  });
+
+  it("a regeneration that fails is a recorded generation failure; the long block is never sent", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { retrieveStatus: "idle", listOutput: body(LONG), errorEvent: true },
+    });
+    const res = await runDripStep(
+      env.envoy,
+      SEQ,
+      baseDue({ blockSessions: { GREETING: "sess_old" } }),
+      env.config,
+    );
+    // The fresh regeneration errored → a recorded generation failure, never a send of the long one.
+    expect(res).toMatchObject({ sent: false, reason: "generation_failed" });
+    expect(env.emailsSend).not.toHaveBeenCalled();
+    expect(failureWrite(env.calls)).toHaveLength(1);
+  });
+});
+
+describe("runDripStep — backoff and the attempt cap", () => {
+  it("dripBackoffMs doubles from 15 minutes and stops at a day", () => {
+    expect(dripBackoffMs(1)).toBe(15 * 60 * 1000);
+    expect(dripBackoffMs(2)).toBe(30 * 60 * 1000);
+    expect(dripBackoffMs(3)).toBe(60 * 60 * 1000);
+    expect(dripBackoffMs(7)).toBe(16 * 60 * 60 * 1000);
+    expect(dripBackoffMs(8)).toBe(DRIP_BACKOFF_MAX_MS);
+    expect(dripBackoffMs(100)).toBe(DRIP_BACKOFF_MAX_MS);
+    expect(dripBackoffMs(0)).toBe(DRIP_BACKOFF_BASE_MS);
+  });
+
+  it("a send failure is recorded through the backoff write, not retried next tick", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+      resend: { sendError: true },
+    });
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), env.config);
+    expect(res).toMatchObject({ sent: false, reason: "send_failed" });
+    expect(failureWrite(env.calls)).toHaveLength(1);
+  });
+
+  it("the failure that reaches maxAttempts stops the enrollment, reported ONCE as `stopped`", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+      resend: { sendError: true },
+      priorAttempts: 2,
+    });
+    const res = await runDripStep(env.envoy, SEQ, baseDue(), { ...env.config, maxAttempts: 3 });
+    expect(res).toEqual({ sent: false, reason: "stopped", detail: "emails.send failed: validation_error" });
+    expect(failureWrite(env.calls)[0]!.params[3]).toBe(3);
+    expect(error).toHaveBeenCalledTimes(1);
+    // The line carries no recipient address (R43).
+    expect(JSON.stringify(error.mock.calls)).not.toContain("ada@example.com");
+  });
+
+  it("an invalid maxAttempts falls back to the default", async () => {
+    const env = setup({
+      seed: [{ contact: "ada@example.com", topicKey: "welcome", digest: "opt_in" }],
+      agent: { output: body("Hi") },
+      resend: { sendError: true },
+    });
+    await runDripStep(env.envoy, SEQ, baseDue(), { ...env.config, maxAttempts: 0 });
+    expect(failureWrite(env.calls)[0]!.params[3]).toBe(DEFAULT_DRIP_MAX_ATTEMPTS);
   });
 });
 

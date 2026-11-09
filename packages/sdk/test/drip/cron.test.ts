@@ -76,6 +76,7 @@ interface StepRow {
   block_sessions: Record<string, string> | null;
   status: string;
   resend_email_id: string | null;
+  attempts: number;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -91,6 +92,8 @@ function fakePool(opts: {
   calls: RecordedCall[];
   enrollments: Map<number, EnrollmentRow>;
   steps: StepRow[];
+  /** End the previous tick's claim (its statement "committed"), so a LATER tick can claim again. */
+  release: () => void;
 } {
   const calls: RecordedCall[] = [];
 
@@ -187,6 +190,7 @@ function fakePool(opts: {
           block_sessions: {},
           status: "pending",
           resend_email_id: null,
+          attempts: 0,
         };
         steps.push(row);
         // RETURNING id, agent_session_id from the freshly inserted row.
@@ -249,12 +253,46 @@ function fakePool(opts: {
         return { rows: [] as T[] };
       }
 
-      // 7. Inflight marker write / failure bookkeeping / completion — record-and-ack.
+      // 6.5. Failure bookkeeping — ONE CTE (recordFailure): bump the step's attempts, then back the
+      // ACTIVE enrollment off or, at the cap, mark the step failed and the enrollment stopped. Params:
+      //   [namespace, stepId, reason, maxAttempts, enrollmentId, nowIso, baseMs, maxMs]
+      if (/WITH step_fail AS/i.test(t)) {
+        const [, stepId, , max, enrollmentId, nowIso, baseMs, maxMs] = params as [
+          string, number, string, number, number, string, number, number,
+        ];
+        const step = steps.find((x) => x.id === stepId);
+        if (!step) return { rows: [] as T[] };
+        step.attempts += 1;
+        if (step.attempts >= max) step.status = "failed";
+        const e = enrollments.get(enrollmentId);
+        if (!e || e.status !== "active") return { rows: [] as T[] };
+        if (step.attempts >= max) {
+          e.status = "stopped";
+          e.next_run_at = null;
+        } else {
+          const delay = Math.min(baseMs * 2 ** Math.max(step.attempts - 1, 0), maxMs);
+          e.next_run_at = new Date(new Date(nowIso).getTime() + delay).toISOString();
+        }
+        return { rows: [{ attempts: step.attempts, status: e.status }] as T[] };
+      }
+
+      // 6.6. Close a permanently-suppressed contact's ACTIVE enrollment.
+      if (/UPDATE sdk_enrollments[\s\S]*status = 'suppressed'/i.test(t)) {
+        const [, enrollmentId] = params as [string, number];
+        const e = enrollments.get(enrollmentId);
+        if (e && e.status === "active") {
+          e.status = "suppressed";
+          e.next_run_at = null;
+        }
+        return { rows: [] as T[] };
+      }
+
+      // 7. Inflight marker write / completion — record-and-ack.
       return { rows: [] as T[] };
     },
   };
 
-  return { pool, calls, enrollments, steps };
+  return { pool, calls, enrollments, steps, release: () => lockedIds.clear() };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -429,9 +467,63 @@ describe("tickDrip — claim + run (R20, R21)", () => {
     expect(result.failed).toBe(0);
     expect(emailsSend).not.toHaveBeenCalled();
     const item = result.items.find((i) => i.email === "ada@example.com");
-    expect(item?.result).toEqual({ sent: false, reason: "suppressed" });
-    // The enrollment is left untouched (still at step 0) — not advanced, not completed.
+    expect(item?.result).toEqual({ sent: false, reason: "suppressed", detail: "enrollment closed" });
+    // Not advanced, and CLOSED: a permanently suppressed contact is never claimed again.
     expect(fp.enrollments.get(10)?.current_step).toBe(0);
+    expect(fp.enrollments.get(10)?.status).toBe("suppressed");
+    fp.release();
+    const next = await tickDrip(envoy, REGISTRY, tickConfig(envoy));
+    expect(next.claimed).toBe(0);
+  });
+
+  it("a failing send is backed off: not claimed again until its next_run_at, which doubles", async () => {
+    const fp = fakePool({
+      enrollments: [{ id: 10, contact: "ada@example.com", sequenceKey: "welcome", currentStep: 0 }],
+      consent: [{ contact: "ada@example.com", topicKey: "welcome" }],
+    });
+    fakeAgent({ output: '{"body":"Hi"}' });
+    const { handle, emailsSend } = fakeResend({ sendThrows: true });
+    const envoy = makeEnvoy(fp.pool, handle);
+    const t0 = new Date("2026-11-09T12:00:00.000Z");
+    const min = 60 * 1000;
+
+    const first = await tickDrip(envoy, REGISTRY, tickConfig(envoy), t0);
+    expect(first.failed).toBe(1);
+    expect(fp.enrollments.get(10)?.next_run_at).toBe(new Date(t0.getTime() + 15 * min).toISOString());
+
+    // The next 15-minute tick finds nothing due: the step is no longer retried every tick.
+    fp.release();
+    expect((await tickDrip(envoy, REGISTRY, tickConfig(envoy), new Date(t0.getTime() + 14 * min))).claimed).toBe(0);
+
+    fp.release();
+    const t1 = new Date(t0.getTime() + 15 * min);
+    const second = await tickDrip(envoy, REGISTRY, tickConfig(envoy), t1);
+    expect(second.claimed).toBe(1);
+    expect(fp.enrollments.get(10)?.next_run_at).toBe(new Date(t1.getTime() + 30 * min).toISOString());
+    expect(emailsSend).toHaveBeenCalledTimes(2);
+  });
+
+  it("at maxAttempts the step fails and the enrollment stops — reported once, never claimed again", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fp = fakePool({
+      enrollments: [{ id: 10, contact: "ada@example.com", sequenceKey: "welcome", currentStep: 0 }],
+      consent: [{ contact: "ada@example.com", topicKey: "welcome" }],
+    });
+    fakeAgent({ output: '{"body":"Hi"}' });
+    const { handle } = fakeResend({ sendThrows: true });
+    const envoy = makeEnvoy(fp.pool, handle);
+    let now = new Date("2026-11-09T12:00:00.000Z");
+    const reasons: string[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      fp.release();
+      const r = await tickDrip(envoy, REGISTRY, tickConfig(envoy, { maxAttempts: 3 }), now);
+      for (const item of r.items) reasons.push(item.result.sent ? "sent" : item.result.reason);
+      now = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+    }
+    expect(reasons).toEqual(["send_failed", "send_failed", "stopped"]);
+    expect(fp.enrollments.get(10)?.status).toBe("stopped");
+    expect(fp.enrollments.get(10)?.next_run_at).toBeNull();
+    expect(fp.steps.find((x) => x.enrollment_id === 10)?.status).toBe("failed");
   });
 
   it("two concurrent ticks double-send nothing (R21)", async () => {
@@ -684,6 +776,7 @@ describe("tickDrip — claim + run (R20, R21)", () => {
       block_sessions: { GREETING: "sess_prior" },
       status: "pending",
       resend_email_id: null,
+      attempts: 0,
     });
 
     // The agent fake's `list` (harvest) path yields the prior session's output; `create` would mint a
@@ -799,5 +892,26 @@ describe("createDripCronHandler (R20)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { ok: boolean; failed: number; sent: number };
     expect(body).toMatchObject({ ok: true, failed: 1, sent: 0 });
+  });
+
+  it("lists a step that reached its attempt cap in `failures` as `stopped`", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fp = fakePool({
+      enrollments: [{ id: 10, contact: "ada@example.com", sequenceKey: "welcome", currentStep: 0 }],
+      consent: [{ contact: "ada@example.com", topicKey: "welcome" }],
+    });
+    fakeAgent();
+    const { handle } = fakeResend({ sendThrows: true });
+    const envoy = makeEnvoy(fp.pool, handle);
+
+    const cronHandler = createDripCronHandler({
+      envoy,
+      registry: REGISTRY,
+      tick: tickConfig(envoy, { maxAttempts: 1 }),
+    });
+    const res = await cronHandler(new Request("https://app.example.com/api/envoy/cron/drip"));
+    const body = (await res.json()) as { failed: number; failures?: { reason: string; stepIndex: number }[] };
+    expect(body.failed).toBe(1);
+    expect(body.failures).toEqual([expect.objectContaining({ reason: "stopped", stepIndex: 0 })]);
   });
 });

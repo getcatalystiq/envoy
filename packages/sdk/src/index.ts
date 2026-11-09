@@ -166,6 +166,12 @@ export {
 export {
   runDripStep,
   tickDrip,
+  dripBackoffMs,
+  RESEND_TEMPLATE_VARIABLE_MAX,
+  DEFAULT_DRIP_MAX_ATTEMPTS,
+  DRIP_BACKOFF_BASE_MS,
+  DRIP_BACKOFF_MAX_MS,
+  FAILED_DRIP_REASONS,
   type DueStep,
   type DripStepResult,
   type DripSkipReason,

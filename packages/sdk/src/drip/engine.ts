@@ -22,11 +22,21 @@ import { type Sequence, type SequenceStep, blockTypeForSlot } from "./sequence.j
 // mid-flight and is re-claimed next tick — it harvests the prior session, never re-generates or
 // re-sends.
 //
-// FAIL-SAFE (R16): every failure path leaves the step DUE for a later tick and sends NOTHING empty.
-// A generation that produces no usable slots, an agent error, a suppressed contact mid-flight, a
-// disabled Resend key, or a Resend send error all return a non-`sent` outcome WITHOUT advancing the
-// enrollment or marking the step sent. The step is retried next tick. Nothing is ever sent with
-// missing slots, and nothing is silently dropped.
+// FAIL-SAFE (R16): every failure path sends NOTHING empty and never advances the enrollment or marks
+// the step sent. A generation that produces no usable slots, an agent error, or a Resend send error
+// is RECORDED (`recordFailure`) and retried with an exponential backoff on `next_run_at` (15 min,
+// doubling, at most a day); after `maxAttempts` recorded failures the step is marked `failed` and the
+// enrollment `stopped` (reported once, as `stopped`, and never claimed again). Before 0.10.0 a failing
+// step was retried every tick forever (one enrollment was re-sent 10,754 times). A disabled Resend key
+// or a deferred session leaves the step due with no backoff. A contact PERMANENTLY suppressed (global
+// unsubscribe / bounce / complaint / erasure, or an `unsubscribed` topic row) closes its enrollment
+// (`suppressed`); one merely not opted in (no consent row yet, `opt_out`) is left due, as before.
+//
+// AI BLOCK LENGTH: Resend refuses a template variable longer than 2,000 characters
+// (`RESEND_TEMPLATE_VARIABLE_MAX`), and the refusal is not a transport failure: re-sending the same
+// stored block fails the same way. So every AI-written value is checked BEFORE `emails.send`; an
+// over-long one counts as a failed generation: its stored session is discarded and the slot is
+// regenerated ONCE in the same run; still over-long, the failure is recorded (and backed off).
 
 /** A claimed due step the engine acts on (the cron tick joins enrollment + step and passes this). */
 export interface DueStep {
@@ -70,8 +80,31 @@ export type DripSkipReason =
   | "suppressed" // mirror gate denied
   | "resend_disabled" // no Resend key — silent no-op (R43)
   | "deferred" // a prior session is still running — retry next tick, no second billed session
-  | "generation_failed" // agent produced no usable slots / errored — leave due (R16)
-  | "send_failed"; // Resend refused/threw — leave due (R16)
+  | "generation_failed" // agent produced no usable slots / errored / a block over the limit — backed off (R16)
+  | "send_failed" // Resend refused/threw — backed off (R16)
+  | "stopped"; // the step's recorded failures reached `maxAttempts`: step `failed`, enrollment `stopped`
+
+/**
+ * Resend's limit on ONE template variable's value (its 422 reads "has a 2,000 character limit per
+ * value"). Measured as the JS string length (UTF-16 code units), which is never below the character
+ * count, so a value that passes here is never refused for length there.
+ */
+export const RESEND_TEMPLATE_VARIABLE_MAX = 2000;
+
+/** Default cap on recorded failures of one step before the enrollment is stopped. */
+export const DEFAULT_DRIP_MAX_ATTEMPTS = 8;
+/** First backoff after a recorded failure; it doubles per failure. */
+export const DRIP_BACKOFF_BASE_MS = 15 * 60 * 1000;
+/** The longest backoff between two attempts of one step. */
+export const DRIP_BACKOFF_MAX_MS = 24 * 60 * 60 * 1000;
+
+/** The outcomes counted as `failed` by the tick and listed in the cron handler's `failures`. */
+export const FAILED_DRIP_REASONS: ReadonlySet<string> = new Set([
+  "generation_failed",
+  "send_failed",
+  "stopped",
+  "tick_error",
+]);
 
 /** Outcome of {@link runDripStep}. */
 export type DripStepResult =
@@ -91,6 +124,13 @@ export interface DripEngineConfig {
   stream?: Stream;
   /** Per-call agent timeout override. */
   agentTimeoutMs?: number;
+  /**
+   * Recorded failures of one step (a failed generation, an over-long AI block, a Resend refusal)
+   * before the step is marked `failed` and the enrollment `stopped`. Default
+   * {@link DEFAULT_DRIP_MAX_ATTEMPTS}. Between attempts `next_run_at` backs off exponentially from
+   * {@link DRIP_BACKOFF_BASE_MS} up to {@link DRIP_BACKOFF_MAX_MS}.
+   */
+  maxAttempts?: number;
 }
 
 /** Resolve the From address: explicit stream default wins; fail loud if neither is configured. */
@@ -226,23 +266,126 @@ async function advance(
   return { advancedTo: nextIndex, completed };
 }
 
-/** Record a generation/send failure on the step (attempt count + last error) WITHOUT advancing —
- * the step stays due (R16). Best-effort: a bookkeeping write failure never masks the real reason. */
+/** The backoff before the next attempt after the `attempts`-th recorded failure (1-based). */
+export function dripBackoffMs(attempts: number): number {
+  const exp = Math.max(0, Math.min(attempts - 1, 30));
+  return Math.min(DRIP_BACKOFF_BASE_MS * 2 ** exp, DRIP_BACKOFF_MAX_MS);
+}
+
+/** What {@link recordFailure} left: `stopped` once the cap is reached, else the step stays due later. */
+type FailureOutcome = { stopped: boolean };
+
+/**
+ * Record a generation/send failure WITHOUT advancing (R16), in ONE statement (the `advance` CTE
+ * pattern): bump the step's `attempts` and `last_error`, then either push the enrollment's
+ * `next_run_at` out by {@link dripBackoffMs} or, at `maxAttempts`, mark the step `failed` and the
+ * enrollment `stopped` (`next_run_at` cleared, so it is never claimed again). Only an `active`
+ * enrollment is moved, so an operator's concurrent unenroll is never overwritten.
+ *
+ * Best-effort: a bookkeeping write failure never masks the real reason, and reads as not stopped.
+ */
 async function recordFailure(
   envoy: Envoy,
-  stepId: DueStep["stepId"],
+  due: DueStep,
   reason: string,
-): Promise<void> {
+  maxAttempts: number,
+  now: Date,
+): Promise<FailureOutcome> {
   try {
-    await envoy.db.execWrite(
-      `UPDATE sdk_steps
-         SET attempts = attempts + 1, last_error = $3, updated_at = NOW()
-       WHERE namespace = $1 AND id = $2`,
-      [envoy.db.namespace, stepId, reason.slice(0, 500)],
+    const { rows } = await envoy.db.execWrite<{ attempts: number; status: string }>(
+      `WITH step_fail AS (
+         UPDATE sdk_steps
+            SET attempts = attempts + 1, last_error = $3,
+                status = CASE WHEN attempts + 1 >= $4 THEN 'failed' ELSE status END,
+                updated_at = NOW()
+          WHERE namespace = $1 AND id = $2
+          RETURNING attempts
+       )
+       UPDATE sdk_enrollments e
+          SET status = CASE WHEN f.attempts >= $4 THEN 'stopped' ELSE e.status END,
+              next_run_at = CASE
+                WHEN f.attempts >= $4 THEN NULL
+                ELSE $6::timestamptz + LEAST(
+                  $7::double precision * power(2, LEAST(GREATEST(f.attempts - 1, 0), 30)),
+                  $8::double precision
+                ) * INTERVAL '1 millisecond'
+              END,
+              updated_at = NOW()
+         FROM step_fail f
+        WHERE e.namespace = $1 AND e.id = $5 AND e.status = 'active'
+        RETURNING f.attempts, e.status`,
+      [
+        envoy.db.namespace,
+        due.stepId,
+        reason.slice(0, 500),
+        maxAttempts,
+        due.enrollmentId,
+        now.toISOString(),
+        DRIP_BACKOFF_BASE_MS,
+        DRIP_BACKOFF_MAX_MS,
+      ],
     );
+    const row = rows[0];
+    const stopped = row !== undefined && row.status === "stopped";
+    if (stopped) {
+      // Reported ONCE: a stopped enrollment is never claimed again. No recipient in the line (R43).
+      // eslint-disable-next-line no-console
+      console.error(
+        `[@catalystiq/envoy-sdk] drip step stopped after ${String(row.attempts)} failed attempts ` +
+          `(seq=${due.sequenceKey} step=${due.stepIndex} enrollment=${String(due.enrollmentId)}):`,
+        envoy.redact(reason),
+      );
+    }
+    return { stopped };
   } catch {
     /* bookkeeping only — the engine's return value is the source of truth */
+    return { stopped: false };
   }
+}
+
+/** The non-sent result of a recorded failure: `stopped` once the cap is reached, else `reason`. */
+async function failStep(
+  envoy: Envoy,
+  due: DueStep,
+  reason: "generation_failed" | "send_failed",
+  detail: string,
+  maxAttempts: number,
+  now: Date,
+): Promise<DripStepResult> {
+  const { stopped } = await recordFailure(envoy, due, detail, maxAttempts, now);
+  return stopped ? { sent: false, reason: "stopped", detail } : { sent: false, reason, detail };
+}
+
+/**
+ * Forget ONE slot's stored session (`block_sessions - slot`), so the next generation of that slot
+ * starts fresh instead of harvesting the same output again. Used when a harvested block cannot be
+ * sent (over Resend's per-value limit).
+ */
+async function discardBlockSession(
+  envoy: Envoy,
+  stepId: DueStep["stepId"],
+  slotName: string,
+): Promise<void> {
+  await envoy.db.execWrite(
+    `UPDATE sdk_steps
+        SET block_sessions = block_sessions - $3::text, updated_at = NOW()
+      WHERE namespace = $1 AND id = $2`,
+    [envoy.db.namespace, stepId, slotName],
+  );
+}
+
+/**
+ * Close an enrollment whose contact can never be mailed on this topic again (a global suppression,
+ * or an `unsubscribed` consent row: both only ever move toward more suppression). Only an `active`
+ * enrollment is moved. Without this a suppressed contact was claimed every tick forever.
+ */
+async function closeSuppressed(envoy: Envoy, due: DueStep): Promise<void> {
+  await envoy.db.execWrite(
+    `UPDATE sdk_enrollments
+        SET status = 'suppressed', next_run_at = NULL, updated_at = NOW()
+      WHERE namespace = $1 AND id = $2 AND status = 'active'`,
+    [envoy.db.namespace, due.enrollmentId],
+  );
 }
 
 /**
@@ -250,16 +393,18 @@ async function recordFailure(
  *
  *   1. Resolve the current step from the sequence; an out-of-range index ⇒ complete the enrollment.
  *   2. Honor the wait (R15) — a not-yet-eligible step is skipped (`not_due`), nothing touched.
- *   3. GATE against the mirror (R26) — a suppressed contact is never sent (`suppressed`).
+ *   3. GATE against the mirror (R26) — a suppressed contact is never sent (`suppressed`); one that
+ *      is PERMANENTLY suppressed also has its enrollment closed (`status = 'suppressed'`).
  *   4. Resolve From — fail loud (caller's fail-soft wraps this) if neither default is configured.
  *   5. Generate-or-harvest the declared slots (R14/R23). A re-claim with a `running` prior session
- *      DEFERS (no second billed session); a `completed` one is harvested. A failure leaves the step
- *      due (`generation_failed`) — NOTHING is sent.
+ *      DEFERS (no second billed session); a `completed` one is harvested. A value over Resend's
+ *      per-variable limit is discarded and regenerated once. A failure is recorded and backed off
+ *      (`generation_failed`, or `stopped` at the cap) — NOTHING is sent.
  *   6. No Resend key ⇒ silent no-op (`resend_disabled`, R43) — the step stays due.
  *   7. `emails.send({ template: { id, variables }, headers: List-Unsubscribe }, { idempotencyKey })`
  *      — the idempotency key is the REQUEST OPTION (`Idempotency-Key` header), never a body field.
  *   8. Only on a confirmed send: mark the step sent + advance the enrollment (R16). A send failure
- *      leaves the step due (`send_failed`).
+ *      is recorded and backed off (`send_failed`, or `stopped` at the cap).
  */
 export async function runDripStep(
   envoy: Envoy,
@@ -269,6 +414,7 @@ export async function runDripStep(
   now: Date = new Date(),
 ): Promise<DripStepResult> {
   const stream: Stream = config.stream ?? "digest";
+  const maxAttempts = resolveMaxAttempts(config.maxAttempts);
 
   // 1. Resolve the current step. An index past the end means there is nothing to send — treat the
   //    enrollment as complete (idempotent).
@@ -291,6 +437,10 @@ export async function runDripStep(
   const topicKey = due.sequenceKey;
   const allowed = await config.mirror.gate(due.email, topicKey, stream);
   if (!allowed) {
+    if (await config.mirror.isPermanentlySuppressed(due.email, topicKey)) {
+      await closeSuppressed(envoy, due);
+      return { sent: false, reason: "suppressed", detail: "enrollment closed" };
+    }
     return { sent: false, reason: "suppressed" };
   }
 
@@ -311,27 +461,46 @@ export async function runDripStep(
     const target = shapeAgentTarget(safe);
     const fallbackByKey = await originalContentFallbacks(envoy, step.templateId);
     for (const slotName of step.aiSlots) {
-      const gen = await generateOrHarvestBlock({
-        agentId: agent.agentId,
-        environmentId: agent.environmentId,
-        vaultId: agent.vaultId,
-        contract: {
-          mode: BLOCK_AGENT_MODE,
-          original_content: fallbackByKey[slotName] ?? "",
-          prompt: step.brief,
-          target,
-          block_type: blockTypeForSlot(step, slotName),
-        },
-        resumeSessionId: due.blockSessions[slotName],
-        onSessionCreated: (sessionId) => markBlockInflight(envoy, due.stepId, slotName, sessionId),
-        timeoutMs: config.agentTimeoutMs,
-      });
+      const generate = (resumeSessionId: string | undefined) =>
+        generateOrHarvestBlock({
+          agentId: agent.agentId,
+          environmentId: agent.environmentId,
+          vaultId: agent.vaultId,
+          contract: {
+            mode: BLOCK_AGENT_MODE,
+            original_content: fallbackByKey[slotName] ?? "",
+            prompt: step.brief,
+            target,
+            block_type: blockTypeForSlot(step, slotName),
+          },
+          resumeSessionId,
+          onSessionCreated: (sessionId) => markBlockInflight(envoy, due.stepId, slotName, sessionId),
+          timeoutMs: config.agentTimeoutMs,
+        });
+      let gen = await generate(due.blockSessions[slotName]);
+      if (gen.kind !== "deferred" && gen.kind !== "failed" && gen.body.length > RESEND_TEMPLATE_VARIABLE_MAX) {
+        // Over Resend's per-value limit: the send would be refused, and the stored session would
+        // hand back the same block on every retry. Discard it and regenerate ONCE, fresh.
+        await discardBlockSession(envoy, due.stepId, slotName);
+        gen = await generate(undefined);
+        if (gen.kind !== "deferred" && gen.kind !== "failed" && gen.body.length > RESEND_TEMPLATE_VARIABLE_MAX) {
+          // Discard this one too, so the next attempt (after the backoff) starts fresh again.
+          await discardBlockSession(envoy, due.stepId, slotName);
+          return failStep(
+            envoy,
+            due,
+            "generation_failed",
+            `AI block ${slotName} is ${gen.body.length} characters, over Resend's ${RESEND_TEMPLATE_VARIABLE_MAX}-character limit per value (after one regeneration)`,
+            maxAttempts,
+            now,
+          );
+        }
+      }
       if (gen.kind === "deferred") {
         return { sent: false, reason: "deferred" };
       }
       if (gen.kind === "failed") {
-        await recordFailure(envoy, due.stepId, gen.reason);
-        return { sent: false, reason: "generation_failed", detail: gen.reason };
+        return failStep(envoy, due, "generation_failed", gen.reason, maxAttempts, now);
       }
       slots[slotName] = gen.body;
     }
@@ -386,20 +555,23 @@ export async function runDripStep(
   } catch (err) {
     // Transport failure — leave the step DUE (R16). Generic message, no recipient/secret leak (R43).
     const reason = `emails.send threw: ${err instanceof Error ? err.message : "unknown transport error"}`;
-    await recordFailure(envoy, due.stepId, reason);
-    return { sent: false, reason: "send_failed", detail: reason };
+    return failStep(envoy, due, "send_failed", reason, maxAttempts, now);
   }
 
   const { data, error } = response;
   if (error || !data) {
     const reason = `emails.send failed: ${error?.message ?? "unknown error"}`;
-    await recordFailure(envoy, due.stepId, reason);
-    return { sent: false, reason: "send_failed", detail: reason };
+    return failStep(envoy, due, "send_failed", reason, maxAttempts, now);
   }
 
   // 8. Confirmed send — mark sent + advance (R16). This is the ONLY place state moves forward.
   const { advancedTo, completed } = await advance(envoy, due, sequence, data.id, now);
   return { sent: true, emailId: data.id, advancedTo, completed };
+}
+
+/** `maxAttempts` as configured: a positive integer, else {@link DEFAULT_DRIP_MAX_ATTEMPTS}. */
+function resolveMaxAttempts(value: number | undefined): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : DEFAULT_DRIP_MAX_ATTEMPTS;
 }
 
 /** Require the running SEQUENCE to carry its own agent before an AI step runs. The agent is resolved
@@ -477,7 +649,10 @@ export interface DripTickResult {
   sent: number;
   /** How many were skipped (not_due / suppressed / deferred / unknown_sequence / resend_disabled). */
   skipped: number;
-  /** How many failed (generation_failed / send_failed / tick_error) — left due for a later tick. */
+  /**
+   * How many failed (generation_failed / send_failed / tick_error, backed off for a later tick, and
+   * `stopped`, the attempt cap reached: never claimed again).
+   */
   failed: number;
   /** Per-enrollment detail (bounded by `limit`). */
   items: DripTickItem[];
@@ -575,10 +750,7 @@ async function ensureStepRow(
 /** Bucket a single outcome into the running tick tallies. */
 function tally(result: DripTickItem["result"]): "sent" | "skipped" | "failed" {
   if (result.sent) return "sent";
-  if (result.reason === "generation_failed" || result.reason === "send_failed" || result.reason === "tick_error") {
-    return "failed";
-  }
-  return "skipped";
+  return FAILED_DRIP_REASONS.has(result.reason) ? "failed" : "skipped";
 }
 
 /**
