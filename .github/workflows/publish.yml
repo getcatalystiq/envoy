@@ -1,0 +1,243 @@
+# Publishes @catalystiq/envoy-sdk (packages/sdk) to npm when a GitHub release is published (tag sdk-v<version>, where
+# <version> is packages/sdk/package.json's, on a commit of main). The tag says sdk- because this repository also holds
+# the Envoy app, whose own version is never released to npm. A manual run is a dry run unless "publish" is ticked; a
+# real manual publish runs only from main. A pull request that touches the SDK or this file runs the build and a dry
+# run, never the publish.
+#
+# Authenticates by npm trusted publishing (OIDC), with no stored token (https://docs.npmjs.com/trusted-publishers).
+# npmjs.com's settings for the package name this repository, this workflow file (publish.yml) and the environment
+# `npm` as its trusted publisher, and the publish job's `id-token: write` lets npm exchange GitHub's OIDC token for a
+# short-lived publish token. That needs npm 11.5.1 or later and Node 22.14 or later (the jobs run NODE_VERSION).
+# npm binds the repository, the file name and the environment, never the ref. The environment is the ref binding:
+# its deployment policy (repository settings, Environments, npm) admits the branch main and tags matching sdk-v*
+# only, so a run from a feature branch or a pull request, this file edited there included, never reaches the OIDC
+# token. An sdk-v* tag on a commit outside main is refused by the build job's ancestry check below; that check lives
+# in the tagged commit's own copy of this file, so it stops a mistake, not someone who can push an sdk-v* tag and edit
+# the file (a tag ruleset limiting who creates sdk-v* tags is what would). Renaming this file or the environment
+# breaks publishing until the trusted publisher on npmjs.com is recreated to match; a second package published from
+# this repository needs a trusted publisher of its own on its npmjs.com page. This repository is public, so npm
+# generates a provenance attestation for every trusted publish (it needs package.json's `repository` to name this
+# repository, which it does).
+#
+# The OIDC token is minted only where it is needed: `build` installs the dependencies (their install scripts), runs the
+# checks and packs the tarball with no id-token permission; `publish` (a real publish) runs in the environment with
+# `id-token: write`, runs no code from this repository and only hands the packed tarball to `npm publish`, after
+# installing a pinned npm if the runner's is older than 11.5.1; `dry-run` has neither the environment nor the token.
+# Publishing a tarball runs no lifecycle script, so `prepublishOnly` (typecheck and build) does not run there: `build`
+# already ran both, and `npm pack` packs that build.
+name: Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish for real (otherwise npm publish --dry-run). A real publish runs from main only.
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - packages/sdk/**
+      - .github/workflows/publish.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  # Real publishes queue one behind another; a dry run never holds up, or is dropped behind, a release.
+  # A real manual dispatch from another ref (refused by the build job) goes in its own group too.
+  group: ${{ (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')) && 'publish' || format('publish-run-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24' # trusted publishing needs Node 22.14 or later; the SDK's engines say >=20
+  NPM_TRUSTED_PUBLISHING_MIN: 11.5.1 # the oldest npm with trusted publishing
+  NPM_PINNED: 11.21.1 # installed when the runner's npm is older than that
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      node: ${{ steps.node.outputs.node }}
+      dist-tag: ${{ steps.node.outputs.dist-tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The tag names the SDK version, on a commit of main
+        if: ${{ github.event_name == 'release' }}
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version packages/sdk/package.json)
+          if [ "$TAG" != "sdk-v$version" ]; then
+            echo "::error::tag $TAG does not match packages/sdk/package.json version $version (expected sdk-v$version)"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::tag $TAG is on a commit that is not on main; release from a merged commit"
+            exit 1
+          fi
+      - name: A real manual publish runs from main
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish && github.ref != 'refs/heads/main' }}
+        run: |
+          echo "::error::a real manual publish runs only from main (this run is on $GITHUB_REF): the npm environment admits main and sdk-v* tags only. Leave publish unticked for a dry run."
+          exit 1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        id: setup-node
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false # npm's guidance: no dependency cache in a release build
+      - name: The Node version the later jobs run (the one resolved here, without setup-node's v), and the dist-tag
+        id: node
+        env:
+          RESOLVED: ${{ steps.setup-node.outputs.node-version }}
+        run: |
+          set -euo pipefail
+          echo "node=${RESOLVED#v}" >> "$GITHUB_OUTPUT"
+          # A prerelease version (0.11.0-rc.1) goes out under the dist-tag next, never latest.
+          version=$(jq -r .version packages/sdk/package.json)
+          case "${version%%+*}" in *-*) echo "dist-tag=next" ;; *) echo "dist-tag=latest" ;; esac >> "$GITHUB_OUTPUT"
+      # Two installs, root first: there are no npm workspaces, and the SDK's typecheck, tests and declaration build
+      # resolve some dev types (@types/node, @testing-library/react) from the root's node_modules, which its own
+      # lockfile does not carry. Without the root install the typecheck and `npm run build` fail.
+      - name: npm ci (repository root)
+        run: npm ci
+      - name: npm ci (packages/sdk)
+        working-directory: packages/sdk
+        run: npm ci
+      # No lint step: the SDK has no lint script, and the root `npm run lint` covers the app only (packages/ is
+      # excluded from the app's eslint config on purpose).
+      - name: Typecheck
+        working-directory: packages/sdk
+        run: npm run typecheck
+      - name: Test
+        working-directory: packages/sdk
+        run: npm test
+      - name: Build
+        working-directory: packages/sdk
+        run: npm run build
+      - name: Pack
+        working-directory: packages/sdk
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pack"
+          npm pack --pack-destination "$RUNNER_TEMP/pack"
+          ls -l "$RUNNER_TEMP/pack"
+          # The package ships its SQL migrations (the ./migrations/* export); a tarball without them would publish a
+          # package whose hosts cannot migrate.
+          shopt -s nullglob
+          tarballs=("$RUNNER_TEMP"/pack/*.tgz)
+          if [ "${#tarballs[@]}" -ne 1 ]; then echo "::error::expected one packed tarball, found ${#tarballs[@]}"; exit 1; fi
+          tar -tzf "${tarballs[0]}" > "$RUNNER_TEMP/pack-files.txt"
+          for path in package/dist/index.js package/dist/client/index.js package/migrations/001_core.sql; do
+            grep -qx "$path" "$RUNNER_TEMP/pack-files.txt" || { echo "::error::the packed tarball has no $path"; exit 1; }
+          done
+          migrations=(migrations/*.sql)
+          packed=$(grep -c '^package/migrations/.*\.sql$' "$RUNNER_TEMP/pack-files.txt")
+          echo "migrations packed: $packed of ${#migrations[@]}"
+          if [ "$packed" -ne "${#migrations[@]}" ]; then
+            echo "::error::the packed tarball does not hold every migration in packages/sdk/migrations"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package
+          path: ${{ runner.temp }}/pack/*.tgz
+          if-no-files-found: error
+          retention-days: 30 # long enough to re-run a failed publish job on the same tarball
+
+  publish:
+    needs: build
+    if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm # named by the trusted publisher on npmjs.com; admits main and sdk-v* tags only
+    permissions:
+      id-token: write # npm trusted publishing: the OIDC token npm exchanges for a publish token
+    steps:
+      # No checkout and no registry-url: setup-node's registry-url writes an .npmrc that sends a placeholder token
+      # when the OIDC exchange fails, which turns a misconfigured trusted publisher into a misleading E404. Without it
+      # npm uses its default registry, registry.npmjs.org, and a failed exchange is a plain ENEEDAUTH.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ needs.build.outputs.node }}
+          package-manager-cache: false
+      - name: npm that supports trusted publishing (11.5.1 or later)
+        run: |
+          set -euo pipefail
+          current=$(npm --version)
+          oldest=$(printf '%s\n%s\n' "${current%%-*}" "$NPM_TRUSTED_PUBLISHING_MIN" | sort -V | head -n1)
+          if [ "$oldest" = "$NPM_TRUSTED_PUBLISHING_MIN" ]; then
+            echo "npm $current supports trusted publishing"
+          else
+            echo "npm $current is older than $NPM_TRUSTED_PUBLISHING_MIN; installing npm $NPM_PINNED"
+            npm install --global "npm@$NPM_PINNED"
+            npm --version
+          fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package
+          path: ${{ runner.temp }}/pack
+      - name: Publish
+        env:
+          DIST_TAG: ${{ needs.build.outputs.dist-tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tarballs=("$RUNNER_TEMP"/pack/*.tgz)
+          if [ "${#tarballs[@]}" -ne 1 ]; then echo "::error::expected one packed tarball, found ${#tarballs[@]}"; exit 1; fi
+          npm publish "${tarballs[0]}" --access public --tag "$DIST_TAG"
+
+  dry-run:
+    needs: build
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && !inputs.publish) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ needs.build.outputs.node }}
+          package-manager-cache: false
+      - name: the npm the real publish runs
+        run: |
+          set -euo pipefail
+          current=$(npm --version)
+          oldest=$(printf '%s\n%s\n' "${current%%-*}" "$NPM_TRUSTED_PUBLISHING_MIN" | sort -V | head -n1)
+          if [ "$oldest" = "$NPM_TRUSTED_PUBLISHING_MIN" ]; then
+            echo "npm $current supports trusted publishing"
+          else
+            echo "npm $current is older than $NPM_TRUSTED_PUBLISHING_MIN; installing npm $NPM_PINNED"
+            npm install --global "npm@$NPM_PINNED"
+            npm --version
+          fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package
+          path: ${{ runner.temp }}/pack
+      # npm refuses a dry run of a version already on the registry ("You cannot publish over the previously published
+      # versions"), which is main's state between releases. The dry run counts that one error line as the expected
+      # answer and says what it did not exercise; any other failure, or a reworded message, fails the job. A full dry
+      # run needs a version not yet on npm (the version-bump PR's branch, before its release).
+      - name: Publish (dry run)
+        env:
+          DIST_TAG: ${{ needs.build.outputs.dist-tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tarballs=("$RUNNER_TEMP"/pack/*.tgz)
+          if [ "${#tarballs[@]}" -ne 1 ]; then echo "::error::expected one packed tarball, found ${#tarballs[@]}"; exit 1; fi
+          if npm publish "${tarballs[0]}" --access public --tag "$DIST_TAG" --dry-run 2>&1 | tee "$RUNNER_TEMP/dry-run.log"; then
+            exit 0
+          fi
+          if [ "$(grep -c '^npm error' "$RUNNER_TEMP/dry-run.log")" -le 2 ] &&
+            grep -q '^npm error You cannot publish over the previously published versions' "$RUNNER_TEMP/dry-run.log"; then
+            echo "::notice::this version is already on npm, so npm stopped the dry run at its existing-version check; what npm checks after that was not exercised. Dry-run a version not yet on npm for a full run."
+            exit 0
+          fi
+          exit 1
