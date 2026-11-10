@@ -118,43 +118,12 @@ jobs:
           set -euo pipefail
           echo "node=${RESOLVED#v}" >> "$GITHUB_OUTPUT"
           # A prerelease version (0.11.0-rc.1) goes out under the dist-tag next, never latest. A stable version passes
-          # no --tag when it is higher than every stable, non-deprecated version already on npm: npm then applies latest
-          # itself and keeps its guard against moving latest BACK (a guard an explicit --tag latest switches off). npm's
-          # guard compares with exactly that set (not with the latest tag), so the same set decides here. A stable
-          # version lower than one in it is a backport (0.9.2 after 0.10.0): it goes out under the dist-tag
-          # release-<major>.<minor> (release-0.9; npm refuses a tag that parses as a semver range, as v0.9 would), and
-          # latest stays where it is. A failed read of the registry fails the build rather than guess.
+          # no --tag at all: npm then applies latest itself and keeps its guard against moving latest BACK to a version
+          # lower than one already published, a guard an explicit --tag latest switches off. Releases come from main
+          # only, so there is no backport line; a lower stable version reaching this job is a mistake, and npm's guard
+          # refuses it ("Cannot implicitly apply the latest tag").
           version=$(jq -r .version packages/sdk/package.json)
-          case "${version%%+*}" in
-            *-*) echo "dist-tag=next" >> "$GITHUB_OUTPUT" ;;
-            *)
-              name=$(jq -r .name packages/sdk/package.json)
-              # The registry's CDN caches a packument for up to 5 minutes, so a release right after another could miss
-              # it; a unique query string makes the CDN fetch it fresh.
-              status=$(curl -sS -o "$RUNNER_TEMP/packument.json" -w '%{http_code}' \
-                "https://registry.npmjs.org/$(jq -rn --arg n "$name" '$n | @uri')?cache-bust=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$(date +%s%N)")
-              case "$status" in
-                200) ;;
-                404) echo '{"versions":{}}' > "$RUNNER_TEMP/packument.json" ;;
-                *) echo "::error::reading $name from the npm registry answered HTTP $status"; exit 1 ;;
-              esac
-              # The highest published version with no prerelease part that is not deprecated, compared numerically.
-              highest=$(jq -r '[.versions // {} | to_entries[]
-                  | select((.value.deprecated // "") == "")
-                  | .key | sub("\\+.*$"; "") | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))
-                  | {v: ., k: (split(".") | map(tonumber))}] | sort_by(.k) | last | .v // ""' "$RUNNER_TEMP/packument.json")
-              stable="${version%%+*}"
-              lower=$(jq -rn --arg a "$stable" --arg b "$highest" \
-                'if $b == "" then false else ($a | split(".") | map(tonumber)) < ($b | split(".") | map(tonumber)) end')
-              if [ "$lower" = true ]; then
-                major_minor=$(echo "$stable" | cut -d. -f1,2)
-                echo "version $version is lower than $highest on npm: a backport, published under dist-tag release-$major_minor"
-                echo "dist-tag=release-$major_minor" >> "$GITHUB_OUTPUT"
-              else
-                echo "dist-tag=" >> "$GITHUB_OUTPUT"
-              fi
-              ;;
-          esac
+          case "${version%%+*}" in *-*) echo "dist-tag=next" ;; *) echo "dist-tag=" ;; esac >> "$GITHUB_OUTPUT"
       # Two installs, root first: there are no npm workspaces, and the SDK's typecheck, tests and declaration build
       # resolve some dev types (@types/node, @testing-library/react) from the root's node_modules, which its own
       # lockfile does not carry. Without the root install the typecheck and `npm run build` fail.
