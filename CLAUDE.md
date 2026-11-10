@@ -168,7 +168,7 @@ One module per resource: analytics, campaigns, content, design-templates, gradua
 
 A separate, detached in-repo package — **not** part of the app build. The app above is untouched and keeps using AWS SES / OAuth / its own builder.
 
-- **What it is**: a headless, bring-your-own-Postgres, host-owns-auth, single-tenant email SDK for Next.js (App Router), built on `resend@^6.14.0`. Published to npm as **`@catalystiq/envoy-sdk`** — the current version is `version` in `packages/sdk/package.json` (0.9.1 as of 2026-10); bump it on every SDK change you publish (install: `npm i @catalystiq/envoy-sdk resend`). Renamed from the old `@envoy/sdk` — that scope belongs to the CNCF Envoy proxy, so always use `@catalystiq/envoy-sdk`.
+- **What it is**: a headless, bring-your-own-Postgres, host-owns-auth, single-tenant email SDK for Next.js (App Router), built on `resend@^6.14.0`. Published to npm as **`@catalystiq/envoy-sdk`** — the current version is `version` in `packages/sdk/package.json` (0.10.0 as of 2026-11); bump it on every SDK change you publish (install: `npm i @catalystiq/envoy-sdk resend`). Renamed from the old `@envoy/sdk` — that scope belongs to the CNCF Envoy proxy, so always use `@catalystiq/envoy-sdk`.
 - **Location**: `packages/sdk/` — own `package.json`, lockfile, `tsconfig` (own `@sdk/*` path alias, **never** the app's `@/`), tsup build (server entry `.` + client entry `./client` with a `use client` banner), and Vitest.
 - **Isolation**: the only app-side change is excluding `packages/` from the app root `tsconfig.json`, `eslint.config.mjs`, and `vitest.config.ts`, so the app build / typecheck / lint / test never touch the SDK. App source is unchanged.
 
@@ -187,7 +187,7 @@ Plus: a mountable route handler (per-sub-path auth — host authorize callback +
 ```bash
 cd packages/sdk && npm run build      # tsup
 cd packages/sdk && npm run typecheck  # tsc --noEmit
-cd packages/sdk && npm test           # Vitest (578 tests)
+cd packages/sdk && npm test           # Vitest (628 tests)
 ```
 Toolchain: TypeScript 6.0.3, React 19.x, Next 16.4 (dev; peer `next >=14`, `react >=18`, both optional), zod 4. Requires Node >=20 (`engines`).
 

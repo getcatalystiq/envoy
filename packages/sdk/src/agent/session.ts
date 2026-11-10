@@ -61,6 +61,12 @@ export interface AgentSessionResult {
   output: string;
   /** The session id (already persisted via `onSessionCreated` if supplied). */
   sessionId: string;
+  /**
+   * Did the turn END (a `session.status_idle` with `end_turn`)? False when the event stream closed
+   * before any idle event: the output may be partial, and a missing block is then the call's failure,
+   * not the agent's answer.
+   */
+  ended: boolean;
 }
 
 // Matches the app's 10-minute run timeout. The cron re-claim window can equal this, which is
@@ -187,6 +193,7 @@ export async function runAgentSession(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const messages: string[] = [];
+  let idleReason: string | undefined;
 
   try {
     // Open the stream FIRST — only events emitted after the stream opens are delivered — then send
@@ -198,7 +205,6 @@ export async function runAgentSession(
       events: [{ type: "user.message", content: [{ type: "text", text: userMessage }] }],
     });
 
-    let idleReason: string | undefined;
     for await (const event of stream as AsyncIterable<AnyEvent>) {
       if (event.type === "agent.message") {
         messages.push(messageText(event));
@@ -236,7 +242,7 @@ export async function runAgentSession(
     clearTimeout(timer);
   }
 
-  return { output: pickOutput(messages), sessionId };
+  return { output: pickOutput(messages), sessionId, ended: idleReason === "end_turn" };
 }
 
 /**
@@ -418,7 +424,9 @@ export type BlockAgentResult =
   | { kind: "generated"; body: string; sessionId: string }
   | { kind: "harvested"; body: string }
   | { kind: "deferred" }
-  | { kind: "failed"; reason: string };
+  /** `transient`: the CALL failed (outage, rate limit, timeout, key) or the turn never ended (its
+   *  stream closed early, whatever it left) — not a verdict on this block. */
+  | { kind: "failed"; reason: string; transient?: boolean };
 
 /** The constant `mode` sent on every block (the agent does not branch on it — see contract). */
 export const BLOCK_AGENT_MODE = "generate";
@@ -503,7 +511,9 @@ export type SlotGenerationResult =
   | { kind: "generated"; slots: GeneratedSlots; sessionId: string }
   | { kind: "harvested"; slots: GeneratedSlots }
   | { kind: "deferred" }
-  | { kind: "failed"; reason: string };
+  /** `transient`: the CALL failed (outage, rate limit, timeout, key) or the turn never ended (its
+   *  stream closed early, whatever it left) — not a verdict on this output. */
+  | { kind: "failed"; reason: string; transient?: boolean };
 
 export interface GenerateOrHarvestInput extends GenerateSlotsInput {
   /** A non-null inflight marker means re-claim — harvest the prior session instead of forking. */
@@ -538,10 +548,15 @@ export async function generateOrHarvestSlots(
       vaultId: input.vaultId,
     });
   } catch (err) {
-    if (err instanceof AgentError) return { kind: "failed", reason: err.message };
-    return { kind: "failed", reason: "agent session failed" };
+    // The call itself failed: `transient`, as in generateOrHarvestBlock.
+    if (err instanceof AgentError) return { kind: "failed", reason: err.message, transient: true };
+    return { kind: "failed", reason: "agent session failed", transient: true };
   }
 
+  // As in generateOrHarvestBlock: an unended turn is transient, whatever it left.
+  if (!result.ended) {
+    return { kind: "failed", reason: "agent turn did not end (the event stream closed early)", transient: true };
+  }
   const slots = extractSlots(result.output, input.aiSlots);
   if (!slots) {
     return { kind: "failed", reason: "agent output missing one or more declared slots" };
@@ -593,10 +608,18 @@ export async function generateOrHarvestBlock(
       vaultId: input.vaultId,
     });
   } catch (err) {
-    if (err instanceof AgentError) return { kind: "failed", reason: err.message };
-    return { kind: "failed", reason: "agent session failed" };
+    // The call itself failed (an outage, a rate limit, a timeout, a key, a turn that ended on
+    // `requires_action` or `retries_exhausted`): `transient`, never a verdict on this block.
+    if (err instanceof AgentError) return { kind: "failed", reason: err.message, transient: true };
+    return { kind: "failed", reason: "agent session failed", transient: true };
   }
 
+  // A turn that never ENDED (the stream closed before its idle event) is the call's failure,
+  // transient, whatever it left: a body in it may be a draft. The session's marker is kept, so the
+  // next attempt harvests the finished turn. A finished turn with no body is the agent's answer.
+  if (!result.ended) {
+    return { kind: "failed", reason: "agent turn did not end (the event stream closed early)", transient: true };
+  }
   const body = extractBlockBody(result.output);
   if (body === null) return { kind: "failed", reason: "agent output missing body" };
   return { kind: "generated", body, sessionId: result.sessionId };

@@ -7,6 +7,7 @@ import { Webhook } from "svix";
 import type { Envoy } from "../config.js";
 import {
   tickDrip,
+  FAILED_DRIP_REASONS,
   type DripTickConfig,
   type DripTickResult,
   type SequenceRegistry,
@@ -416,7 +417,10 @@ export interface CronTickResponse {
   sent: number;
   /** How many were skipped (not_due / suppressed / deferred / unknown_sequence / resend_disabled). */
   skipped: number;
-  /** How many failed (generation_failed / send_failed / tick_error) — left due for a later tick. */
+  /**
+   * How many failed: generation_failed / send_failed (backed off for a later tick), tick_error (left
+   * due, retried next tick) and `stopped` (the step reached its attempt cap; never claimed again).
+   */
   failed: number;
   /**
    * Per-failure breakdown for the items that failed — `reason` + a redacted `detail` (the error
@@ -445,10 +449,9 @@ export function createDripCronHandler(
   return async (_request: Request): Promise<Response> => {
     try {
       const result: DripTickResult = await tickDrip(envoy, registry, tick);
-      const FAILED_REASONS = new Set(["generation_failed", "send_failed", "tick_error"]);
       // Redacted: reason + detail + stepIndex only. NEVER the email (R43). flatMap narrows the result union.
       const failures = result.items.flatMap((i) =>
-        !i.result.sent && FAILED_REASONS.has(i.result.reason)
+        !i.result.sent && FAILED_DRIP_REASONS.has(i.result.reason)
           ? [{ stepIndex: i.stepIndex, reason: i.result.reason, detail: i.result.detail }]
           : [],
       );
