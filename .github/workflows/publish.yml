@@ -93,7 +93,7 @@ jobs:
             echo "::error::tag $TAG is on a commit that is not on main; release from a merged commit"
             exit 1
           fi
-          # The dist-tag follows the version (a -suffix is next, else latest), so the release's own pre-release box
+          # The dist-tag follows the version (a -suffix is next, never latest), so the release's own pre-release box
           # must say the same, or a trial ticked as pre-release would go out as latest.
           case "${version%%+*}" in *-*) version_prerelease=true ;; *) version_prerelease=false ;; esac
           if [ "$RELEASE_PRERELEASE" != "$version_prerelease" ]; then
@@ -129,8 +129,10 @@ jobs:
             *-*) echo "dist-tag=next" >> "$GITHUB_OUTPUT" ;;
             *)
               name=$(jq -r .name packages/sdk/package.json)
+              # The registry's CDN caches a packument for up to 5 minutes, so a release right after another could miss
+              # it; a unique query string makes the CDN fetch it fresh.
               status=$(curl -sS -o "$RUNNER_TEMP/packument.json" -w '%{http_code}' \
-                "https://registry.npmjs.org/$(jq -rn --arg n "$name" '$n | @uri')")
+                "https://registry.npmjs.org/$(jq -rn --arg n "$name" '$n | @uri')?cache-bust=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$(date +%s%N)")
               case "$status" in
                 200) ;;
                 404) echo '{"versions":{}}' > "$RUNNER_TEMP/packument.json" ;;
