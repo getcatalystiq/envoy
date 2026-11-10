@@ -40,12 +40,17 @@ on:
     paths:
       - packages/sdk/**
       - .github/workflows/publish.yml
+      # The build installs the root's dependencies too (see the two installs below).
+      - package.json
+      - package-lock.json
 
 permissions:
   contents: read
 
 concurrency:
-  # Real publishes queue one behind another; a dry run never holds up, or is dropped behind, a release.
+  # Real publishes run one at a time; a dry run never holds up, or is dropped behind, a release. A concurrency group
+  # keeps only ONE run waiting: a third release published while one runs and one waits cancels the waiting one, whose
+  # version then never reaches npm until that run is re-run (Actions → the cancelled Publish run → Re-run all jobs).
   # A real manual dispatch from another ref (refused by the build job) goes in its own group too.
   group: ${{ (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')) && 'publish' || format('publish-run-{0}', github.run_id) }}
   cancel-in-progress: false
@@ -57,6 +62,9 @@ env:
 
 jobs:
   build:
+    # A release of anything but the SDK (the app shares this repository) is not this workflow's: it is skipped, not
+    # failed. A release tagged sdk-v* that does not match the package version still fails below.
+    if: ${{ github.event_name != 'release' || startsWith(github.event.release.tag_name, 'sdk-v') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
@@ -71,6 +79,7 @@ jobs:
         if: ${{ github.event_name == 'release' }}
         env:
           TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
           set -euo pipefail
           version=$(jq -r .version packages/sdk/package.json)
@@ -80,6 +89,13 @@ jobs:
           fi
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "::error::tag $TAG is on a commit that is not on main; release from a merged commit"
+            exit 1
+          fi
+          # The dist-tag follows the version (a -suffix is next, else latest), so the release's own pre-release box
+          # must say the same, or a trial ticked as pre-release would go out as latest.
+          case "${version%%+*}" in *-*) version_prerelease=true ;; *) version_prerelease=false ;; esac
+          if [ "$RELEASE_PRERELEASE" != "$version_prerelease" ]; then
+            echo "::error::the release's pre-release box is $RELEASE_PRERELEASE but version $version is $([ "$version_prerelease" = true ] && echo a prerelease || echo stable); tick or untick it to match, or change the version"
             exit 1
           fi
       - name: A real manual publish runs from main
@@ -99,9 +115,11 @@ jobs:
         run: |
           set -euo pipefail
           echo "node=${RESOLVED#v}" >> "$GITHUB_OUTPUT"
-          # A prerelease version (0.11.0-rc.1) goes out under the dist-tag next, never latest.
+          # A prerelease version (0.11.0-rc.1) goes out under the dist-tag next, never latest. A stable one passes no
+          # --tag at all: npm then applies latest itself, and refuses to move latest BACK to a version lower than one
+          # already published (a backport such as 0.9.2 after 0.10.0), a guard an explicit --tag latest switches off.
           version=$(jq -r .version packages/sdk/package.json)
-          case "${version%%+*}" in *-*) echo "dist-tag=next" ;; *) echo "dist-tag=latest" ;; esac >> "$GITHUB_OUTPUT"
+          case "${version%%+*}" in *-*) echo "dist-tag=next" ;; *) echo "dist-tag=" ;; esac >> "$GITHUB_OUTPUT"
       # Two installs, root first: there are no npm workspaces, and the SDK's typecheck, tests and declaration build
       # resolve some dev types (@types/node, @testing-library/react) from the root's node_modules, which its own
       # lockfile does not carry. Without the root install the typecheck and `npm run build` fail.
@@ -137,10 +155,10 @@ jobs:
           for path in package/dist/index.js package/dist/client/index.js package/migrations/001_core.sql; do
             grep -qx "$path" "$RUNNER_TEMP/pack-files.txt" || { echo "::error::the packed tarball has no $path"; exit 1; }
           done
-          migrations=(migrations/*.sql)
+          on_disk=$(find migrations -type f -name '*.sql' | wc -l)
           packed=$(grep -c '^package/migrations/.*\.sql$' "$RUNNER_TEMP/pack-files.txt")
-          echo "migrations packed: $packed of ${#migrations[@]}"
-          if [ "$packed" -ne "${#migrations[@]}" ]; then
+          echo "migrations packed: $packed of $on_disk"
+          if [ "$packed" -ne "$on_disk" ]; then
             echo "::error::the packed tarball does not hold every migration in packages/sdk/migrations"
             exit 1
           fi
@@ -191,7 +209,9 @@ jobs:
           shopt -s nullglob
           tarballs=("$RUNNER_TEMP"/pack/*.tgz)
           if [ "${#tarballs[@]}" -ne 1 ]; then echo "::error::expected one packed tarball, found ${#tarballs[@]}"; exit 1; fi
-          npm publish "${tarballs[0]}" --access public --tag "$DIST_TAG"
+          tag_args=()
+          if [ -n "$DIST_TAG" ]; then tag_args=(--tag "$DIST_TAG"); fi
+          npm publish "${tarballs[0]}" --access public "${tag_args[@]}"
 
   dry-run:
     needs: build
@@ -232,7 +252,9 @@ jobs:
           shopt -s nullglob
           tarballs=("$RUNNER_TEMP"/pack/*.tgz)
           if [ "${#tarballs[@]}" -ne 1 ]; then echo "::error::expected one packed tarball, found ${#tarballs[@]}"; exit 1; fi
-          if npm publish "${tarballs[0]}" --access public --tag "$DIST_TAG" --dry-run 2>&1 | tee "$RUNNER_TEMP/dry-run.log"; then
+          tag_args=()
+          if [ -n "$DIST_TAG" ]; then tag_args=(--tag "$DIST_TAG"); fi
+          if npm publish "${tarballs[0]}" --access public "${tag_args[@]}" --dry-run 2>&1 | tee "$RUNNER_TEMP/dry-run.log"; then
             exit 0
           fi
           if [ "$(grep -c '^npm error' "$RUNNER_TEMP/dry-run.log")" -le 2 ] &&
