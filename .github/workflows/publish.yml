@@ -52,8 +52,9 @@ concurrency:
   # keeps only ONE run waiting: a third release published while one runs and one waits cancels the waiting one, whose
   # version then never reaches npm until that run is re-run (Actions → the cancelled Publish run → Re-run all jobs).
   # A real manual dispatch from another ref (refused by the build job) goes in its own group too.
-  group: ${{ (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')) && 'publish' || format('publish-run-{0}', github.run_id) }}
-  cancel-in-progress: false
+  # A pull request's runs share a group per pull request, and a new push cancels the older run.
+  group: ${{ (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main')) && 'publish' || (github.event_name == 'pull_request' && format('publish-pr-{0}', github.event.pull_request.number)) || format('publish-run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   NODE_VERSION: '24' # trusted publishing needs Node 22.14 or later; the SDK's engines say >=20
@@ -115,11 +116,30 @@ jobs:
         run: |
           set -euo pipefail
           echo "node=${RESOLVED#v}" >> "$GITHUB_OUTPUT"
-          # A prerelease version (0.11.0-rc.1) goes out under the dist-tag next, never latest. A stable one passes no
-          # --tag at all: npm then applies latest itself, and refuses to move latest BACK to a version lower than one
-          # already published (a backport such as 0.9.2 after 0.10.0), a guard an explicit --tag latest switches off.
+          # A prerelease version (0.11.0-rc.1) goes out under the dist-tag next, never latest. A stable version higher
+          # than npm's latest passes no --tag at all: npm then applies latest itself, keeping its guard against moving
+          # latest BACK to a lower version (a guard an explicit --tag latest switches off). A stable version LOWER than
+          # npm's latest is a backport (0.9.2 after 0.10.0): it goes out under the dist-tag v<major>.<minor> (v0.9),
+          # and latest stays where it is. A failed read of npm's latest fails the build rather than guess.
           version=$(jq -r .version packages/sdk/package.json)
-          case "${version%%+*}" in *-*) echo "dist-tag=next" ;; *) echo "dist-tag=" ;; esac >> "$GITHUB_OUTPUT"
+          case "${version%%+*}" in
+            *-*) echo "dist-tag=next" >> "$GITHUB_OUTPUT" ;;
+            *)
+              name=$(jq -r .name packages/sdk/package.json)
+              if ! latest=$(npm view "$name" dist-tags.latest 2>"$RUNNER_TEMP/npm-view.err"); then
+                if grep -q E404 "$RUNNER_TEMP/npm-view.err"; then latest=""; else cat "$RUNNER_TEMP/npm-view.err"; exit 1; fi
+              fi
+              stable="${version%%+*}"
+              if [ -n "$latest" ] && [ "$stable" != "$latest" ] &&
+                [ "$(printf '%s\n%s\n' "$stable" "$latest" | sort -V | head -n1)" = "$stable" ]; then
+                major_minor=$(echo "$stable" | cut -d. -f1,2)
+                echo "version $version is lower than npm's latest $latest: a backport, published under dist-tag v$major_minor"
+                echo "dist-tag=v$major_minor" >> "$GITHUB_OUTPUT"
+              else
+                echo "dist-tag=" >> "$GITHUB_OUTPUT"
+              fi
+              ;;
+          esac
       # Two installs, root first: there are no npm workspaces, and the SDK's typecheck, tests and declaration build
       # resolve some dev types (@types/node, @testing-library/react) from the root's node_modules, which its own
       # lockfile does not carry. Without the root install the typecheck and `npm run build` fail.
